@@ -29,8 +29,8 @@ Installing a newer APK updates the app and keeps your settings.
 |---|---|
 | Wake word | Fully offline "Hey Nebula" detection (sherpa-onnx, ~5 MB model). Nothing leaves the phone until Nebula wakes. |
 | Listener service | Keeps listening in the background, even with the screen off. Shows the required "Listening" notification with a *Turn off* button. |
-| Assistant panel | Glass sheet that springs up over any app (and the lock screen), frosts the app behind it on Android 12+, shows your words live, and answers out loud. Swipe down, tap outside or press Back to close. |
-| Liquid orb | Nebula's animated face: wobbles like a droplet, swells with your voice, swirls faster while thinking, pulses while speaking. |
+| **Vibrance** | Nebula's visual system. When it wakes, a ribbon of flowing colour traces up the screen edges (following your phone's real corner curve) and breathes with your voice; comets race around it while thinking, and it pulses while speaking. A black island grows out of the camera hole, then pours open into a card with your words, the answer, sources and controls. Swipe the island up, tap outside or press Back to close. Glow strength is adjustable on the home screen. |
+| Liquid orb | Nebula's animated face (in the island and on the home screen): wobbles like a droplet, swells with your voice, swirls faster while thinking, pulses while speaking. |
 | Phone commands | Time, date, battery, flashlight on/off, timers, alarms, "open <app>". Instant and offline. |
 | AI brain | Everything else goes to Google Gemini (gemini-2.5-flash) with Google Search, so it can answer about news, weather, sports and more. Remembers the conversation while the panel is open. Source links appear under answers. |
 | Home screen | Wake word toggle, sensitivity slider, speak-replies toggle, permission checklist, "Talk to Nebula" button. |
@@ -66,7 +66,8 @@ Real rooms are noisier than synthetic speech. If it misses you, slide toward **E
 app/src/main/java/com/nebula/assistant/
   wake/   WakeWordEngine (detector), WakeWordService (background listener), Notifications
   brain/  NebulaBrain + HybridBrain, LocalBrain (phone commands), GeminiBrain (AI + web search)
-  ui/     MainActivity + HomeScreen, AssistantActivity + AssistantPanel, VoiceController (speech in/out)
+  ui/     MainActivity + HomeScreen, AssistantActivity, VoiceController (speech in/out)
+  ui/vibrance/  VibranceGlow (edge light), VibranceIsland, VibranceOverlay
   ui/components/  GlassSurface, NebulaOrb, NebulaBackground
   data/   NebulaPrefs (settings), NebulaState (live state)
 app/src/main/assets/kws/  wake word model + keywords.txt
@@ -75,4 +76,4 @@ app/src/main/assets/kws/  wake word model + keywords.txt
 ## Next steps
 
 1. **Default assistant:** register Nebula so the corner-swipe gesture and side key open it.
-2. **The island:** the floating notch overlay, with the panel morphing out of it.
+2. **Island everywhere:** keep a resting Vibrance island on screen for music, timers and charging.

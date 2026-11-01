@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -82,6 +83,8 @@ import com.nebula.assistant.ui.components.NebulaBackground
 import com.nebula.assistant.ui.components.NebulaOrb
 import com.nebula.assistant.ui.components.OrbMood
 import com.nebula.assistant.ui.theme.NebulaColors
+import com.nebula.assistant.ui.vibrance.VibranceGlow
+import com.nebula.assistant.ui.vibrance.rememberVibranceClock
 
 data class HomeUiState(
     val wake: WakeState,
@@ -94,6 +97,7 @@ data class HomeUiState(
     val geminiModel: String,
     val aiStatus: String?,
     val aiTesting: Boolean,
+    val vibrance: Float,
 )
 
 data class HomeActions(
@@ -109,6 +113,8 @@ data class HomeActions(
     val onSaveAi: (key: String, model: String) -> Unit,
     val onTestAi: (key: String, model: String) -> Unit,
     val onGetKey: () -> Unit,
+    val onVibranceChange: (Float) -> Unit,
+    val onVibranceDone: () -> Unit,
 )
 
 @Composable
@@ -142,6 +148,8 @@ fun HomeScreen(state: HomeUiState, actions: HomeActions) {
 
             Spacer(Modifier.height(26.dp))
             WakeCard(state, actions)
+            Spacer(Modifier.height(14.dp))
+            VibranceCard(state, actions)
             Spacer(Modifier.height(14.dp))
             AiCard(state, actions)
             Spacer(Modifier.height(14.dp))
@@ -298,6 +306,77 @@ private fun WakeCard(state: HomeUiState, actions: HomeActions) {
                 }
                 Spacer(Modifier.width(12.dp))
                 NebulaSwitch(state.speakReplies, actions.onSpeakToggle)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VibranceCard(state: HomeUiState, actions: HomeActions) {
+    val clock = rememberVibranceClock(Phase.Listening)
+    GlassSurface(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Live mini preview: a little phone with the glow and island.
+            Box(
+                Modifier
+                    .size(width = 78.dp, height = 148.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFF0B0A14))
+            ) {
+                VibranceGlow(
+                    modifier = Modifier.fillMaxSize(),
+                    phase = Phase.Listening,
+                    level = 0.15f,
+                    visible = true,
+                    cornerRadiusPx = with(LocalDensity.current) { 18.dp.toPx() },
+                    intensity = state.vibrance,
+                    clock = clock,
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 6.dp)
+                        .size(width = 30.dp, height = 9.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black)
+                )
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Vibrance", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "The glowing edge and island that appear when Nebula wakes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NebulaColors.TextDim,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Glow", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text(
+                        when {
+                            state.vibrance < 0.34f -> "Subtle"
+                            state.vibrance > 0.66f -> "Vivid"
+                            else -> "Soft"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NebulaColors.Lilac,
+                    )
+                }
+                Slider(
+                    value = state.vibrance,
+                    onValueChange = actions.onVibranceChange,
+                    onValueChangeFinished = actions.onVibranceDone,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color(0xFFFF4F9A),
+                        inactiveTrackColor = Color.White.copy(alpha = 0.14f),
+                    ),
+                )
+                Text(
+                    "Tap Talk to Nebula to see it full screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NebulaColors.TextFaint,
+                )
             }
         }
     }

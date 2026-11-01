@@ -19,6 +19,11 @@ class NebulaPrefs(context: Context) {
         get() = sp.getBoolean(KEY_SPEAK, true)
         set(v) = sp.edit().putBoolean(KEY_SPEAK, v).apply()
 
+    /** Vibrance glow strength, 0 = subtle, 1 = vivid. */
+    var vibranceIntensity: Float
+        get() = sp.getFloat(KEY_VIBRANCE, 0.75f)
+        set(v) = sp.edit().putFloat(KEY_VIBRANCE, v.coerceIn(0f, 1f)).apply()
+
     /** The user's own Gemini API key. Stored only in this app's private storage (backups disabled). */
     var geminiKey: String
         get() = sp.getString(KEY_GEMINI, "").orEmpty()
@@ -40,6 +45,7 @@ class NebulaPrefs(context: Context) {
         /** Free tier includes Google Search grounding (up to 500 searches a day). */
         const val DEFAULT_MODEL = "gemini-2.5-flash"
 
+        private const val KEY_VIBRANCE = "vibrance_intensity"
         private const val KEY_GEMINI = "gemini_key"
         private const val KEY_MODEL = "gemini_model"
         private const val KEY_WAKE = "wake_enabled"

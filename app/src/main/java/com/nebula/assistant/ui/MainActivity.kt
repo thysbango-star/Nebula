@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private var geminiModel by mutableStateOf(NebulaPrefs.DEFAULT_MODEL)
     private var aiStatus by mutableStateOf<String?>(null)
     private var aiTesting by mutableStateOf(false)
+    private var vibrance by mutableFloatStateOf(0.75f)
 
     /** What to do once the mic permission comes back granted. */
     private var afterMicGrant: (() -> Unit)? = null
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
         speakReplies = prefs.speakReplies
         hasGeminiKey = prefs.geminiKey.isNotBlank()
         geminiModel = prefs.geminiModel
+        vibrance = prefs.vibranceIntensity
 
         setContent {
             NebulaTheme {
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
                         geminiModel = geminiModel,
                         aiStatus = aiStatus,
                         aiTesting = aiTesting,
+                        vibrance = vibrance,
                     ),
                     actions = HomeActions(
                         onWakeToggle = ::setWake,
@@ -96,6 +99,8 @@ class MainActivity : ComponentActivity() {
                         onAllowNotifications = ::requestNotifications,
                         onAllowOverlay = ::requestOverlay,
                         onAllowBattery = ::requestBattery,
+                        onVibranceChange = { vibrance = it },
+                        onVibranceDone = { prefs.vibranceIntensity = vibrance },
                         onSaveAi = ::saveAi,
                         onTestAi = ::testAi,
                         onGetKey = {

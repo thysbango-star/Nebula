@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.nebula.assistant.brain.BrainReply
 import com.nebula.assistant.brain.GeminiBrain
@@ -19,6 +22,7 @@ import com.nebula.assistant.brain.LocalBrain
 import com.nebula.assistant.data.NebulaPrefs
 import com.nebula.assistant.data.NebulaState
 import com.nebula.assistant.ui.theme.NebulaTheme
+import com.nebula.assistant.ui.vibrance.VibranceOverlay
 import com.nebula.assistant.wake.Notifications
 import com.nebula.assistant.wake.WakeWordService
 import androidx.core.app.NotificationManagerCompat
@@ -26,9 +30,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * The see-through assistant panel. Opens over whatever app you're in (and over the
- * lock screen), frosts the app behind it on Android 12+, and hands the mic back to the
- * wake word listener when it closes.
+ * Hosts Vibrance over whatever app you're in (and over the lock screen): the screen edges
+ * glow and the island grows from the camera. Hands the mic back to the wake word listener
+ * when it closes.
  */
 class AssistantActivity : ComponentActivity() {
 
@@ -43,7 +47,7 @@ class AssistantActivity : ComponentActivity() {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
-        frostBehind()
+        immerse()
 
         NebulaState.panelOpen.value = true
         NotificationManagerCompat.from(this).cancel(Notifications.ID_TAP_TO_TALK)
@@ -68,8 +72,9 @@ class AssistantActivity : ComponentActivity() {
 
         setContent {
             NebulaTheme {
-                AssistantPanel(
+                VibranceOverlay(
                     voice = voice,
+                    intensity = prefs.vibranceIntensity,
                     onClosed = ::close,
                     onOpenApp = ::openNebulaHome,
                     onOpenSource = ::openSource,
@@ -135,15 +140,25 @@ class AssistantActivity : ComponentActivity() {
         }
     }
 
-    /** Real frosted glass over the app behind us, where the phone supports it (Android 12+). */
-    private fun frostBehind() {
-        if (Build.VERSION.SDK_INT >= 31) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes = window.attributes.apply { blurBehindRadius = 90 }
-            // Battery saver can turn blur off; dim more so the glass still reads.
-            window.setDimAmount(if (windowManager.isCrossWindowBlurEnabled) 0.22f else 0.55f)
-        } else {
-            window.setDimAmount(0.55f)
+    /**
+     * Full-screen and drawn right up to the camera hole, so the island can grow out of it.
+     * The status bar hides while Vibrance is up (swipe down to peek), and the app behind
+     * stays visible with only a whisper of dimming.
+     */
+    private fun immerse() {
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+        }
+        window.setDimAmount(0.14f)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.statusBars())
         }
     }
 
