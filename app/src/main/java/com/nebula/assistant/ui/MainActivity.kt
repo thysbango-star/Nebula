@@ -167,6 +167,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             aiStatus = GeminiBrain(prefs).test(useKey, model.ifBlank { prefs.geminiModel })
             aiTesting = false
+            geminiModel = prefs.geminiModel
+            hasGeminiKey = prefs.geminiKey.isNotBlank()
         }
     }
 

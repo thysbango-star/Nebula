@@ -32,7 +32,7 @@ Installing a newer APK updates the app and keeps your settings.
 | **Vibrance** | Nebula's visual system. When it wakes, a ribbon of flowing colour traces up the screen edges (following your phone's real corner curve) and breathes with your voice; comets race around it while thinking, and it pulses while speaking. A black island grows out of the camera hole, then pours open into a card with your words, the answer, sources and controls. Swipe the island up, tap outside or press Back to close. Glow strength is adjustable on the home screen. |
 | Liquid orb | Nebula's animated face (in the island and on the home screen): wobbles like a droplet, swells with your voice, swirls faster while thinking, pulses while speaking. |
 | Phone commands | Time, date, battery, flashlight on/off, timers, alarms, "open <app>". Instant and offline. |
-| AI brain | Everything else goes to Google Gemini (gemini-2.5-flash) with Google Search, so it can answer about news, weather, sports and more. Remembers the conversation while the panel is open. Source links appear under answers. |
+| AI brain | Everything else goes to Google Gemini (gemini-3.8-flash), with Google Search when your key allows it, so it can answer about news, weather, sports and more. Remembers the conversation while the panel is open. Source links appear under answers. |
 | Home screen | Wake word toggle, sensitivity slider, speak-replies toggle, permission checklist, "Talk to Nebula" button. |
 
 ## Wake word test results
@@ -52,7 +52,7 @@ Real rooms are noisier than synthetic speech. If it misses you, slide toward **E
 ## Good to know
 
 - **Your Gemini key** is stored only inside Nebula's private app storage (backups are off). It never goes into this repo.
-  The free tier includes up to 500 web-searched answers a day.
+  If Google retires a model, Nebula switches to the replacement Google names automatically.
 - **Android 14+ rule:** a background mic service can only start while Nebula is on screen. If One UI kills the
   listener, just open Nebula and it restarts itself. Allowing *Unrestricted battery* and adding Nebula to
   *Never sleeping apps* makes this rare.

@@ -27,7 +27,12 @@ class NebulaPrefs(context: Context) {
     /** The user's own Gemini API key. Stored only in this app's private storage (backups disabled). */
     var geminiKey: String
         get() = sp.getString(KEY_GEMINI, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).remove(KEY_AUTH).apply()
+        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).remove(KEY_AUTH).remove(KEY_NO_SEARCH).apply()
+
+    /** Model that turned out not to allow web search on this key (answers go without it). */
+    var noSearchModel: String
+        get() = sp.getString(KEY_NO_SEARCH, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_NO_SEARCH, v).apply()
 
     /** Which way of sending the key Google accepted last time (internal). */
     var geminiAuth: String
@@ -35,7 +40,8 @@ class NebulaPrefs(context: Context) {
         set(v) = sp.edit().putString(KEY_AUTH, v).apply()
 
     var geminiModel: String
-        get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
+        get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty()
+            .let { if (it.isBlank() || it in RETIRED_DEFAULTS) DEFAULT_MODEL else it }
         set(v) = sp.edit().putString(KEY_MODEL, v.trim()).apply()
 
     /**
@@ -51,8 +57,10 @@ class NebulaPrefs(context: Context) {
         fun cleanKey(raw: String): String =
             raw.filter { !it.isWhitespace() && it.code in 33..126 && it != '"' && it != '\'' && it != '`' }
 
-        /** Free tier includes Google Search grounding (up to 500 searches a day). */
-        const val DEFAULT_MODEL = "gemini-2.5-flash"
+        /** Google's current recommended model for new keys. */
+        const val DEFAULT_MODEL = "gemini-3.8-flash"
+        private val RETIRED_DEFAULTS = setOf("gemini-2.5-flash")
+        private const val KEY_NO_SEARCH = "gemini_no_search_model"
 
         private const val KEY_VIBRANCE = "vibrance_intensity"
         private const val KEY_GEMINI = "gemini_key"

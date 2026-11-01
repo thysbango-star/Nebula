@@ -59,7 +59,9 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
             val clean = NebulaPrefs.cleanKey(key)
             if (clean.length < 20) return@withContext "That doesn't look like a full key (${clean.length} characters). Paste the whole key."
             val r = call(clean, model.ifBlank { NebulaPrefs.DEFAULT_MODEL }, listOf(turn("user", "Say hello in five words.")))
-            "Connected (${lastAuth?.label ?: "ok"}). Nebula says: ${r.text}"
+            val used = prefs.geminiModel
+            val search = if (prefs.noSearchModel == used) "off (not included with this key)" else "on"
+            "Connected with $used. Web search: $search.\nNebula says: ${r.text}"
         } catch (e: GeminiException) {
             // Show Google's own words too, so problems are easy to diagnose.
             val starts = NebulaPrefs.cleanKey(key).take(3)
@@ -90,7 +92,34 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     private var lastAuth: Auth? = null
 
+    /** A non-key error from Google (bad model, quota, outage…). */
+    private class ApiError(val code: Int, val message0: String, val raw: String) : Exception(message0)
+
     private fun call(key: String, model: String, contents: List<JSONObject>): Result {
+        var current = model
+        repeat(3) {
+            try {
+                return callAnyAuth(key, current, contents)
+            } catch (e: ApiError) {
+                // Retired model: Google names the replacement in the error, so switch to it and retry.
+                if (e.code == 404) {
+                    val suggested = Regex("models/([A-Za-z0-9._-]+)").findAll(e.message0)
+                        .map { it.groupValues[1].trimEnd('.') }
+                        .lastOrNull { it != current }
+                    val next = suggested ?: NebulaPrefs.DEFAULT_MODEL.takeIf { it != current }
+                    if (next != null) {
+                        current = next
+                        prefs.geminiModel = next
+                        return@repeat
+                    }
+                }
+                throw GeminiException(explain(e.code, e.raw), "${e.message0} (HTTP ${e.code})")
+            }
+        }
+        throw GeminiException("That AI model wasn't found. Check the model name in Nebula's settings.")
+    }
+
+    private fun callAnyAuth(key: String, model: String, contents: List<JSONObject>): Result {
         val preferred = runCatching { Auth.valueOf(prefs.geminiAuth) }.getOrNull()
         val order = (listOfNotNull(preferred) + Auth.entries).distinct()
         val failures = mutableListOf<String>()
@@ -111,11 +140,28 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
     }
 
     private fun callNative(auth: Auth, key: String, model: String, contents: List<JSONObject>): Result {
+        val searchAllowed = prefs.noSearchModel != model
+        try {
+            return callNativeOnce(auth, key, model, contents, search = searchAllowed)
+        } catch (e: ApiError) {
+            // Free-tier keys can't use web search on newer models: answer without it and remember.
+            val text = (e.message0 + " " + e.raw.take(800)).lowercase()
+            val searchProblem = searchAllowed && e.code in setOf(400, 403, 429) &&
+                listOf("search", "grounding", "tool").any { it in text }
+            if (!searchProblem) throw e
+            prefs.noSearchModel = model
+            return callNativeOnce(auth, key, model, contents, search = false)
+        }
+    }
+
+    private fun callNativeOnce(
+        auth: Auth, key: String, model: String, contents: List<JSONObject>, search: Boolean,
+    ): Result {
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt()))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt(search)))))
             .put("contents", JSONArray(contents))
-            .put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
             .put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 1024))
+        if (search) body.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
 
         var address = "$BASE/models/$model:generateContent"
         if (auth == Auth.Query) address += "?key=" + URLEncoder.encode(key, "UTF-8")
@@ -129,7 +175,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     /** Last resort: Google's OpenAI-style endpoint (no web search, but answers still work). */
     private fun callOpenAi(key: String, model: String, contents: List<JSONObject>): Result {
-        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt()))
+        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt(search = false)))
         for (c in contents) {
             val role = if (c.optString("role") == "model") "assistant" else "user"
             val text = c.optJSONArray("parts")?.optJSONObject(0)?.optString("text").orEmpty()
@@ -169,8 +215,10 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
                 "api key", "api_key", "credential", "authentication", "access_token", "unauthenticated", "permission",
             ).any { it in (message + " " + status + " " + text.take(600)).lowercase() }
             if (keyProblem) throw AuthRejected("$message (HTTP $code)")
-            throw GeminiException(explain(code, text), "$message (HTTP $code)")
+            throw ApiError(code, message, text)
         } catch (e: AuthRejected) {
+            throw e
+        } catch (e: ApiError) {
             throw e
         } catch (e: GeminiException) {
             throw e
@@ -227,7 +275,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     // ------------------------------------------------------------------ prompt
 
-    private fun systemPrompt(): String {
+    private fun systemPrompt(search: Boolean): String {
         val now = SimpleDateFormat("EEEE d MMMM yyyy, h:mm a", Locale.ENGLISH).format(Date())
         val tz = TimeZone.getDefault().id
         return """
@@ -236,8 +284,10 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
             - Answer in one to three short sentences unless the user asks for more detail.
             - Write plain conversational text: no markdown, lists, emojis, URLs or citations.
             - Say numbers, times and units the way a person would speak them.
-            Use Google Search for anything current or factual you're not certain of: news, weather,
-            sports, prices, opening hours, people's current roles, recent releases.
+            ${if (search) "Use Google Search for anything current or factual you're not certain of: news, weather, " +
+                "sports, prices, opening hours, people's current roles, recent releases."
+            else "You can't browse the web right now. For live things like today's weather, scores or breaking news, " +
+                "give your best general answer and say briefly that you can't check live info."}
             It is now $now, time zone $tz. Use this for "today", "tonight", "this weekend" and for
             local answers; if a question needs the user's city and you can't tell it, ask briefly.
             The phone itself handles timers, alarms, the flashlight, battery level and opening apps.
