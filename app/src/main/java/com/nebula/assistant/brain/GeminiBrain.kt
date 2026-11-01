@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
+import java.net.URLEncoder
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -57,7 +59,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
             val clean = NebulaPrefs.cleanKey(key)
             if (clean.length < 20) return@withContext "That doesn't look like a full key (${clean.length} characters). Paste the whole key."
             val r = call(clean, model.ifBlank { NebulaPrefs.DEFAULT_MODEL }, listOf(turn("user", "Say hello in five words.")))
-            "Connected. Nebula says: ${r.text}"
+            "Connected (${lastAuth?.label ?: "ok"}). Nebula says: ${r.text}"
         } catch (e: GeminiException) {
             // Show Google's own words too, so problems are easy to diagnose.
             val starts = NebulaPrefs.cleanKey(key).take(3)
@@ -71,33 +73,105 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     private class GeminiException(val spoken: String, val detail: String? = null) : Exception(spoken)
 
+    /**
+     * The ways Google accepts a Gemini key. New "AQ." keys are accepted by some of these and
+     * rejected by others (a known Google-side issue), so Nebula tries each in turn and
+     * remembers the one that works.
+     */
+    private enum class Auth(val label: String) {
+        Header("key header"),
+        Query("key in URL"),
+        Bearer("bearer token"),
+        OpenAi("OpenAI-compatible endpoint"),
+    }
+
+    /** Thrown when Google rejected how the key was sent (so another way may still work). */
+    private class AuthRejected(val detail: String) : Exception(detail)
+
+    private var lastAuth: Auth? = null
+
     private fun call(key: String, model: String, contents: List<JSONObject>): Result {
+        val preferred = runCatching { Auth.valueOf(prefs.geminiAuth) }.getOrNull()
+        val order = (listOfNotNull(preferred) + Auth.entries).distinct()
+        val failures = mutableListOf<String>()
+        for (auth in order) {
+            try {
+                val result = if (auth == Auth.OpenAi) callOpenAi(key, model, contents) else callNative(auth, key, model, contents)
+                lastAuth = auth
+                if (prefs.geminiAuth != auth.name) prefs.geminiAuth = auth.name
+                return result
+            } catch (e: AuthRejected) {
+                failures += "${auth.label}: ${e.detail}"
+            }
+        }
+        throw GeminiException(
+            "My Gemini key isn't working. Check it in Nebula's settings.",
+            failures.joinToString("\n"),
+        )
+    }
+
+    private fun callNative(auth: Auth, key: String, model: String, contents: List<JSONObject>): Result {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt()))))
             .put("contents", JSONArray(contents))
             .put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
             .put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 1024))
 
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        var address = "$BASE/models/$model:generateContent"
+        if (auth == Auth.Query) address += "?key=" + URLEncoder.encode(key, "UTF-8")
+        val headers = when (auth) {
+            Auth.Header -> mapOf("x-goog-api-key" to key)
+            Auth.Bearer -> mapOf("Authorization" to "Bearer $key")
+            else -> emptyMap()
+        }
+        return parse(JSONObject(post(address, headers, body)))
+    }
+
+    /** Last resort: Google's OpenAI-style endpoint (no web search, but answers still work). */
+    private fun callOpenAi(key: String, model: String, contents: List<JSONObject>): Result {
+        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt()))
+        for (c in contents) {
+            val role = if (c.optString("role") == "model") "assistant" else "user"
+            val text = c.optJSONArray("parts")?.optJSONObject(0)?.optString("text").orEmpty()
+            messages.put(JSONObject().put("role", role).put("content", text))
+        }
+        val body = JSONObject().put("model", model).put("messages", messages).put("temperature", 0.7)
+        val json = JSONObject(post("$BASE/openai/chat/completions", mapOf("Authorization" to "Bearer $key"), body))
+        val text = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content").orEmpty()
+        return Result(cleanForSpeech(text), emptyList())
+    }
+
+    /** POSTs JSON and returns the response body; throws [AuthRejected] for key problems. */
+    private fun post(address: String, headers: Map<String, String>, body: JSONObject): String {
+        val conn = (URL(address).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 10_000
             readTimeout = 40_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("x-goog-api-key", key)
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
         }
         try {
             conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) {
-                val detail = runCatching { JSONObject(text).getJSONObject("error").optString("message") }
-                    .getOrNull()?.takeIf { it.isNotBlank() } ?: "HTTP $code"
-                throw GeminiException(explain(code, text), "$detail (HTTP $code)")
-            }
-            return parse(JSONObject(text))
+            if (code in 200..299) return text
+
+            val error = runCatching {
+                val any = JSONTokener(text).nextValue()
+                val obj = if (any is JSONArray) any.getJSONObject(0) else any as JSONObject
+                obj.getJSONObject("error")
+            }.getOrNull()
+            val message = error?.optString("message")?.takeIf { it.isNotBlank() } ?: "HTTP $code"
+            val status = error?.optString("status").orEmpty()
+            val keyProblem = code in setOf(400, 401, 403) && listOf(
+                "api key", "api_key", "credential", "authentication", "access_token", "unauthenticated", "permission",
+            ).any { it in (message + " " + status + " " + text.take(600)).lowercase() }
+            if (keyProblem) throw AuthRejected("$message (HTTP $code)")
+            throw GeminiException(explain(code, text), "$message (HTTP $code)")
+        } catch (e: AuthRejected) {
+            throw e
         } catch (e: GeminiException) {
             throw e
         } catch (e: UnknownHostException) {
@@ -107,7 +181,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
         } catch (e: IOException) {
             throw GeminiException("I couldn't connect to my AI brain. Check your connection.")
         } catch (e: Exception) {
-            throw GeminiException("Something went wrong talking to my AI brain.")
+            throw GeminiException("Something went wrong talking to my AI brain.", e.message)
         } finally {
             conn.disconnect()
         }
@@ -186,5 +260,6 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     private companion object {
         const val MAX_TURNS = 12
+        const val BASE = "https://generativelanguage.googleapis.com/v1beta"
     }
 }

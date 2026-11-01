@@ -27,7 +27,12 @@ class NebulaPrefs(context: Context) {
     /** The user's own Gemini API key. Stored only in this app's private storage (backups disabled). */
     var geminiKey: String
         get() = sp.getString(KEY_GEMINI, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).apply()
+        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).remove(KEY_AUTH).apply()
+
+    /** Which way of sending the key Google accepted last time (internal). */
+    var geminiAuth: String
+        get() = sp.getString(KEY_AUTH, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_AUTH, v).apply()
 
     var geminiModel: String
         get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
@@ -51,6 +56,7 @@ class NebulaPrefs(context: Context) {
 
         private const val KEY_VIBRANCE = "vibrance_intensity"
         private const val KEY_GEMINI = "gemini_key"
+        private const val KEY_AUTH = "gemini_auth"
         private const val KEY_MODEL = "gemini_model"
         private const val KEY_WAKE = "wake_enabled"
         private const val KEY_SENS = "wake_sensitivity"
