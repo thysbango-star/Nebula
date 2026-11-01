@@ -1,0 +1,18 @@
+<resources>
+    <style name="Theme.Nebula" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/nebula_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- See-through window: the assistant panel floats over the app you were using. -->
+    <style name="Theme.Nebula.Panel" parent="Theme.Nebula">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.35</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
