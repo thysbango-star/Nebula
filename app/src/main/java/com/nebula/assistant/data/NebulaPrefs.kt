@@ -24,25 +24,19 @@ class NebulaPrefs(context: Context) {
         get() = sp.getFloat(KEY_VIBRANCE, 0.75f)
         set(v) = sp.edit().putFloat(KEY_VIBRANCE, v.coerceIn(0f, 1f)).apply()
 
-    /** The user's own Gemini API key. Stored only in this app's private storage (backups disabled). */
-    var geminiKey: String
-        get() = sp.getString(KEY_GEMINI, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).remove(KEY_AUTH).remove(KEY_NO_SEARCH).apply()
+    /** The user's own Groq API key. Stored only in this app's private storage (backups disabled). */
+    var groqKey: String
+        get() = sp.getString(KEY_GROQ, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_GROQ, cleanKey(v)).remove(KEY_NO_SEARCH).apply()
+
+    var groqModel: String
+        get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
+        set(v) = sp.edit().putString(KEY_MODEL, v.trim()).apply()
 
     /** Model that turned out not to allow web search on this key (answers go without it). */
-    var noSearchModel: String
+    var groqNoSearchModel: String
         get() = sp.getString(KEY_NO_SEARCH, "").orEmpty()
         set(v) = sp.edit().putString(KEY_NO_SEARCH, v).apply()
-
-    /** Which way of sending the key Google accepted last time (internal). */
-    var geminiAuth: String
-        get() = sp.getString(KEY_AUTH, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_AUTH, v).apply()
-
-    var geminiModel: String
-        get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty()
-            .let { if (it.isBlank() || it in RETIRED_DEFAULTS) DEFAULT_MODEL else it }
-        set(v) = sp.edit().putString(KEY_MODEL, v.trim()).apply()
 
     /**
      * Detection threshold handed to the wake word engine. Lower = triggers more easily.
@@ -57,15 +51,13 @@ class NebulaPrefs(context: Context) {
         fun cleanKey(raw: String): String =
             raw.filter { !it.isWhitespace() && it.code in 33..126 && it != '"' && it != '\'' && it != '`' }
 
-        /** Google's current recommended model for new keys. */
-        const val DEFAULT_MODEL = "gemini-3.8-flash"
-        private val RETIRED_DEFAULTS = setOf("gemini-2.5-flash")
-        private const val KEY_NO_SEARCH = "gemini_no_search_model"
+        /** Groq's strongest free model; supports browser search. */
+        const val DEFAULT_MODEL = "openai/gpt-oss-120b"
+        private const val KEY_NO_SEARCH = "groq_no_search_model"
 
         private const val KEY_VIBRANCE = "vibrance_intensity"
-        private const val KEY_GEMINI = "gemini_key"
-        private const val KEY_AUTH = "gemini_auth"
-        private const val KEY_MODEL = "gemini_model"
+        private const val KEY_GROQ = "groq_key"
+        private const val KEY_MODEL = "groq_model"
         private const val KEY_WAKE = "wake_enabled"
         private const val KEY_SENS = "wake_sensitivity"
         private const val KEY_SPEAK = "speak_replies"

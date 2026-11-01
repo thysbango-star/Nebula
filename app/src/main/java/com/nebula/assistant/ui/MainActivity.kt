@@ -19,7 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.nebula.assistant.brain.GeminiBrain
+import com.nebula.assistant.brain.GroqBrain
 import com.nebula.assistant.data.NebulaPrefs
 import com.nebula.assistant.data.NebulaState
 import com.nebula.assistant.data.WakeStatus
@@ -64,8 +64,8 @@ class MainActivity : ComponentActivity() {
         wakeEnabled = prefs.wakeEnabled
         sensitivity = prefs.sensitivity
         speakReplies = prefs.speakReplies
-        hasGeminiKey = prefs.geminiKey.isNotBlank()
-        geminiModel = prefs.geminiModel
+        hasGeminiKey = prefs.groqKey.isNotBlank()
+        geminiModel = prefs.groqModel
         vibrance = prefs.vibranceIntensity
 
         setContent {
@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
                         onTestAi = ::testAi,
                         onGetKey = {
                             runCatching {
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys")))
                             }
                         },
                     ),
@@ -147,28 +147,28 @@ class MainActivity : ComponentActivity() {
             aiStatus = "That doesn't look like a full key (${typed.length} characters). Paste the whole key."
             return
         }
-        if (typed.isNotEmpty()) prefs.geminiKey = typed
-        prefs.geminiModel = model.ifBlank { NebulaPrefs.DEFAULT_MODEL }
-        hasGeminiKey = prefs.geminiKey.isNotBlank()
-        geminiModel = prefs.geminiModel
+        if (typed.isNotEmpty()) prefs.groqKey = typed
+        prefs.groqModel = model.ifBlank { NebulaPrefs.DEFAULT_MODEL }
+        hasGeminiKey = prefs.groqKey.isNotBlank()
+        geminiModel = prefs.groqModel
         aiStatus = if (key.isNotBlank()) "Key saved. Tap Test to check it." else "Saved."
     }
 
     private fun testAi(key: String, model: String) {
         // Only test the typed text if it looks like a real key; otherwise test the saved one.
         val typed = NebulaPrefs.cleanKey(key)
-        val useKey = if (typed.length >= 20) typed else prefs.geminiKey
+        val useKey = if (typed.length >= 20) typed else prefs.groqKey
         if (useKey.isBlank()) {
-            aiStatus = "Paste your Gemini key first."
+            aiStatus = "Paste your Groq key first."
             return
         }
         aiTesting = true
         aiStatus = null
         lifecycleScope.launch {
-            aiStatus = GeminiBrain(prefs).test(useKey, model.ifBlank { prefs.geminiModel })
+            aiStatus = GroqBrain(prefs).test(useKey, model.ifBlank { prefs.groqModel })
             aiTesting = false
-            geminiModel = prefs.geminiModel
-            hasGeminiKey = prefs.geminiKey.isNotBlank()
+            geminiModel = prefs.groqModel
+            hasGeminiKey = prefs.groqKey.isNotBlank()
         }
     }
 

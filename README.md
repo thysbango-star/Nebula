@@ -1,14 +1,14 @@
 # Nebula
 
 A personal voice assistant for Samsung Galaxy phones, with a matte "liquid glass" look:
-**"Hey Nebula" wake word, a glass voice panel, phone commands, and a Gemini AI brain with web search.**
+**"Hey Nebula" wake word, a glass voice panel, phone commands, and a Groq AI brain with web search.**
 
 ## Install on your phone (no computer needed)
 
 1. On your phone, open **https://github.com/thysbango-star/Nebula/releases/latest/download/Nebula.apk**
 2. Open the downloaded file. If asked, allow your browser to **install unknown apps**.
 3. Open Nebula, tap **Allow** on each Setup row, and switch on **Hey Nebula**.
-4. Under **AI brain**, paste your free Gemini key (from aistudio.google.com) → **Save** → **Test**.
+4. Under **AI brain**, paste your free Groq key (from console.groq.com/keys) → **Save** → **Test**.
 
 Every push to `main` builds a new APK on GitHub Actions and publishes it at that same link.
 Installing a newer APK updates the app and keeps your settings.
@@ -32,7 +32,7 @@ Installing a newer APK updates the app and keeps your settings.
 | **Vibrance** | Nebula's visual system. When it wakes, a ribbon of flowing colour traces up the screen edges (following your phone's real corner curve) and breathes with your voice; comets race around it while thinking, and it pulses while speaking. A black island grows out of the camera hole, then pours open into a card with your words, the answer, sources and controls. Swipe the island up, tap outside or press Back to close. Glow strength is adjustable on the home screen. |
 | Liquid orb | Nebula's animated face (in the island and on the home screen): wobbles like a droplet, swells with your voice, swirls faster while thinking, pulses while speaking. |
 | Phone commands | Time, date, battery, flashlight on/off, timers, alarms, "open <app>". Instant and offline. |
-| AI brain | Everything else goes to Google Gemini (gemini-3.8-flash), with Google Search when your key allows it, so it can answer about news, weather, sports and more. Remembers the conversation while the panel is open. Source links appear under answers. |
+| AI brain | Everything else goes to Groq (openai/gpt-oss-120b), with browser search when your key allows it, so it can answer about news, weather, sports and more. Remembers the conversation while the panel is open. Source links appear under answers. |
 | Home screen | Wake word toggle, sensitivity slider, speak-replies toggle, permission checklist, "Talk to Nebula" button. |
 
 ## Wake word test results
@@ -51,8 +51,8 @@ Real rooms are noisier than synthetic speech. If it misses you, slide toward **E
 
 ## Good to know
 
-- **Your Gemini key** is stored only inside Nebula's private app storage (backups are off). It never goes into this repo.
-  If Google retires a model, Nebula switches to the replacement Google names automatically.
+- **Your Groq key** is stored only inside Nebula's private app storage (backups are off). It never goes into this repo.
+  If Groq retires a model, Nebula switches to the best model your key can still use. The free tier allows about 1,000 answers a day.
 - **Android 14+ rule:** a background mic service can only start while Nebula is on screen. If One UI kills the
   listener, just open Nebula and it restarts itself. Allowing *Unrestricted battery* and adding Nebula to
   *Never sleeping apps* makes this rare.
@@ -65,7 +65,7 @@ Real rooms are noisier than synthetic speech. If it misses you, slide toward **E
 ```
 app/src/main/java/com/nebula/assistant/
   wake/   WakeWordEngine (detector), WakeWordService (background listener), Notifications
-  brain/  NebulaBrain + HybridBrain, LocalBrain (phone commands), GeminiBrain (AI + web search)
+  brain/  NebulaBrain + HybridBrain, LocalBrain (phone commands), GroqBrain (AI + web search)
   ui/     MainActivity + HomeScreen, AssistantActivity, VoiceController (speech in/out)
   ui/vibrance/  VibranceGlow (edge light), VibranceIsland, VibranceOverlay
   ui/components/  GlassSurface, NebulaOrb, NebulaBackground

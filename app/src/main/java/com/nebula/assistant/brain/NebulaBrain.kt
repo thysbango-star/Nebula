@@ -26,7 +26,7 @@ interface NebulaBrain {
 /**
  * Phone commands are handled instantly on the device; everything else goes to the AI.
  */
-class HybridBrain(private val local: LocalBrain, private val cloud: GeminiBrain) : NebulaBrain {
+class HybridBrain(private val local: LocalBrain, private val cloud: NebulaBrain) : NebulaBrain {
     override suspend fun respond(input: String): BrainReply =
         local.handle(input) ?: cloud.respond(input)
 }

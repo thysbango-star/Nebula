@@ -402,7 +402,7 @@ private fun AiCard(state: HomeUiState, actions: HomeActions) {
                 )
             }
             Text(
-                "Google Gemini with web search answers everything that isn't a phone command. " +
+                "Groq's fast AI (with web search) answers everything that isn't a phone command. " +
                     "The free key covers personal use.",
                 style = MaterialTheme.typography.bodySmall,
                 color = NebulaColors.TextDim,
@@ -414,7 +414,7 @@ private fun AiCard(state: HomeUiState, actions: HomeActions) {
                 onValueChange = { key = it.trim() },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text(if (state.hasGeminiKey) "Replace Gemini key" else "Paste your Gemini key") },
+                label = { Text(if (state.hasGeminiKey) "Replace Groq key" else "Paste your Groq key") },
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 trailingIcon = {
@@ -472,7 +472,7 @@ private fun AiCard(state: HomeUiState, actions: HomeActions) {
             if (!state.hasGeminiKey) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Get a free key at aistudio.google.com  ›",
+                    "Get a free key at console.groq.com  ›",
                     style = MaterialTheme.typography.bodySmall,
                     color = NebulaColors.Cyan,
                     modifier = Modifier.clickable(onClick = actions.onGetKey),
