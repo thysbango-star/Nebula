@@ -142,7 +142,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveAi(key: String, model: String) {
-        if (key.isNotBlank()) prefs.geminiKey = key
+        val typed = NebulaPrefs.cleanKey(key)
+        if (typed.isNotEmpty() && typed.length < 20) {
+            aiStatus = "That doesn't look like a full key (${typed.length} characters). Paste the whole key."
+            return
+        }
+        if (typed.isNotEmpty()) prefs.geminiKey = typed
         prefs.geminiModel = model.ifBlank { NebulaPrefs.DEFAULT_MODEL }
         hasGeminiKey = prefs.geminiKey.isNotBlank()
         geminiModel = prefs.geminiModel
@@ -150,7 +155,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun testAi(key: String, model: String) {
-        val useKey = key.ifBlank { prefs.geminiKey }
+        // Only test the typed text if it looks like a real key; otherwise test the saved one.
+        val typed = NebulaPrefs.cleanKey(key)
+        val useKey = if (typed.length >= 20) typed else prefs.geminiKey
         if (useKey.isBlank()) {
             aiStatus = "Paste your Gemini key first."
             return

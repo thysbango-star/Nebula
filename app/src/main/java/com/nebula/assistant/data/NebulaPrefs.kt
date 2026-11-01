@@ -27,7 +27,7 @@ class NebulaPrefs(context: Context) {
     /** The user's own Gemini API key. Stored only in this app's private storage (backups disabled). */
     var geminiKey: String
         get() = sp.getString(KEY_GEMINI, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_GEMINI, v.trim()).apply()
+        set(v) = sp.edit().putString(KEY_GEMINI, cleanKey(v)).apply()
 
     var geminiModel: String
         get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
@@ -42,6 +42,10 @@ class NebulaPrefs(context: Context) {
         get() = 0.30f - 0.22f * sensitivity
 
     companion object {
+        /** Removes spaces, line breaks, quotes and invisible characters that sneak in when copying a key. */
+        fun cleanKey(raw: String): String =
+            raw.filter { !it.isWhitespace() && it.code in 33..126 && it != '"' && it != '\'' && it != '`' }
+
         /** Free tier includes Google Search grounding (up to 500 searches a day). */
         const val DEFAULT_MODEL = "gemini-2.5-flash"
 

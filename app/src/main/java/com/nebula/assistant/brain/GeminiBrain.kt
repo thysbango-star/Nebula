@@ -27,7 +27,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
     private val history = mutableListOf<JSONObject>()
 
     override suspend fun respond(input: String): BrainReply = withContext(Dispatchers.IO) {
-        val key = prefs.geminiKey.trim()
+        val key = NebulaPrefs.cleanKey(prefs.geminiKey)
         if (key.isEmpty()) {
             return@withContext BrainReply(
                 "I need my AI key before I can answer that. Open Nebula and paste your Gemini key under AI brain."
@@ -54,10 +54,14 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
     /** One-off check used by the "Test" button in settings. */
     suspend fun test(key: String, model: String): String = withContext(Dispatchers.IO) {
         try {
-            val r = call(key.trim(), model.ifBlank { NebulaPrefs.DEFAULT_MODEL }, listOf(turn("user", "Say hello in five words.")))
+            val clean = NebulaPrefs.cleanKey(key)
+            if (clean.length < 20) return@withContext "That doesn't look like a full key (${clean.length} characters). Paste the whole key."
+            val r = call(clean, model.ifBlank { NebulaPrefs.DEFAULT_MODEL }, listOf(turn("user", "Say hello in five words.")))
             "Connected. Nebula says: ${r.text}"
         } catch (e: GeminiException) {
-            e.spoken
+            // Show Google's own words too, so problems are easy to diagnose.
+            val starts = NebulaPrefs.cleanKey(key).take(3)
+            e.spoken + (e.detail?.let { "\n\nGoogle says: $it" } ?: "") + "\n(Key starts with “$starts…”, model $model)"
         }
     }
 
@@ -65,7 +69,7 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
 
     private data class Result(val text: String, val sources: List<Source>)
 
-    private class GeminiException(val spoken: String) : Exception(spoken)
+    private class GeminiException(val spoken: String, val detail: String? = null) : Exception(spoken)
 
     private fun call(key: String, model: String, contents: List<JSONObject>): Result {
         val body = JSONObject()
@@ -88,7 +92,11 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) throw GeminiException(explain(code, text))
+            if (code !in 200..299) {
+                val detail = runCatching { JSONObject(text).getJSONObject("error").optString("message") }
+                    .getOrNull()?.takeIf { it.isNotBlank() } ?: "HTTP $code"
+                throw GeminiException(explain(code, text), "$detail (HTTP $code)")
+            }
             return parse(JSONObject(text))
         } catch (e: GeminiException) {
             throw e
@@ -133,7 +141,8 @@ class GeminiBrain(private val prefs: NebulaPrefs) : NebulaBrain {
     private fun explain(code: Int, body: String): String {
         val message = runCatching { JSONObject(body).getJSONObject("error").optString("message") }.getOrDefault("")
         return when {
-            code == 400 && "API key" in message -> "My Gemini key isn't working. Check it in Nebula's settings."
+            (code == 400 || code == 401) && ("API key" in message || "credential" in message.lowercase() ||
+                "authentication" in message.lowercase()) -> "My Gemini key isn't working. Check it in Nebula's settings."
             code == 403 -> "My Gemini key doesn't have access. Check it in Nebula's settings."
             code == 404 -> "That AI model wasn't found. Check the model name in Nebula's settings."
             code == 429 -> "I've hit the free limit for now. Try again in a little while."
