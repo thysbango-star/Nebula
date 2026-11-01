@@ -13,6 +13,20 @@ A personal voice assistant for Samsung Galaxy phones, with a matte "liquid glass
 Every push to `main` builds a new APK on GitHub Actions and publishes it at that same link.
 Installing a newer APK updates the app and keeps your settings.
 
+## Nebula for Windows
+
+Download on your PC: **https://github.com/thysbango-star/Nebula/releases/download/desktop/Nebula-Setup.exe**
+(or `Nebula-Portable.exe` from the same release to run without installing). If Windows says
+"Windows protected your PC", click **More info → Run anyway** (the app isn't code-signed).
+
+- **Vibrance island** hangs from the top of the screen: time and a live orb at rest; hover for the date strip and an ask box;
+  it pours open with your question and Nebula's answer. Timers count down in it.
+- **Vibrance glow** wraps the whole screen with flowing edge light and a rising aurora that breathes with your voice
+  (click-through, so you can keep working).
+- **Wake it** with `Alt + Space` (changeable), the Copilot key, clicking the island, or by saying **"Hey Nebula"** (offline).
+- **Brain:** Groq (gpt-oss-120b + browser search), with Groq Whisper for speech-to-text and Windows voices for replies.
+- Lives in the tray; your Groq key is encrypted with Windows' own protection. Source: `desktop/`.
+
 ## Build it yourself (optional, needs a computer)
 
 1. Install **Android Studio** (latest stable).

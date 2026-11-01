@@ -1,0 +1,44 @@
+{
+  "name": "nebula-desktop",
+  "productName": "Nebula",
+  "version": "0.3.0",
+  "description": "Nebula for Windows: Vibrance island, screen glow and a voice assistant.",
+  "author": "thysbango-star",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/brain.js && node --check src/voice.js && node --check src/preload.js",
+    "dist": "electron-builder --win nsis portable --x64 --publish never"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.nebula.desktop",
+    "productName": "Nebula",
+    "copyright": "Nebula",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "package.json"],
+    "extraResources": [{ "from": "models/kws", "to": "kws" }],
+    "asarUnpack": ["node_modules/sherpa-onnx*/**"],
+    "win": {
+      "icon": "build/icon.png",
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Nebula-Setup.${ext}",
+      "shortcutName": "Nebula"
+    },
+    "portable": {
+      "artifactName": "Nebula-Portable.${ext}"
+    }
+  }
+}

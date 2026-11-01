@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nebula</title>
+<style>
+  :root {
+    --void: #07060F; --ink: #110D24; --text: #F4F1FF; --dim: rgba(244,241,255,.66); --faint: rgba(244,241,255,.42);
+    --violet: #7B5CFF; --lilac: #C28BFF; --rose: #FF4F9A; --sky: #3FC8FF; --mint: #5CF2B0; --amber: #FFC266;
+    --spring: cubic-bezier(.32, 1.42, .56, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--void); color: var(--text);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body::before { content: ''; position: fixed; inset: -20%; z-index: -1;
+    background:
+      radial-gradient(40% 35% at 20% 15%, rgba(123,92,255,.42), transparent 70%),
+      radial-gradient(35% 30% at 90% 50%, rgba(255,79,154,.22), transparent 70%),
+      radial-gradient(45% 35% at 15% 95%, rgba(63,200,255,.16), transparent 70%);
+    animation: drift 30s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: translate(3%, -2%) rotate(4deg); } }
+  main { max-width: 520px; margin: 0 auto; padding: 28px 20px 40px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  header h1 { font: 600 30px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: -.4px; margin: 0; }
+  header .ver { margin-left: auto; font-size: 12px; color: var(--faint); }
+
+  .card { position: relative; border-radius: 24px; padding: 20px; margin-bottom: 14px; overflow: hidden;
+    background: linear-gradient(rgba(255,255,255,.09), rgba(255,255,255,.03) 40%, rgba(255,255,255,.02)), rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+  .card h2 { margin: 0; font: 600 17px "Segoe UI Variable Display", "Segoe UI", sans-serif; display: flex; align-items: center; gap: 8px; }
+  .card h2 .badge { margin-left: auto; font: 600 12px "Segoe UI", sans-serif; }
+  .sub { color: var(--dim); font-size: 13px; line-height: 1.45; margin: 4px 0 0; }
+  .faint { color: var(--faint); font-size: 12.5px; line-height: 1.45; }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  .row .grow { flex: 1; }
+  .row .label { font-size: 15px; }
+  hr { border: 0; height: 1px; background: rgba(255,255,255,.08); margin: 16px 0 0; }
+
+  input[type=password], input[type=text], select {
+    width: 100%; height: 46px; border-radius: 14px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.04);
+    color: var(--text); padding: 0 14px; font: 14px "Segoe UI", sans-serif; outline: none; transition: border-color .2s; }
+  input:focus, select:focus { border-color: var(--violet); }
+  select option { background: var(--ink); }
+  .field { position: relative; margin-top: 14px; }
+  .field .eye { position: absolute; right: 10px; top: 11px; background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 15px; }
+
+  button.pill { border: 0; border-radius: 20px; padding: 9px 18px; font: 600 13px "Segoe UI", sans-serif; cursor: pointer;
+    color: #fff; background: var(--violet); transition: transform .2s var(--spring), filter .2s; }
+  button.pill:hover { filter: brightness(1.12); }
+  button.pill:active { transform: scale(.95); }
+  button.pill.ghost { background: rgba(255,255,255,.10); }
+  button.pill:disabled { opacity: .45; cursor: default; }
+  .status { white-space: pre-wrap; font-size: 13px; color: var(--dim); margin-top: 12px; line-height: 1.45; }
+  a { color: var(--sky); text-decoration: none; cursor: pointer; }
+
+  /* Switch */
+  .switch { position: relative; width: 50px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 15px; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.22);
+    transition: background .25s; cursor: pointer; }
+  .switch span::after { content: ''; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; border-radius: 11px; background: rgba(255,255,255,.8);
+    transition: transform .35s var(--spring), background .2s; }
+  .switch input:checked + span { background: var(--violet); border-color: transparent; }
+  .switch input:checked + span::after { transform: translateX(20px); background: #fff; }
+
+  /* Slider */
+  input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px; background: rgba(255,255,255,.14); outline: none; margin: 14px 0 6px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 10px; background: #fff; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .val { font: 600 12px "Segoe UI", sans-serif; color: var(--lilac); }
+
+  .preview { width: 130px; height: 82px; border-radius: 12px; flex: none; position: relative; overflow: hidden; background: #0B0A14; }
+  .preview::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px;
+    background: conic-gradient(from var(--spin, 0deg), #3FC8FF, #5B6CFF, #B45CFF, #FF4F9A, #FF8A3D, #9BE15D, #3FC8FF);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+    filter: blur(.4px); opacity: var(--glow, .8); animation: spin 5s linear infinite; }
+  .preview::after { content: ''; position: absolute; left: 0; right: 0; bottom: -10px; height: 34px;
+    background: linear-gradient(90deg, #B45CFF, #3FC8FF, #9BE15D, #FFC266, #FF4F9A); filter: blur(12px); opacity: calc(var(--glow, .8) * .8);
+    border-radius: 50%; }
+  .preview .notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 38px; height: 8px; background: #000; border-radius: 0 0 6px 6px; z-index: 2; }
+  @property --spin { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+  @keyframes spin { to { --spin: 360deg; } }
+  .hotkey { font: 600 14px "Segoe UI", sans-serif; letter-spacing: .3px; text-align: center; cursor: pointer; }
+  .hotkey.recording { border-color: var(--rose); color: var(--rose); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg width="38" height="38" viewBox="0 0 108 108"><defs><radialGradient id="o" cx="44%" cy="42%" r="60%"><stop offset="0" stop-color="#FFE9F6"/><stop offset=".35" stop-color="#C28BFF"/><stop offset=".75" stop-color="#5B4BFF"/><stop offset="1" stop-color="#1A1450"/></radialGradient></defs><circle cx="54" cy="54" r="26" fill="url(#o)"/><ellipse cx="54" cy="54" rx="40" ry="11" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="2.4"/></svg>
+    <h1>Nebula</h1>
+    <div class="ver" id="ver"></div>
+  </header>
+
+  <section class="card">
+    <h2>✦ AI brain <span class="badge" id="keyBadge"></span></h2>
+    <p class="sub">Groq's fast AI (with web search) answers your questions, and its Whisper model turns your voice into text. The free key covers personal use.</p>
+    <div class="field">
+      <input type="password" id="key" placeholder="Paste your Groq key (gsk_…)" spellcheck="false" autocomplete="off">
+      <button class="eye" id="eye" title="Show">👁</button>
+    </div>
+    <div class="row">
+      <button class="pill" id="saveKey">Save</button>
+      <button class="pill ghost" id="testKey">Test</button>
+      <div class="grow"></div>
+      <a id="getKey">Get a free key ›</a>
+    </div>
+    <div class="status" id="keyStatus"></div>
+  </section>
+
+  <section class="card">
+    <h2>Hey Nebula <span class="badge" id="wakeBadge"></span></h2>
+    <div class="row">
+      <div class="grow"><div class="label">Listen for the wake word</div><div class="faint">Runs fully offline on this PC. Nothing is sent anywhere until Nebula wakes.</div></div>
+      <label class="switch"><input type="checkbox" id="wakeEnabled"><span></span></label>
+    </div>
+    <hr>
+    <div class="row" style="margin-bottom:-8px"><div class="grow label">Sensitivity</div><div class="val" id="sensVal"></div></div>
+    <input type="range" id="sensitivity" min="0" max="1" step="0.01">
+    <div class="faint">Waking by accident? Slide toward Relaxed. Missing you? Slide toward Eager.</div>
+  </section>
+
+  <section class="card">
+    <h2>Vibrance</h2>
+    <div class="row">
+      <div class="preview" id="preview"><div class="notch"></div></div>
+      <div class="grow">
+        <p class="sub" style="margin:0">The glow that wraps your screen and the island at the top when Nebula wakes.</p>
+        <div class="row" style="margin-top:6px;margin-bottom:-8px"><div class="grow label">Glow</div><div class="val" id="glowVal"></div></div>
+        <input type="range" id="intensity" min="0" max="1" step="0.01">
+      </div>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Always show the island</div><div class="faint">Off: the island only appears when Nebula is awake.</div></div>
+      <label class="switch"><input type="checkbox" id="islandAlways"><span></span></label>
+    </div>
+    <div class="row"><button class="pill ghost" id="preview2">Preview Vibrance</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Voice &amp; shortcut</h2>
+    <div class="row">
+      <div class="grow"><div class="label">Speak replies</div><div class="faint">Nebula answers out loud as well as in the island.</div></div>
+      <label class="switch"><input type="checkbox" id="speak"><span></span></label>
+    </div>
+    <div class="field"><select id="voice"></select></div>
+    <hr>
+    <div class="row" style="margin-top:14px">
+      <div class="grow"><div class="label">Shortcut</div><div class="faint" id="hotkeyNote">Click, then press the keys you want. The Copilot key works too.</div></div>
+    </div>
+    <div class="field"><input type="text" id="hotkey" class="hotkey" readonly></div>
+    <hr>
+    <div class="row">
+      <div class="grow"><div class="label">Start with Windows</div><div class="faint">Nebula waits quietly in the tray.</div></div>
+      <label class="switch"><input type="checkbox" id="startWithWindows"><span></span></label>
+    </div>
+  </section>
+  <p class="faint" style="text-align:center">Nebula lives in the tray (bottom-right). Right-click its icon for quick options.</p>
+</main>
+
+<script>
+const api = window.nebula || { invoke: async () => ({}), send() {}, on() {} };
+const $ = (id) => document.getElementById(id);
+let data = {};
+
+function label(v, names) { return v < 0.34 ? names[0] : v > 0.66 ? names[2] : names[1]; }
+
+function fill(d) {
+  data = d;
+  $('ver').textContent = d.version ? `v${d.version}` : '';
+  $('keyBadge').textContent = d.hasKey ? 'Connected' : 'Not set up';
+  $('keyBadge').style.color = d.hasKey ? 'var(--mint)' : 'var(--amber)';
+  $('key').placeholder = d.hasKey ? 'Replace your Groq key (gsk_…)' : 'Paste your Groq key (gsk_…)';
+  $('wakeEnabled').checked = !!d.wakeEnabled;
+  const ws = d.wakeStatus || 'off';
+  $('wakeBadge').textContent = ws === 'listening' ? 'Listening' : ws === 'off' ? 'Off' : ws === 'starting' ? 'Starting' : 'Problem';
+  $('wakeBadge').style.color = ws === 'listening' ? 'var(--mint)' : ws === 'off' ? 'var(--faint)' : 'var(--amber)';
+  $('wakeBadge').title = ws;
+  $('sensitivity').value = d.sensitivity; $('sensVal').textContent = label(+d.sensitivity, ['Relaxed', 'Balanced', 'Eager']);
+  $('intensity').value = d.intensity; $('glowVal').textContent = label(+d.intensity, ['Subtle', 'Soft', 'Vivid']);
+  $('preview').style.setProperty('--glow', 0.3 + 0.7 * d.intensity);
+  $('islandAlways').checked = d.islandMode === 'always';
+  $('speak').checked = !!d.speak;
+  $('startWithWindows').checked = !!d.startWithWindows;
+  $('hotkey').value = (d.activeHotkey || d.hotkey || '').replace(/\+/g, ' + ');
+  $('hotkeyNote').textContent = d.activeHotkey && d.activeHotkey !== d.hotkey
+    ? `“${d.hotkey}” is taken by another app, so Nebula is using ${d.activeHotkey}.`
+    : 'Click, then press the keys you want. The Copilot key works too.';
+  fillVoices();
+}
+
+function fillVoices() {
+  const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
+  const sel = $('voice');
+  sel.innerHTML = '<option value="">Automatic (best English voice)</option>' +
+    voices.map((v) => `<option value="${v.name.replace(/"/g, '&quot;')}">${v.name}</option>`).join('');
+  sel.value = data.voice || '';
+}
+speechSynthesis.onvoiceschanged = fillVoices;
+
+const set = (patch) => api.invoke('settings:set', patch).then(fill);
+
+$('eye').onclick = () => { const k = $('key'); k.type = k.type === 'password' ? 'text' : 'password'; };
+$('saveKey').onclick = async () => {
+  const v = $('key').value.trim();
+  if (!v) { $('keyStatus').textContent = 'Paste your key first.'; return; }
+  await set({ groqKey: v });
+  $('key').value = '';
+  $('keyStatus').textContent = 'Key saved. Tap Test to check it.';
+};
+$('testKey').onclick = async () => {
+  $('testKey').disabled = true; $('testKey').textContent = 'Testing…'; $('keyStatus').textContent = '';
+  const typed = $('key').value.trim();
+  $('keyStatus').textContent = await api.invoke('settings:test', typed.length >= 20 ? typed : '');
+  $('testKey').disabled = false; $('testKey').textContent = 'Test';
+};
+$('getKey').onclick = () => api.send('open:url', 'https://console.groq.com/keys');
+$('wakeEnabled').onchange = (e) => set({ wakeEnabled: e.target.checked });
+$('sensitivity').oninput = (e) => { $('sensVal').textContent = label(+e.target.value, ['Relaxed', 'Balanced', 'Eager']); };
+$('sensitivity').onchange = (e) => set({ sensitivity: +e.target.value });
+$('intensity').oninput = (e) => { $('glowVal').textContent = label(+e.target.value, ['Subtle', 'Soft', 'Vivid']); $('preview').style.setProperty('--glow', 0.3 + 0.7 * e.target.value); };
+$('intensity').onchange = (e) => set({ intensity: +e.target.value });
+$('islandAlways').onchange = (e) => set({ islandMode: e.target.checked ? 'always' : 'active' });
+$('speak').onchange = (e) => set({ speak: e.target.checked });
+$('voice').onchange = (e) => set({ voice: e.target.value });
+$('startWithWindows').onchange = (e) => set({ startWithWindows: e.target.checked });
+$('preview2').onclick = () => api.send('settings:preview');
+
+// Shortcut recorder
+const hk = $('hotkey');
+hk.onclick = () => { hk.classList.add('recording'); hk.value = 'Press keys…'; };
+hk.onblur = () => { hk.classList.remove('recording'); fill(data); };
+hk.onkeydown = (e) => {
+  if (!hk.classList.contains('recording')) return;
+  e.preventDefault();
+  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+  const k = e.key;
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(k)) { hk.value = mods.join(' + ') + ' + …'; return; }
+  if (!mods.length) { hk.value = 'Add Ctrl, Alt or Shift…'; return; }
+  const key = k === ' ' ? 'Space' : k.length === 1 ? k.toUpperCase() : k;
+  hk.classList.remove('recording');
+  set({ hotkey: [...mods, key].join('+') });
+  hk.blur();
+};
+
+api.on('settings:data', fill);
+api.invoke('settings:get').then(fill);
+</script>
+</body>
+</html>

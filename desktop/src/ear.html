@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src blob:">
+<title>Nebula mic</title>
+</head>
+<body>
+<script>
+// Hidden window: captures the microphone, downsamples to 16 kHz mono and streams
+// 50 ms chunks to the main process (wake word + question recording).
+const OUT_RATE = 16000;
+const CHUNK = 800; // 50 ms at 16 kHz
+
+const workletCode = `
+class Downsampler extends AudioWorkletProcessor {
+  constructor(opts) {
+    super();
+    this.ratio = sampleRate / ${OUT_RATE};
+    this.pos = 0;
+    this.buf = new Float32Array(${CHUNK});
+    this.n = 0;
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    // Simple averaging downsampler (good enough for speech).
+    for (let i = 0; i < ch.length; i++) {
+      this.acc = (this.acc || 0) + ch[i];
+      this.cnt = (this.cnt || 0) + 1;
+      this.pos += 1;
+      if (this.pos >= this.ratio) {
+        this.pos -= this.ratio;
+        this.buf[this.n++] = this.acc / this.cnt;
+        this.acc = 0; this.cnt = 0;
+        if (this.n === this.buf.length) {
+          this.port.postMessage(this.buf.slice(0));
+          this.n = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('downsampler', Downsampler);
+`;
+
+let ctx = null; let stream = null; let node = null; let src = null;
+
+async function start() {
+  if (ctx) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    ctx = new AudioContext();
+    const url = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }));
+    await ctx.audioWorklet.addModule(url);
+    src = ctx.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(ctx, 'downsampler');
+    node.port.onmessage = (e) => window.nebula.send('ear:audio', e.data);
+    src.connect(node);
+    // Keep the graph running without playing anything.
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    node.connect(mute).connect(ctx.destination);
+  } catch (e) {
+    window.nebula.send('ear:error', String(e && e.message || e));
+    stop();
+  }
+}
+
+function stop() {
+  try { if (src) src.disconnect(); } catch {}
+  try { if (node) node.disconnect(); } catch {}
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (ctx) ctx.close();
+  ctx = null; stream = null; node = null; src = null;
+}
+
+window.nebula.on('ear:start', start);
+window.nebula.on('ear:stop', stop);
+
+// If Windows changes the default microphone, reconnect.
+navigator.mediaDevices.addEventListener('devicechange', () => { if (ctx) { stop(); start(); } });
+</script>
+</body>
+</html>

@@ -1,0 +1,376 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nebula island</title>
+<style>
+  @property --spin { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+  :root {
+    --text: #F4F1FF; --dim: rgba(244,241,255,.66); --faint: rgba(244,241,255,.40);
+    --violet: #9B6CFF; --rose: #FF4F9A; --sky: #3FC8FF; --mint: #5CF2B0; --amber: #FFC266;
+    --spring: cubic-bezier(.32, 1.42, .56, 1);
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--text);
+    -webkit-font-smoothing: antialiased; user-select: none; }
+
+  /* The island hangs from the top edge: flat top, rounded bottom, like a notch. */
+  #island {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 210px; height: 34px; border-radius: 0 0 18px 18px;
+    background: #000; overflow: hidden;
+    transition: width .62s var(--spring), height .62s var(--spring), border-radius .5s var(--ease), opacity .3s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  #island.hidden { width: 120px; height: 0; opacity: 0; }
+  #island.hover { width: 640px; height: 150px; border-radius: 0 0 30px 30px; }
+  #island.session { width: 600px; border-radius: 0 0 32px 32px; }
+
+  /* Flowing Vibrance rim while Nebula is awake. */
+  #rim { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+    transition: opacity .5s ease; padding: 1.4px;
+    background: conic-gradient(from var(--spin), #3FC8FF, #5B6CFF, #B45CFF, #FF4F9A, #FF8A3D, #9BE15D, #3FC8FF);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    animation: spin 6s linear infinite; }
+  #island.awake #rim { opacity: .9; }
+  #island.thinking #rim { animation-duration: 1.6s; }
+  @keyframes spin { to { --spin: 360deg; } }
+  #glowShadow { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 600px; height: 40px;
+    pointer-events: none; opacity: 0; transition: opacity .6s ease, width .62s var(--spring); filter: blur(28px);
+    background: conic-gradient(from var(--spin), #3FC8FF, #B45CFF, #FF4F9A, #FF8A3D, #3FC8FF); animation: spin 6s linear infinite; }
+  #glowShadow.on { opacity: .55; }
+
+  .view { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  .view.on { opacity: 1; pointer-events: auto; transition: opacity .35s ease .12s; }
+
+  /* --- resting pill --- */
+  #rest { display: flex; align-items: center; padding: 0 12px 0 10px; height: 34px; }
+  #rest .clock { margin-left: auto; font: 600 13px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: .2px; }
+  .timerchip { display: none; align-items: center; gap: 5px; margin-left: 10px; font: 600 12px/1 "Segoe UI", sans-serif; color: var(--amber); }
+  .timerchip.on { display: flex; }
+  .timerchip .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--amber); animation: blink 1s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+
+  /* --- hover dashboard --- */
+  #hover { display: grid; grid-template-columns: 150px 1fr; gap: 18px; padding: 16px 22px 18px; }
+  .bigtime { font: 600 34px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: -.5px; }
+  .date { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  .week { display: flex; gap: 6px; margin-top: 14px; }
+  .day { width: 18px; text-align: center; font-size: 10px; color: var(--faint); }
+  .day b { display: block; font-size: 12px; color: var(--dim); font-weight: 600; margin-top: 3px; }
+  .day.today b { color: #fff; background: var(--violet); border-radius: 9px; height: 18px; line-height: 18px; }
+  .ask { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 6px 0 16px; border-radius: 23px;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.10); }
+  .ask input { flex: 1; background: transparent; border: 0; outline: 0; color: var(--text); font: 15px "Segoe UI", sans-serif; }
+  .ask input::placeholder { color: var(--faint); }
+  .mic { width: 36px; height: 36px; border-radius: 18px; border: 0; cursor: pointer; display: grid; place-items: center;
+    background: linear-gradient(135deg, #B45CFF, #FF4F9A); color: #fff; transition: transform .2s var(--spring); }
+  .mic:hover { transform: scale(1.08); }
+  .mic:active { transform: scale(.94); }
+  .hint { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 12px; color: var(--dim); background: rgba(255,255,255,.07); border-radius: 12px; padding: 5px 10px; }
+  .chip.link { cursor: pointer; color: var(--sky); }
+  .chip kbd { font: 600 11px "Segoe UI", sans-serif; color: #fff; }
+
+  /* --- session card --- */
+  #session { padding: 12px 22px 18px; }
+  .head { display: flex; align-items: center; gap: 10px; height: 36px; }
+  .status { font: 600 12px/1 "Segoe UI", sans-serif; letter-spacing: 1.4px; color: var(--faint); text-transform: uppercase; }
+  .bars { display: flex; gap: 3px; align-items: center; height: 16px; margin-left: auto; }
+  .bars i { width: 3px; border-radius: 2px; height: 4px; background: linear-gradient(#3FC8FF, #B45CFF); transition: height .08s linear; }
+  .x { width: 28px; height: 28px; border-radius: 14px; border: 0; background: rgba(255,255,255,.10); color: var(--dim);
+    cursor: pointer; display: grid; place-items: center; margin-left: 10px; }
+  .x:hover { background: rgba(255,255,255,.18); color: #fff; }
+  .transcript { font: 500 19px/1.35 "Segoe UI Variable Display", "Segoe UI", sans-serif; margin-top: 8px; min-height: 26px; }
+  .transcript.placeholder { color: var(--faint); }
+  .reply { font-size: 15px; line-height: 1.5; color: rgba(244,241,255,.84); margin-top: 10px; max-height: 260px; overflow-y: auto;
+    opacity: 0; transform: translateY(6px); transition: opacity .35s ease, transform .45s var(--spring); }
+  .reply.on { opacity: 1; transform: none; }
+  .reply::-webkit-scrollbar { width: 6px; } .reply::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 3px; }
+  .sources { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .src { display: inline-flex; align-items: center; gap: 6px; max-width: 190px; font-size: 12px; color: var(--dim);
+    background: rgba(255,255,255,.08); border-radius: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .src:hover { background: rgba(255,255,255,.14); color: #fff; }
+  .src::before { content: ''; width: 7px; height: 7px; border-radius: 4px; background: var(--sky); flex: none; }
+  .foot { display: flex; align-items: center; justify-content: center; margin-top: 14px; position: relative; }
+  .foot .gear { position: absolute; right: 0; background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; }
+  .foot .gear:hover { color: #fff; }
+  canvas.orb { flex: none; }
+</style>
+</head>
+<body>
+<div id="glowShadow"></div>
+<div id="island" class="hidden">
+  <div id="rim"></div>
+
+  <div class="view" id="rest">
+    <canvas class="orb" id="orbSmall" width="44" height="44" style="width:22px;height:22px"></canvas>
+    <div class="timerchip" id="timerRest"><span class="dot"></span><span></span></div>
+    <div class="clock" id="clockSmall">--:--</div>
+  </div>
+
+  <div class="view" id="hover">
+    <div>
+      <div class="bigtime" id="clockBig">--:--</div>
+      <div class="date" id="dateLine"></div>
+      <div class="week" id="week"></div>
+    </div>
+    <div>
+      <div class="ask">
+        <input id="askInput" placeholder="Ask Nebula anything…" spellcheck="false">
+        <button class="mic" id="micBtn" title="Talk">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+        </button>
+      </div>
+      <div class="hint" id="hints"></div>
+    </div>
+  </div>
+
+  <div class="view" id="session">
+    <div class="head">
+      <canvas class="orb" id="orbBig" width="68" height="68" style="width:34px;height:34px"></canvas>
+      <div class="status" id="status">Listening</div>
+      <div class="bars" id="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <button class="x" id="closeBtn" title="Close">✕</button>
+    </div>
+    <div class="transcript placeholder" id="transcript">Listening…</div>
+    <div class="reply" id="reply"></div>
+    <div class="sources" id="sources"></div>
+    <div class="foot">
+      <button class="mic" id="micBtn2" title="Ask again" style="width:44px;height:44px;border-radius:22px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+      </button>
+      <button class="gear" id="gearBtn" title="Settings">⚙</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const api = window.nebula || { send() {}, on() {}, invoke: async () => ({}) };
+const $ = (id) => document.getElementById(id);
+const island = $('island');
+
+let state = { active: false, phase: 'idle', transcript: '', reply: '', sources: [], timerEndsAt: 0, hasKey: true, hotkey: 'Alt+Space', wakeEnabled: true };
+let hovering = false; let interactive = false; let level = 0;
+
+// ---------------------------------------------------------------- layout
+function mode() {
+  if (state.active) return 'session';
+  if (hovering || document.activeElement === $('askInput') && $('askInput').value) return 'hover';
+  return 'rest';
+}
+
+function render() {
+  const m = mode();
+  island.classList.toggle('hidden', false);
+  island.classList.toggle('hover', m === 'hover');
+  island.classList.toggle('session', m === 'session');
+  island.classList.toggle('awake', state.active);
+  island.classList.toggle('thinking', state.phase === 'thinking');
+  $('glowShadow').classList.toggle('on', state.active);
+  for (const v of ['rest', 'hover', 'session']) $(v).classList.toggle('on', v === m);
+
+  if (m === 'session') {
+    const labels = { listening: 'Listening', thinking: 'Thinking', speaking: 'Nebula', done: 'Nebula', error: 'Hmm' };
+    $('status').textContent = labels[state.phase] || 'Nebula';
+    const t = state.transcript || (state.phase === 'listening' ? 'Listening…' : '');
+    $('transcript').textContent = t;
+    $('transcript').classList.toggle('placeholder', !state.transcript);
+    $('reply').textContent = state.reply || '';
+    $('reply').classList.toggle('on', !!state.reply);
+    $('bars').style.visibility = state.phase === 'listening' ? 'visible' : 'hidden';
+    $('sources').innerHTML = '';
+    for (const s of state.sources || []) {
+      const el = document.createElement('div');
+      el.className = 'src'; el.textContent = s.title; el.title = s.url;
+      el.onclick = () => api.send('open:url', s.url);
+      $('sources').appendChild(el);
+    }
+    // Grow to fit the content (springy, like the phone island).
+    requestAnimationFrame(() => {
+      const h = Math.min(500, $('session').scrollHeight + 2);
+      island.style.height = `${Math.max(150, h)}px`;
+    });
+  } else {
+    island.style.height = '';
+  }
+
+  const hints = $('hints');
+  hints.innerHTML = '';
+  if (!state.hasKey) {
+    const c = document.createElement('div'); c.className = 'chip link'; c.textContent = 'Add your Groq key in Settings ›';
+    c.onclick = () => api.send('open:settings'); hints.appendChild(c);
+  } else {
+    hints.insertAdjacentHTML('beforeend', `<div class="chip">Press <kbd>${state.hotkey}</kbd></div>`);
+    if (state.wakeEnabled) hints.insertAdjacentHTML('beforeend', '<div class="chip">or say “Hey Nebula”</div>');
+    const c = document.createElement('div'); c.className = 'chip link'; c.textContent = 'Settings';
+    c.onclick = () => api.send('open:settings'); hints.appendChild(c);
+  }
+  updateTimer();
+}
+
+// ---------------------------------------------------------------- clocks + timer
+function pad(n) { return String(n).padStart(2, '0'); }
+function tick() {
+  const d = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('clockSmall').textContent = time;
+  $('clockBig').textContent = time;
+  $('dateLine').textContent = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  const week = $('week');
+  if (week.dataset.day !== String(d.getDate())) {
+    week.dataset.day = String(d.getDate());
+    week.innerHTML = '';
+    for (let i = -3; i <= 3; i++) {
+      const x = new Date(d); x.setDate(d.getDate() + i);
+      week.insertAdjacentHTML('beforeend',
+        `<div class="day ${i === 0 ? 'today' : ''}">${x.toLocaleDateString([], { weekday: 'narrow' })}<b>${x.getDate()}</b></div>`);
+    }
+  }
+  updateTimer();
+}
+function updateTimer() {
+  const left = Math.max(0, Math.round((state.timerEndsAt - Date.now()) / 1000));
+  const chip = $('timerRest');
+  chip.classList.toggle('on', left > 0);
+  if (left > 0) {
+    const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+    chip.lastElementChild.textContent = h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+}
+setInterval(tick, 1000); tick();
+
+// ---------------------------------------------------------------- mouse: only the island catches clicks
+document.addEventListener('mousemove', (e) => {
+  const r = island.getBoundingClientRect();
+  const inside = e.clientX >= r.left - 6 && e.clientX <= r.right + 6 && e.clientY <= r.bottom + 6 && r.height > 4;
+  if (inside !== interactive) { interactive = inside; api.send('island:interactive', inside); }
+  if (inside && !hovering) { clearTimeout(window.__leave); window.__enter = setTimeout(() => { hovering = true; render(); }, 110); }
+  if (!inside && hovering) { clearTimeout(window.__enter); window.__leave = setTimeout(() => { hovering = false; render(); }, 380); }
+  if (!inside) clearTimeout(window.__enter);
+});
+document.addEventListener('mouseleave', () => { if (interactive) { interactive = false; api.send('island:interactive', false); } });
+
+$('askInput').addEventListener('focus', () => api.send('island:focus'));
+$('askInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.value.trim()) { api.send('island:ask', e.target.value.trim()); e.target.value = ''; e.target.blur(); hovering = false; }
+  if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); }
+});
+$('micBtn').onclick = () => { hovering = false; api.send('island:talk'); };
+$('micBtn2').onclick = () => api.send('island:talk');
+$('closeBtn').onclick = () => api.send('island:close');
+$('gearBtn').onclick = () => api.send('open:settings');
+$('rest').onclick = () => api.send('island:talk');
+
+// ---------------------------------------------------------------- speech out
+let speakingToken = null; let speakFallback = null;
+function speak({ text, voice, token }) {
+  stopSpeaking();
+  speakingToken = token;
+  const done = () => { if (speakingToken === token) { speakingToken = null; clearTimeout(speakFallback); api.send('island:spoken', token); } };
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find((x) => x.name === voice) ||
+      voices.find((x) => /natural|online/i.test(x.name) && /^en/i.test(x.lang)) ||
+      voices.find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    u.rate = 1.03;
+    u.onend = done; u.onerror = done;
+    speechSynthesis.speak(u);
+  } catch { /* fall through to the timer */ }
+  speakFallback = setTimeout(done, 2500 + text.length * 85); // never get stuck
+}
+function stopSpeaking() { speakingToken = null; clearTimeout(speakFallback); try { speechSynthesis.cancel(); } catch {} }
+
+// ---------------------------------------------------------------- orbs + voice bars
+function drawOrb(canvas, t, lvl, phase) {
+  const g = canvas.getContext('2d');
+  const W = canvas.width, c = W / 2, r = W * 0.36 * (1 + 0.14 * lvl);
+  g.clearRect(0, 0, W, W);
+  const halo = g.createRadialGradient(c, c, r * 0.4, c, c, r * 1.4);
+  halo.addColorStop(0, phase === 'error' ? 'rgba(255,120,80,.45)' : 'rgba(155,108,255,.45)'); halo.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = halo; g.fillRect(0, 0, W, W);
+  g.save();
+  g.beginPath();
+  for (let i = 0; i <= 48; i++) {
+    const a = i / 48 * Math.PI * 2;
+    const w = 1 + 0.03 * Math.sin(3 * a + t * 1.7) + 0.02 * Math.sin(5 * a - t * 2.3) + 0.05 * lvl * Math.sin(4 * a + t * 5);
+    const x = c + Math.cos(a) * r * w, y = c + Math.sin(a) * r * w;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath(); g.clip();
+  g.fillStyle = '#0d0a1f'; g.fillRect(0, 0, W, W);
+  const cols = phase === 'error' ? ['#FF6A3D', '#FFB347', '#B45CFF'] :
+    phase === 'thinking' ? ['#FF4F9A', '#3FC8FF', '#B45CFF'] : ['#9B6CFF', '#3FC8FF', '#FF6FD8'];
+  g.globalCompositeOperation = 'screen';
+  cols.forEach((col, i) => {
+    const a = t * (0.9 + i * 0.37) + i * 2.1;
+    const x = c + Math.cos(a) * r * 0.42, y = c + Math.sin(a * 1.3) * r * 0.42;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r * 0.95);
+    gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, W);
+  });
+  g.globalCompositeOperation = 'source-over';
+  const hl = g.createRadialGradient(c - r * .34, c - r * .4, 0, c - r * .34, c - r * .4, r * .5);
+  hl.addColorStop(0, 'rgba(255,255,255,.55)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = hl; g.fillRect(0, 0, W, W);
+  g.restore();
+}
+
+let t = 0; let last = 0; let shownLevel = 0;
+function loop(now) {
+  const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016; last = now;
+  const speed = { thinking: 2.6, speaking: 1.4, listening: 1 }[state.phase] || 0.4;
+  t += dt * speed;
+  const target = state.phase === 'listening' ? level : state.phase === 'speaking' ? 0.3 + 0.25 * Math.sin(t * 7) : 0;
+  shownLevel += (target - shownLevel) * (1 - Math.exp(-12 * dt));
+  const m = mode();
+  if (m === 'rest') drawOrb($('orbSmall'), t, shownLevel, state.phase);
+  if (m === 'session') {
+    drawOrb($('orbBig'), t, shownLevel, state.phase);
+    [...$('bars').children].forEach((b, i) => {
+      const wob = 0.55 + 0.45 * Math.sin(t * 9 + i * 1.3);
+      b.style.height = `${4 + 12 * Math.min(1, (0.15 + 0.85 * shownLevel) * wob)}px`;
+    });
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------------------------------------------------------------- wiring
+api.on('island:state', (s) => { state = { ...state, ...s }; render(); });
+api.on('island:level', (l) => { level = l; });
+api.on('island:speak', speak);
+api.on('island:speak-stop', stopSpeaking);
+api.on('island:timer-done', () => {
+  try {
+    const ctx = new AudioContext();
+    [0, 0.25, 0.5].forEach((d) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.setValueAtTime(0.0001, ctx.currentTime + d);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + d + 0.2);
+      o.connect(g).connect(ctx.destination); o.start(ctx.currentTime + d); o.stop(ctx.currentTime + d + 0.22);
+    });
+  } catch {}
+});
+
+// Preview hooks for testing: island.html?demo=session|hover|rest
+const q = new URLSearchParams(location.search);
+if (q.has('demo')) {
+  const d = q.get('demo');
+  if (d === 'hover') hovering = true;
+  if (d === 'session') state = { ...state, active: true, phase: q.get('phase') || 'done',
+    transcript: "What's the weather like in Johannesburg this weekend?",
+    reply: "It's looking warm and mostly sunny, around 27 degrees on Saturday, with a chance of afternoon thunderstorms on Sunday, so maybe keep an umbrella handy.",
+    sources: [{ title: 'weather.com', url: 'https://weather.com' }, { title: 'Windy.com', url: 'https://windy.com' }] };
+  if (d === 'rest') state.timerEndsAt = Date.now() + 4 * 60 * 1000 + 32 * 1000;
+}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+name: Build Nebula for Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Check scripts
+        run: npm run check
+
+      - name: Test the wake word engine on Windows
+        run: node test/kws-test.js
+
+      - name: Build installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist
+
+      - name: Collect files
+        shell: bash
+        run: |
+          ls -la dist
+          test -f dist/Nebula-Setup.exe
+          test -f dist/Nebula-Portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nebula-Windows
+          path: |
+            desktop/dist/Nebula-Setup.exe
+            desktop/dist/Nebula-Portable.exe
+
+      - name: Publish (fixed "desktop" download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop
+          name: Nebula for Windows
+          make_latest: false
+          body: |
+            **Install on your PC:** download **Nebula-Setup.exe** and run it.
+            Windows may say "Windows protected your PC" because the app isn't code-signed: click **More info → Run anyway**.
+            Or use **Nebula-Portable.exe** to run it without installing.
+            Built from ${{ github.sha }}.
+          files: |
+            desktop/dist/Nebula-Setup.exe
+            desktop/dist/Nebula-Portable.exe
