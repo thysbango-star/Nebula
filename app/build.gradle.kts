@@ -15,7 +15,7 @@ android {
         // Cloud builds number themselves so each new APK installs over the last one.
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = build
-        versionName = "0.2.$build"
+        versionName = "2.0.$build"
 
         ndk {
             // Galaxy phones (arm64) + x86_64 for the Android Studio emulator.
@@ -74,5 +74,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

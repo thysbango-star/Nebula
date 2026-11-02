@@ -38,6 +38,32 @@ class NebulaPrefs(context: Context) {
         get() = sp.getString(KEY_NO_SEARCH, "").orEmpty()
         set(v) = sp.edit().putString(KEY_NO_SEARCH, v).apply()
 
+    private fun bool(k: String, d: Boolean) = sp.getBoolean(k, d)
+    private fun setBool(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
+
+    /** Ask before sending SMS/WhatsApp messages (calls and purchases always ask). */
+    var confirmMessages: Boolean get() = bool("confirm_messages", true); set(v) = setBool("confirm_messages", v)
+
+    /** Short chimes when Nebula wakes / stops listening. */
+    var voiceCues: Boolean get() = bool("voice_cues", true); set(v) = setBool("voice_cues", v)
+
+    /** Sounds when a task completes, fails or needs you. */
+    var taskSounds: Boolean get() = bool("task_sounds", true); set(v) = setBool("task_sounds", v)
+
+    /** Theme: "system", "light" or "dark". */
+    var theme: String get() = sp.getString("theme", "system") ?: "system"; set(v) = sp.edit().putString("theme", v).apply()
+
+    var onboarded: Boolean get() = bool("onboarded", false); set(v) = setBool("onboarded", v)
+
+    // Nebula Notch
+    var notchEnabled: Boolean get() = bool("notch_enabled", true); set(v) = setBool("notch_enabled", v)
+    var notchMusic: Boolean get() = bool("notch_music", true); set(v) = setBool("notch_music", v)
+    var notchCalls: Boolean get() = bool("notch_calls", true); set(v) = setBool("notch_calls", v)
+    var notchMessages: Boolean get() = bool("notch_messages", true); set(v) = setBool("notch_messages", v)
+    var notchVolume: Boolean get() = bool("notch_volume", true); set(v) = setBool("notch_volume", v)
+    var notchUnlock: Boolean get() = bool("notch_unlock", true); set(v) = setBool("notch_unlock", v)
+    var notchTasks: Boolean get() = bool("notch_tasks", true); set(v) = setBool("notch_tasks", v)
+
     /**
      * Detection threshold handed to the wake word engine. Lower = triggers more easily.
      * Tuned by testing "Hey Nebula" in three voices against 33 sound-alike phrases:

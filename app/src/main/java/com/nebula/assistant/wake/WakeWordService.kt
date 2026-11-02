@@ -222,6 +222,7 @@ class WakeWordService : Service() {
         Log.i(TAG, "Hey Nebula detected")
         setState(WakeStatus.Paused, "Heard you")
         buzz()
+        com.nebula.assistant.audio.Sounds.play(this, com.nebula.assistant.audio.NebulaSound.WAKE)
         openPanel()
 
         // If the panel never appeared (blocked by the system), go back to listening.

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Nebula</string>
+    <string name="accessibility_summary">Lets Nebula read the screen and tap, type and scroll for you, and shows the Nebula Notch.</string>
+    <string name="accessibility_description">Nebula uses this to do tasks you ask for: reading what\'s on screen, tapping buttons, typing and scrolling in apps, and showing the Nebula Notch (music, calls, messages, volume and task progress). Screen content is only read when you give Nebula a task, and is only sent to the AI as part of that task. Nebula never taps buy, pay, send or delete without asking you first.</string>
 </resources>

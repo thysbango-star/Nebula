@@ -16,9 +16,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.nebula.assistant.brain.BrainReply
-import com.nebula.assistant.brain.GroqBrain
-import com.nebula.assistant.brain.HybridBrain
-import com.nebula.assistant.brain.LocalBrain
+import com.nebula.assistant.brain.AgentBrain
 import com.nebula.assistant.data.NebulaPrefs
 import com.nebula.assistant.data.NebulaState
 import com.nebula.assistant.ui.theme.NebulaTheme
@@ -53,7 +51,7 @@ class AssistantActivity : ComponentActivity() {
         NotificationManagerCompat.from(this).cancel(Notifications.ID_TAP_TO_TALK)
         prefs = NebulaPrefs(this)
 
-        voice = VoiceController(this, HybridBrain(LocalBrain(this), GroqBrain(prefs)), prefs)
+        voice = VoiceController(this, AgentBrain(this), prefs)
         voice.onAction = ::perform
 
         val fromWake = intent.getBooleanExtra(EXTRA_FROM_WAKE, false)

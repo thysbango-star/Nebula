@@ -56,6 +56,8 @@ class VoiceController(
     private var ttsFailed = false
     private var waitingToSpeak: String? = null
     private var released = false
+    /** Nebula asked something: start listening again as soon as it finishes speaking. */
+    private var expectingAnswer = false
 
     fun start() {
         tts = TextToSpeech(activity, this)
@@ -123,13 +125,14 @@ class VoiceController(
             sources = r.sources
             if (r.launch != null) onAction?.invoke(r)
             if (r.closePanel) return@launch // panel is going away; skip speaking
+            expectingAnswer = r.expectsAnswer
             speak(r.text)
         }
     }
 
     private fun speak(text: String) {
         when {
-            !prefs.speakReplies || ttsFailed -> phase = Phase.Done
+            !prefs.speakReplies || ttsFailed -> if (expectingAnswer) { expectingAnswer = false; listen() } else phase = Phase.Done
             ttsReady -> {
                 phase = Phase.Speaking
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nebula-${System.nanoTime()}")
@@ -156,7 +159,11 @@ class VoiceController(
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
-                main.post { if (phase == Phase.Speaking) phase = Phase.Done }
+                main.post {
+                    if (phase == Phase.Speaking) {
+                        if (expectingAnswer) { expectingAnswer = false; listen() } else phase = Phase.Done
+                    }
+                }
             }
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
@@ -184,6 +191,7 @@ class VoiceController(
 
     override fun onEndOfSpeech() {
         level = 0f
+        com.nebula.assistant.audio.Sounds.play(activity, com.nebula.assistant.audio.NebulaSound.LISTEN_END)
     }
 
     override fun onPartialResults(partialResults: Bundle?) {

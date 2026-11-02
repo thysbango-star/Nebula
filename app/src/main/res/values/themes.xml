@@ -6,6 +6,11 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <!-- The main app follows light/dark (see values-night/colors.xml). -->
+    <style name="Theme.Nebula.App" parent="Theme.Nebula">
+        <item name="android:windowBackground">@color/nebula_app_bg</item>
+    </style>
+
     <!-- See-through window: the assistant panel floats over the app you were using. -->
     <style name="Theme.Nebula.Panel" parent="Theme.Nebula">
         <item name="android:windowIsTranslucent">true</item>

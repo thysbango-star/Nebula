@@ -2,7 +2,7 @@ name: Build Nebula APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, nebula-2.0]
     paths-ignore:
       - 'desktop/**'
       - '.github/workflows/desktop.yml'
@@ -63,12 +63,19 @@ jobs:
           name: build-log
           path: build.log
 
+      - name: Upload test APK (branch builds)
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nebula-test-apk
+          path: Nebula.apk
+
       - name: Publish release
-        if: steps.sign.outputs.signed == 'true'
+        if: steps.sign.outputs.signed == 'true' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.${{ github.run_number }}
-          name: Nebula 0.2.${{ github.run_number }}
+          tag_name: v2.0.${{ github.run_number }}
+          name: Nebula 2.0.${{ github.run_number }}
           body: |
             **Install on your phone:** tap **Nebula.apk** below, open it, and allow installing from your browser if asked.
             Built from ${{ github.sha }}.

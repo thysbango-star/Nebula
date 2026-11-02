@@ -1,4 +1,5 @@
 <resources>
     <color name="nebula_void">#FF07060F</color>
-    <color name="nebula_icon_bg">#FF0B0918</color>
+    <color name="nebula_icon_bg">#FF1C1A18</color>
+    <color name="nebula_app_bg">#FFE7E5E2</color>
 </resources>
