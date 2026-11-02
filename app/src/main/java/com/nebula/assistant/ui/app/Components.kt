@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
@@ -121,7 +122,7 @@ fun NebulaMark(size: Dp, modifier: Modifier = Modifier, spinning: Boolean = fals
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.rotateRing(c: Offset, r: Float, rot: Float, color: Color) {
     val stroke = Stroke(r * 0.09f, cap = StrokeCap.Round)
-    androidx.compose.ui.graphics.drawscope.rotate(-18f, c) {
+    rotate(-18f, c) {
         drawOval(color.copy(alpha = 0.95f), topLeft = Offset(c.x - r * 0.95f, c.y - r * 0.3f),
             size = androidx.compose.ui.geometry.Size(r * 1.9f, r * 0.6f), style = stroke)
         val ang = Math.toRadians(rot.toDouble())

@@ -99,7 +99,7 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
         }
     }
 
-    private suspend fun exec(name: String, a: JSONObject, callId: String, taskId: String?): ToolOutcome = when (name) {
+    private suspend fun exec(name: String, a: JSONObject, callId: String, taskId: String?): ToolOutcome { return when (name) {
         "plan" -> {
             val steps = (0 until (a.optJSONArray("steps")?.length() ?: 0)).map { a.getJSONArray("steps").optString(it) }.filter { it.isNotBlank() }
             ToolOutcome(result(true, true, "Plan shown to the user."), plan = steps)
@@ -197,7 +197,7 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
         }
         "finish_task" -> ToolOutcome("Finished.", finish = a.optString("outcome", "completed") to a.optString("summary"))
         else -> ToolOutcome(result(false, false, "Unknown tool $name."))
-    }
+    } }
 
     /** Messages and calls always ask first (unless the user turned that off for messages). */
     private suspend fun sensitiveSend(name: String, a: JSONObject, callId: String): ToolOutcome {
