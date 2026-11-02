@@ -82,6 +82,7 @@ import com.nebula.assistant.data.TaskStatus
 import com.nebula.assistant.game.R3cket
 import com.nebula.assistant.voice.VoiceState
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
@@ -109,6 +110,7 @@ private val NotchGradient = Brush.linearGradient(listOf(Ember, Flame, Ruby))
 
 private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun NotchUi(c: NotchController) {
     val prefs = c.notchPrefs
@@ -181,7 +183,10 @@ fun NotchUi(c: NotchController) {
                         .clip(RoundedCornerShape(if (expanded) corner.dp else pillH / 2))
                         .background(Color.Black)
                         .animateContentSize(spring(dampingRatio = 0.74f, stiffness = 420f))
-                        .clickable(enabled = mode in setOf(Mode.MUSIC, Mode.TASK, Mode.PREVIEW)) {
+                        .combinedClickable(
+                            enabled = mode in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME),
+                            onLongClick = { c.talk() }, // hold the island to talk to Nebula
+                        ) {
                             if (mode == Mode.MUSIC) musicOpen = true
                             if (mode == Mode.TASK) c.openApp("tasks", task?.id)
                         },

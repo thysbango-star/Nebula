@@ -153,7 +153,7 @@ class NotchController(private val service: AccessibilityService) {
             combine(R3cket.clicker, R3cket.inGame) { c, g -> c to g }.collect { (c, g) ->
                 when {
                     c.editing -> showMarkers(touchable = true)
-                    c.points.isNotEmpty() && g -> showMarkers(touchable = false)
+                    c.running && g -> showMarkers(touchable = false)
                     else -> hideMarkers()
                 }
                 setKeepAwake(g && prefs.r3cketAwake)
