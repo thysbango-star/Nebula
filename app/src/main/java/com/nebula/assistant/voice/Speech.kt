@@ -7,6 +7,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.nebula.assistant.data.NebulaPrefs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -98,7 +99,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
             val cur = next ?: return i > 0
             next = null
             val prefetch = if (i + 1 < chunks.size) kotlinx.coroutines.coroutineScope {
-                val d = kotlinx.coroutines.async(Dispatchers.IO) { fetch(chunks[i + 1]) }
+                val d = async(Dispatchers.IO) { fetch(chunks[i + 1]) }
                 play(cur, onLevel); d.await()
             } else { play(cur, onLevel); null }
             next = prefetch

@@ -291,7 +291,7 @@ private fun R3cketGroup(prefs: NebulaPrefs) {
         Text("Some online games ban auto-clickers in their rules (and may suspend accounts). Use it in games where that's allowed.",
             style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 4.dp))
         Text(if (showApps) "Hide game list ›" else "Choose which apps count as games ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
-            modifier = Modifier.padding(top = 10.dp).pressable { showApps = !showApps })
+            modifier = Modifier.padding(top = 10.dp).pressable(onClick = { showApps = !showApps }))
         if (showApps) GameList(prefs)
     }
 }
