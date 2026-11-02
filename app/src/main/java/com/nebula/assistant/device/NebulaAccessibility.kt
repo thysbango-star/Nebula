@@ -202,8 +202,9 @@ class NebulaAccessibility : AccessibilityService() {
         val verified = ok && (now.contains(text.take(20)) || now == text)
         if (!ok) return ActionResult(false, false, "That field didn't accept text.")
         if (submit) {
-            val ime = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
-            if (!e.node.performAction(ime)) {
+            val entered = android.os.Build.VERSION.SDK_INT >= 30 &&
+                e.node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            if (!entered) {
                 // Fall back to a nearby send/search button.
                 find("send")?.node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: find("search")?.node?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
