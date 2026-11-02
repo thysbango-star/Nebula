@@ -139,7 +139,9 @@ class MainActivity : ComponentActivity() {
     private fun talk(conversationId: String) {
         if (!has(Manifest.permission.RECORD_AUDIO)) { request(perms.first { it.id == "mic" }) { talk(conversationId) }; return }
         AgentBrain.focusConversationId = conversationId
-        startActivity(Intent(this, AssistantActivity::class.java))
+        // With Screen control on, the conversation happens in the Nebula Notch (one island for everything).
+        if (com.nebula.assistant.device.NebulaAccessibility.instance != null) WakeWordService.talk(this)
+        else startActivity(Intent(this, AssistantActivity::class.java))
     }
 
     private fun openFile(f: FileRecord) {

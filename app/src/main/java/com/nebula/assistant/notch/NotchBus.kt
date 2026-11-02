@@ -33,6 +33,9 @@ object NotchBus {
     val call: StateFlow<Call?> = _call.asStateFlow()
     val message: StateFlow<Message?> = _message.asStateFlow()
 
+    /** True while the user drags the Notch size sliders, so the island shows itself for preview. */
+    val preview = MutableStateFlow(false)
+
     fun setMedia(m: Media?) { _media.value = m }
     fun setCall(c: Call?) { _call.value = c }
     fun setMessage(m: Message?) { _message.value = m }

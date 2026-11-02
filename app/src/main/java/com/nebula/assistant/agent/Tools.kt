@@ -41,7 +41,7 @@ object ToolDefs {
 
     /** Tools that change something (or read the screen): using one turns the request into a tracked task. */
     val ACTION = setOf("plan", "read_screen", "tap", "type_text", "scroll", "navigate", "open_app", "open_url", "send_sms",
-        "send_whatsapp", "call", "set_timer", "set_alarm", "flashlight", "create_document", "update_document", "ask_user")
+        "send_whatsapp", "call", "set_timer", "set_alarm", "flashlight", "create_document", "update_document", "ask_user", "autoclicker")
 
     val all: JSONArray = JSONArray().apply {
         put(fn("plan", "Show the user your step-by-step plan for a multi-step task. Call first for tasks with 2+ steps.",
@@ -67,6 +67,9 @@ object ToolDefs {
         put(fn("set_timer", "Start a countdown timer.", JSONObject().put("seconds", i("Duration in seconds")).put("label", s("Label")), listOf("seconds")))
         put(fn("set_alarm", "Set an alarm.", JSONObject().put("hour", i("0-23")).put("minute", i("0-59")).put("label", s("Label")), listOf("hour", "minute")))
         put(fn("flashlight", "Turn the flashlight on or off.", JSONObject().put("on", b("true = on")), listOf("on")))
+        put(fn("autoclicker", "R3cket game auto-clicker: repeatedly taps saved points (or the screen centre) in the app in front. " +
+            "'start' begins tapping, 'stop' ends it, 'set_points' lets the user tap where to click, 'speed' changes the interval.",
+            JSONObject().put("action", s("start|stop|set_points|speed")).put("interval_ms", i("Milliseconds between taps, 30-5000 (optional)")), listOf("action")))
         put(fn("create_document", "Create a real file (docx, xlsx, pptx, pdf, csv, txt, md, html) from a spec. ${DocJson.SCHEMA_HINT}",
             JSONObject().put("spec", obj("The document spec")), listOf("spec")))
         put(fn("get_document", "Get the full spec of a file Nebula made, before editing it.", JSONObject().put("file_id", s("File id")), listOf("file_id")))
@@ -169,6 +172,21 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
             ToolOutcome(result(it.ok, it.verified, it.message), step("Set alarm", it.ok, it.verified, it.message)) }
         "flashlight" -> phone.torch(a.optBoolean("on", true)).let {
             ToolOutcome(result(it.ok, it.verified, it.message), step(if (a.optBoolean("on", true)) "Flashlight on" else "Flashlight off", it.ok, it.verified, it.message)) }
+        "autoclicker" -> {
+            val g = com.nebula.assistant.game.R3cket
+            if (NebulaAccessibility.instance == null) return needsAccess("auto-click")
+            if (a.has("interval_ms")) g.setInterval(context, a.optInt("interval_ms", prefs.clickInterval))
+            when (a.optString("action")) {
+                "stop" -> { g.stopClicker(); ToolOutcome(result(true, true, "Auto-click stopped after ${g.clicker.value.clicks} taps."), step("Stop auto-click", true, true, "Stopped")) }
+                "set_points" -> { g.setEditing(true); ToolOutcome(result(true, true, "Point editor is open: the user taps the spots, then presses Done in the Notch. Tell them that."), step("Pick tap points", true, true, "Waiting for your taps")) }
+                "speed" -> ToolOutcome(result(true, true, "Interval is now ${g.clicker.value.intervalMs} ms."), step("Auto-click speed", true, true, "${g.clicker.value.intervalMs} ms"))
+                else -> {
+                    val msg = g.startClicker(context)
+                    val ok = g.clicker.value.running
+                    ToolOutcome(result(ok, ok, msg), step("Start auto-click", ok, ok, msg))
+                }
+            }
+        }
         "create_document" -> {
             val specJ = a.optJSONObject("spec") ?: runCatching { JSONObject(a.optString("spec")) }.getOrNull()
                 ?: return ToolOutcome(result(false, false, "Missing document spec."))

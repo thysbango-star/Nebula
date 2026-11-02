@@ -74,6 +74,15 @@
             android:taskAffinity="com.nebula.assistant.panel"
             android:theme="@style/Theme.Nebula.Panel" />
 
+        <!-- Invisible: lets the Notch start a voice chat from inside any app. -->
+        <activity
+            android:name=".ui.TalkActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.nebula.assistant.talk"
+            android:theme="@style/Theme.Nebula.Invisible" />
+
         <service
             android:name=".wake.WakeWordService"
             android:exported="false"

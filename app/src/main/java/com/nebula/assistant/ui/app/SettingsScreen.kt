@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -106,7 +107,10 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
             Toggle("Speak replies", "Answers out loud as well as on screen.", prefs.speakReplies) { prefs.speakReplies = it; tick++ }
         }
 
+        VoiceGroup(prefs)
+
         Group("Nebula Notch") {
+            NotchSize(prefs)
             Keyed(tick) {
                 Toggle("Notch", "The live island at the top of your screen.", prefs.notchEnabled) { prefs.notchEnabled = it; tick++ }
                 Toggle("Music", "What's playing, with controls.", prefs.notchMusic) { prefs.notchMusic = it; tick++ }
@@ -118,6 +122,8 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
             }
             Text("Needs Screen control (and Notification access for music, messages and calls).", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 6.dp))
         }
+
+        R3cketGroup(prefs)
 
         Group("Vibrance glow") {
             Text("The light that wraps the screen when Nebula wakes.", style = MaterialTheme.typography.bodySmall, color = p.dim)
@@ -163,6 +169,156 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
             Text("Show the welcome tour again ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.padding(top = 8.dp).pressable(a.replayOnboarding))
         }
         Spacer(Modifier.height(30.dp))
+    }
+}
+
+// ---------------------------------------------------------------------- voice
+
+private val Voices = listOf("troy" to "Troy", "austin" to "Austin", "daniel" to "Daniel", "autumn" to "Autumn", "diana" to "Diana", "hannah" to "Hannah")
+
+@Composable
+private fun VoiceGroup(prefs: NebulaPrefs) {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var engine by remember { mutableStateOf(prefs.voiceEngine) }
+    var voice by remember { mutableStateOf(prefs.groqVoice) }
+    var eleven by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var playing by remember { mutableStateOf(false) }
+    val speaker = remember { com.nebula.assistant.voice.Speaker(ctx) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { speaker.release() } }
+
+    fun test() {
+        if (playing) { speaker.stop(); playing = false; return }
+        scope.launch {
+            playing = true; status = null
+            speaker.speak("Hey, I'm Nebula. This is how I'll sound when we talk.")
+            status = speaker.lastProblem?.let { "Used the phone voice: $it" } ?: if (prefs.voiceEngine == "system") "That's the phone's own voice." else "That's the natural voice. Sounds good?"
+            playing = false
+        }
+    }
+
+    Group("Voice", when (engine) { "groq" -> "Natural"; "eleven" -> "ElevenLabs"; else -> "Phone" }, p.ok) {
+        Text("How Nebula sounds when it talks back.", style = MaterialTheme.typography.bodySmall, color = p.dim)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("groq" to "Natural (free)", "eleven" to "ElevenLabs", "system" to "Phone voice").forEach { (v, l) ->
+                Chip(l, engine == v) { engine = v; prefs.voiceEngine = v; status = null }
+            }
+        }
+        when (engine) {
+            "groq" -> {
+                Text("Human-sounding speech from Groq's Orpheus voices, using your Groq key. First time only: open console.groq.com → Playground, choose the Orpheus model and accept its terms.",
+                    style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 10.dp))
+                Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Voices.forEach { (v, l) -> Chip(l, voice == v) { voice = v; prefs.groqVoice = v } }
+                }
+            }
+            "eleven" -> {
+                Text("Paste a free ElevenLabs API key (elevenlabs.io → Profile → API keys). Kept only on this phone.",
+                    style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 10.dp))
+                Box(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.surface).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp)) {
+                    if (eleven.isEmpty()) Text(if (prefs.elevenKey.isNotBlank()) "Key saved · paste to replace" else "ElevenLabs key", color = p.faint, style = MaterialTheme.typography.bodyMedium)
+                    BasicTextField(eleven, { eleven = it.trim() }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = p.text), cursorBrush = SolidColor(p.flame), modifier = Modifier.fillMaxWidth())
+                }
+                if (eleven.isNotEmpty()) Row(Modifier.padding(top = 8.dp)) { Btn("Save key", primary = true) { prefs.elevenKey = eleven; eleven = ""; status = "Saved." } }
+            }
+            else -> Text("Uses the voice installed on your phone (Samsung or Google). Works offline.",
+                style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 10.dp))
+        }
+        Row(Modifier.padding(top = 12.dp)) { Btn(if (playing) "■ Stop" else "▶ Hear Nebula", primary = true) { test() } }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 8.dp)) }
+    }
+}
+
+// ---------------------------------------------------------------------- notch size
+
+@Composable
+private fun NotchSize(prefs: NebulaPrefs) {
+    val p = Pal
+    var scale by remember { mutableFloatStateOf(prefs.notchScale) }
+    var height by remember { mutableFloatStateOf(prefs.notchHeight) }
+    var y by remember { mutableFloatStateOf(prefs.notchY) }
+    var x by remember { mutableFloatStateOf(prefs.notchX) }
+    val scope = rememberCoroutineScope()
+    var hide by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun live(set: () -> Unit) { set(); hide?.cancel(); com.nebula.assistant.notch.NotchBus.preview.value = true }
+    fun done() { hide?.cancel(); hide = scope.launch { kotlinx.coroutines.delay(1800); com.nebula.assistant.notch.NotchBus.preview.value = false } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.nebula.assistant.notch.NotchBus.preview.value = false } }
+
+    Text("Size & position — the island moves as you drag.", style = MaterialTheme.typography.bodySmall, color = p.dim)
+    SliderRow("Size", "${(scale * 100).toInt()}%", scale, 0.7f..1.5f, { scale = it; live { prefs.notchScale = it } }, ::done)
+    SliderRow("Height", "${(height * 100).toInt()}%", height, 0.7f..1.6f, { height = it; live { prefs.notchHeight = it } }, ::done)
+    SliderRow("Down from top", "${y.toInt()}", y, -20f..60f, { y = it; live { prefs.notchY = it } }, ::done)
+    SliderRow("Left / right", "${x.toInt()}", x, -120f..120f, { x = it; live { prefs.notchX = it } }, ::done)
+    Row(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+        Btn("Reset") { scale = 1f; height = 1f; y = 0f; x = 0f; live { prefs.notchScale = 1f; prefs.notchHeight = 1f; prefs.notchY = 0f; prefs.notchX = 0f }; done() }
+    }
+}
+
+@Composable
+private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit, onDone: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.labelMedium, color = Pal.dim)
+    }
+    Slider(v, onChange, valueRange = range, onValueChangeFinished = onDone, colors = sliderColors())
+}
+
+// ---------------------------------------------------------------------- R3cket
+
+@Composable
+private fun R3cketGroup(prefs: NebulaPrefs) {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    var interval by remember { mutableFloatStateOf(prefs.clickInterval.toFloat()) }
+    var showApps by remember { mutableStateOf(false) }
+    Group("R3cket", "Game mode", p.flame) {
+        Text("Spots when you're in a game. “Hey Nebula” becomes a slim bar at the top so play never stops, and you can say “auto-click”, “set tap points”, “faster” or “stop clicking”.",
+            style = MaterialTheme.typography.bodySmall, color = p.dim)
+        Keyed(tick) {
+            Toggle("R3cket", "Detect games automatically.", prefs.r3cketEnabled) { prefs.r3cketEnabled = it; tick++ }
+            Toggle("Quiet island", "Hide message pop-ups and music while you play.", prefs.r3cketQuiet) { prefs.r3cketQuiet = it; tick++ }
+            Toggle("Keep screen awake", "Stops the screen dimming mid-game.", prefs.r3cketAwake) { prefs.r3cketAwake = it; tick++ }
+        }
+        val cps = 1000f / interval
+        SliderRow("Auto-click speed", if (cps >= 1) "${"%.1f".format(cps)} taps/s" else "every ${"%.1f".format(interval / 1000f)} s",
+            kotlin.math.ln(interval), kotlin.math.ln(30f)..kotlin.math.ln(5000f),
+            { interval = kotlin.math.exp(it) }, { com.nebula.assistant.game.R3cket.setInterval(ctx, interval.toInt()) })
+        Text("Some online games ban auto-clickers in their rules (and may suspend accounts). Use it in games where that's allowed.",
+            style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 4.dp))
+        Text(if (showApps) "Hide game list ›" else "Choose which apps count as games ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+            modifier = Modifier.padding(top = 10.dp).pressable { showApps = !showApps })
+        if (showApps) GameList(prefs)
+    }
+}
+
+@Composable
+private fun GameList(prefs: NebulaPrefs) {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val apps = remember {
+        val pm = ctx.packageManager
+        pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .distinctBy { it.first }.filter { it.first != ctx.packageName }.sortedBy { it.second.lowercase() }
+    }
+    var picked by remember { mutableStateOf(prefs.gamePackages) }
+    Column(Modifier.padding(top = 6.dp)) {
+        apps.forEach { (pkg, label) ->
+            val auto = com.nebula.assistant.game.R3cket.isGame(ctx, pkg, prefs) && pkg !in picked
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                if (auto) Text("auto", style = MaterialTheme.typography.labelMedium, color = p.ok, modifier = Modifier.padding(end = 8.dp))
+                Switch(auto || pkg in picked, { on ->
+                    picked = if (on) picked + pkg else picked - pkg; prefs.gamePackages = picked
+                }, enabled = !auto, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = p.flame, checkedBorderColor = Color.Transparent,
+                    uncheckedThumbColor = p.faint, uncheckedTrackColor = p.surface2, uncheckedBorderColor = p.line))
+            }
+        }
     }
 }
 

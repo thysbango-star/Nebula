@@ -62,6 +62,7 @@ class WakeWordService : Service() {
     private var engine: WakeWordEngine? = null
     private var engineThreshold = Float.NaN
     private var inForeground = false
+    private var session: com.nebula.assistant.voice.VoiceSession? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -101,13 +102,21 @@ class WakeWordService : Service() {
             }
             ACTION_STOP -> {
                 prefs.wakeEnabled = false
+                session?.stop()
                 shutdown()
+            }
+            ACTION_TALK -> {
+                // Tap-to-talk from the Notch or the app: same in-Notch session as "Hey Nebula".
+                if (!goForeground()) return START_NOT_STICKY
+                if (session?.running != true) com.nebula.assistant.audio.Sounds.play(this, com.nebula.assistant.audio.NebulaSound.WAKE)
+                startSession()
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        session?.release(); session = null
         listenJob?.cancel()
         watchdog?.cancel()
         scope.cancel()
@@ -223,6 +232,8 @@ class WakeWordService : Service() {
         setState(WakeStatus.Paused, "Heard you")
         buzz()
         com.nebula.assistant.audio.Sounds.play(this, com.nebula.assistant.audio.NebulaSound.WAKE)
+        // With screen control on, the conversation happens inside the Nebula Notch.
+        if (com.nebula.assistant.device.NebulaAccessibility.instance != null) { startSession(); return }
         openPanel()
 
         // If the panel never appeared (blocked by the system), go back to listening.
@@ -236,6 +247,18 @@ class WakeWordService : Service() {
                 restartListening(delayMs = 0)
             }
         }
+    }
+
+    private fun startSession() {
+        stopListening()
+        watchdog?.cancel()
+        setState(WakeStatus.Paused, "Nebula is listening")
+        val s = session ?: com.nebula.assistant.voice.VoiceSession(this, scope) {
+            scope.launch {
+                if (prefs.wakeEnabled) restartListening(delayMs = 350) else shutdown()
+            }
+        }.also { session = it }
+        s.start()
     }
 
     private fun openPanel() {
@@ -371,6 +394,12 @@ class WakeWordService : Service() {
         const val ACTION_PAUSE = "com.nebula.assistant.wake.PAUSE"
         const val ACTION_RESUME = "com.nebula.assistant.wake.RESUME"
         const val ACTION_RELOAD = "com.nebula.assistant.wake.RELOAD"
+        const val ACTION_TALK = "com.nebula.assistant.wake.TALK"
+
+        /** Start an in-Notch voice conversation (needs a visible activity or a running service). */
+        fun talk(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, WakeWordService::class.java).setAction(ACTION_TALK))
+        }
 
         /** Start listening. Call while Nebula is on screen (Android 14+ requires it for mic services). */
         fun start(context: Context) {

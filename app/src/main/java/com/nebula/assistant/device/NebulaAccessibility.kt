@@ -33,14 +33,22 @@ class NebulaAccessibility : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         notch = NotchController(this).also { it.start() }
+        com.nebula.assistant.game.R3cket.service = this
     }
+
+    private fun isKeyboard(pkg: String) = runCatching {
+        android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)?.startsWith("$pkg/") == true
+    }.getOrDefault(false)
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         lastEventAt = System.currentTimeMillis()
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { pkg ->
-                if (pkg != packageName && pkg != "com.android.systemui") foregroundPackage = pkg
+                if (pkg != packageName && pkg != "com.android.systemui" && !isKeyboard(pkg)) {
+                    foregroundPackage = pkg
+                    com.nebula.assistant.game.R3cket.onForeground(this, pkg)
+                }
             }
         }
     }
@@ -57,6 +65,8 @@ class NebulaAccessibility : AccessibilityService() {
 
     override fun onDestroy() {
         notch?.stop(); notch = null
+        com.nebula.assistant.game.R3cket.stopClicker()
+        if (com.nebula.assistant.game.R3cket.service === this) com.nebula.assistant.game.R3cket.service = null
         if (instance === this) instance = null
         super.onDestroy()
     }

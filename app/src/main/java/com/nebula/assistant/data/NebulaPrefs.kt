@@ -55,6 +55,27 @@ class NebulaPrefs(context: Context) {
 
     var onboarded: Boolean get() = bool("onboarded", false); set(v) = setBool("onboarded", v)
 
+    // Voice: "groq" (Orpheus, natural), "eleven" (ElevenLabs), "system" (phone voice)
+    var voiceEngine: String get() = sp.getString("voice_engine", "groq") ?: "groq"; set(v) = sp.edit().putString("voice_engine", v).apply()
+    var groqVoice: String get() = sp.getString("groq_voice", "troy") ?: "troy"; set(v) = sp.edit().putString("groq_voice", v).apply()
+    var groqVoiceModel: String get() = sp.getString("groq_voice_model", "canopylabs/orpheus-v1-english") ?: "canopylabs/orpheus-v1-english"
+        set(v) = sp.edit().putString("groq_voice_model", v).apply()
+    var elevenKey: String get() = sp.getString("eleven_key", "") ?: ""; set(v) = sp.edit().putString("eleven_key", v.trim()).apply()
+    var elevenVoice: String get() = sp.getString("eleven_voice", "21m00Tcm4TdlvDq8ikWAM") ?: "21m00Tcm4TdlvDq8ikWAM"; set(v) = sp.edit().putString("eleven_voice", v).apply()
+
+    // Notch size & position (live-adjustable)
+    var notchScale: Float get() = sp.getFloat("notch_scale", 1f); set(v) = sp.edit().putFloat("notch_scale", v.coerceIn(0.7f, 1.5f)).apply()
+    var notchHeight: Float get() = sp.getFloat("notch_height", 1f); set(v) = sp.edit().putFloat("notch_height", v.coerceIn(0.7f, 1.6f)).apply()
+    var notchY: Float get() = sp.getFloat("notch_y", 0f); set(v) = sp.edit().putFloat("notch_y", v.coerceIn(-20f, 60f)).apply()
+    var notchX: Float get() = sp.getFloat("notch_x", 0f); set(v) = sp.edit().putFloat("notch_x", v.coerceIn(-120f, 120f)).apply()
+
+    // R3cket game mode
+    var r3cketEnabled: Boolean get() = bool("r3cket", true); set(v) = setBool("r3cket", v)
+    var r3cketQuiet: Boolean get() = bool("r3cket_quiet", true); set(v) = setBool("r3cket_quiet", v)
+    var r3cketAwake: Boolean get() = bool("r3cket_awake", true); set(v) = setBool("r3cket_awake", v)
+    var clickInterval: Int get() = sp.getInt("click_interval", 150); set(v) = sp.edit().putInt("click_interval", v.coerceIn(30, 5000)).apply()
+    var gamePackages: Set<String> get() = sp.getStringSet("game_pkgs", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("game_pkgs", v).apply()
+
     // Nebula Notch
     var notchEnabled: Boolean get() = bool("notch_enabled", true); set(v) = setBool("notch_enabled", v)
     var notchMusic: Boolean get() = bool("notch_music", true); set(v) = setBool("notch_music", v)

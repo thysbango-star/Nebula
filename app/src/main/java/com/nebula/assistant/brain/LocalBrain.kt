@@ -21,6 +21,7 @@ class LocalBrain(context: Context) {
         val q = input.lowercase(Locale.ROOT).trim().trimEnd('?', '.', '!')
         return when {
             q.isBlank() -> BrainReply("I didn't catch that.")
+            Regex("\\b(auto ?-?click|autoclick|auto tap|clicking|tapping)\\b").containsMatchIn(q) -> clicker(q)
             "timer" in q && (Regex("\\b(set|start)\\b").containsMatchIn(q) || q.startsWith("timer")) -> timer(q)
             ("alarm" in q && "set" in q) || q.startsWith("wake me") -> alarm(q)
             q.startsWith("open ") || q.startsWith("launch ") -> openApp(q)
@@ -35,6 +36,24 @@ class LocalBrain(context: Context) {
     }
 
     // ------------------------------------------------------------------ commands
+
+    /** R3cket auto-clicker, instantly (no AI round-trip, so it works mid-game). */
+    private fun clicker(q: String): BrainReply? {
+        val g = com.nebula.assistant.game.R3cket
+        if (com.nebula.assistant.device.NebulaAccessibility.instance == null) return BrainReply("Auto-click needs Screen control. Switch it on in Nebula's settings.")
+        Regex("(\\d{2,4})\\s*(ms|millisecond)").find(q)?.let { g.setInterval(ctx, it.groupValues[1].toInt()) }
+        Regex("(\\d+(?:\\.\\d+)?)\\s*(times a second|per second|clicks? a second|cps)").find(q)?.let {
+            g.setInterval(ctx, (1000 / it.groupValues[1].toFloat().coerceAtLeast(0.2f)).toInt())
+        }
+        return when {
+            Regex("\\b(stop|end|pause|cancel|turn off|disable)\\b").containsMatchIn(q) -> { g.stopClicker(); BrainReply("Stopped clicking.") }
+            Regex("\\b(point|spot|where|set ?up|choose|pick)\\b").containsMatchIn(q) -> { g.setEditing(true); BrainReply("Tap the spots you want, then press Done in the island.") }
+            Regex("\\b(faster|speed up)\\b").containsMatchIn(q) -> { g.setInterval(ctx, (g.clicker.value.intervalMs / 1.5f).toInt()); BrainReply("Faster: every ${g.clicker.value.intervalMs} milliseconds.") }
+            Regex("\\b(slower|slow down)\\b").containsMatchIn(q) -> { g.setInterval(ctx, (g.clicker.value.intervalMs * 1.5f).toInt()); BrainReply("Slower: every ${g.clicker.value.intervalMs} milliseconds.") }
+            Regex("\\b(start|begin|turn on|enable|auto|go)\\b").containsMatchIn(q) -> BrainReply(g.startClicker(ctx))
+            else -> null
+        }
+    }
 
     private fun time(): BrainReply {
         val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
