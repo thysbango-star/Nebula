@@ -135,10 +135,59 @@
       <label class="switch"><input type="checkbox" id="islandAlways"><span></span></label>
     </div>
     <div class="row"><button class="pill ghost" id="preview2">Preview Vibrance</button></div>
+    <hr>
+    <div class="row" style="margin-bottom:-8px"><div class="grow label">Island size</div><div class="val" id="scaleVal"></div></div>
+    <input type="range" id="islandScale" min="0.7" max="1.5" step="0.01">
+    <div class="row" style="margin-bottom:-8px"><div class="grow label">Left / right</div><div class="val" id="xVal"></div></div>
+    <input type="range" id="islandX" min="-600" max="600" step="1">
+    <div class="row" style="margin-bottom:-8px"><div class="grow label">Down from top</div><div class="val" id="yVal"></div></div>
+    <input type="range" id="islandY" min="0" max="80" step="1">
+    <div class="row"><button class="pill ghost" id="resetIsland">Reset size &amp; position</button></div>
   </section>
 
   <section class="card">
-    <h2>Voice &amp; shortcut</h2>
+    <h2>Voice <span class="badge" id="voiceBadge"></span></h2>
+    <p class="sub">How Nebula sounds when it talks back.</p>
+    <div class="field"><select id="voiceEngine">
+      <option value="groq">Natural voice (Groq Orpheus, free with your key)</option>
+      <option value="system">Windows voice (offline)</option>
+    </select></div>
+    <div id="groqVoices">
+      <div class="field"><select id="groqVoice">
+        <option value="troy">Troy</option><option value="austin">Austin</option><option value="daniel">Daniel</option>
+        <option value="autumn">Autumn</option><option value="diana">Diana</option><option value="hannah">Hannah</option>
+      </select></div>
+      <p class="faint" style="margin-top:10px">First time only: open <a id="groqPlay">console.groq.com → Playground</a>, pick the Orpheus model and accept its terms.</p>
+    </div>
+    <div class="row"><button class="pill" id="voiceTest">▶ Hear Nebula</button></div>
+    <div class="status" id="voiceStatus"></div>
+  </section>
+
+  <section class="card">
+    <h2>R3cket <span class="badge" style="color:var(--amber)">Game mode</span></h2>
+    <p class="sub">When a game fills your screen, “Hey Nebula” becomes a slim bar at the top and the screen glow stays off, so play never stops. Say “auto-click”, “click faster” or “stop clicking”.</p>
+    <div class="row">
+      <div class="grow"><div class="label">R3cket</div><div class="faint">Detect full-screen games automatically.</div></div>
+      <label class="switch"><input type="checkbox" id="r3cket"><span></span></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Quiet island</div><div class="faint">Hide the resting island while you play.</div></div>
+      <label class="switch"><input type="checkbox" id="r3cketQuiet"><span></span></label>
+    </div>
+    <hr>
+    <div class="row" style="margin-bottom:-8px"><div class="grow label">Auto-click speed</div><div class="val" id="clickVal"></div></div>
+    <input type="range" id="clickSpeed" min="0" max="1" step="0.001">
+    <div class="row" style="margin-top:14px"><div class="grow"><div class="label">Auto-click shortcut</div><div class="faint">Starts and stops clicking where your pointer is.</div></div></div>
+    <div class="field"><input type="text" id="clickHotkey" class="hotkey" readonly></div>
+    <hr>
+    <div class="row"><div class="grow"><div class="label">Games list</div><div class="faint" id="gamesNote">Windowed games aren't detected automatically: add them here.</div></div></div>
+    <div class="field"><input type="text" id="games" placeholder="e.g. RobloxPlayerBeta, VALORANT-Win64-Shipping" spellcheck="false"></div>
+    <div class="row"><button class="pill ghost" id="addFront">Add the app I switch to in 3 s</button></div>
+    <p class="faint" style="margin-top:12px">Some online games ban auto-clickers and can suspend accounts. Use it where it's allowed.</p>
+  </section>
+
+  <section class="card">
+    <h2>Shortcut &amp; startup</h2>
     <div class="row">
       <div class="grow"><div class="label">Speak replies</div><div class="faint">Nebula answers out loud as well as in the island.</div></div>
       <label class="switch"><input type="checkbox" id="speak"><span></span></label>
@@ -187,7 +236,25 @@ function fill(d) {
     ? `“${d.hotkey}” is taken by another app, so Nebula is using ${d.activeHotkey}.`
     : 'Click, then press the keys you want. The Copilot key works too.';
   fillVoices();
+  $('islandScale').value = d.islandScale ?? 1; $('scaleVal').textContent = `${Math.round((d.islandScale ?? 1) * 100)}%`;
+  $('islandX').value = d.islandX ?? 0; $('xVal').textContent = `${d.islandX ?? 0}`;
+  $('islandY').value = d.islandY ?? 0; $('yVal').textContent = `${d.islandY ?? 0}`;
+  $('voiceEngine').value = d.voiceEngine || 'groq'; $('groqVoice').value = d.groqVoice || 'troy';
+  $('groqVoices').style.display = $('voiceEngine').value === 'groq' ? '' : 'none';
+  $('voice').parentElement.style.display = $('voiceEngine').value === 'groq' ? 'none' : '';
+  $('voiceBadge').textContent = d.voiceEngine === 'system' ? 'Windows' : d.voiceProblem ? 'Using Windows voice' : 'Natural';
+  $('voiceBadge').style.color = d.voiceProblem && d.voiceEngine !== 'system' ? 'var(--amber)' : 'var(--mint)';
+  $('voiceBadge').title = d.voiceProblem || '';
+  $('r3cket').checked = d.r3cket !== false; $('r3cketQuiet').checked = d.r3cketQuiet !== false;
+  $('clickSpeed').value = toSlider(d.clickInterval || 100); $('clickVal').textContent = speedLabel(d.clickInterval || 100);
+  $('clickHotkey').value = (d.clickHotkey || '').replace(/\+/g, ' + ');
+  if (document.activeElement !== $('games')) $('games').value = (d.games || []).join(', ');
+  $('gamesNote').textContent = d.gaming ? `Playing now: ${d.game}` : "Windowed games aren't detected automatically: add them here.";
 }
+// Auto-click speed slider is logarithmic: 20 ms … 5 s.
+const toSlider = (ms) => Math.log(ms / 20) / Math.log(250);
+const fromSlider = (v) => Math.round(20 * 250 ** v);
+const speedLabel = (ms) => { const cps = 1000 / ms; return cps >= 1 ? `${cps.toFixed(cps < 10 ? 1 : 0)} clicks/s` : `every ${(ms / 1000).toFixed(1)} s`; };
 
 function fillVoices() {
   const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
@@ -225,6 +292,72 @@ $('speak').onchange = (e) => set({ speak: e.target.checked });
 $('voice').onchange = (e) => set({ voice: e.target.value });
 $('startWithWindows').onchange = (e) => set({ startWithWindows: e.target.checked });
 $('preview2').onclick = () => api.send('settings:preview');
+
+// Island size: live while dragging.
+for (const [id, key, lab] of [['islandScale', 'islandScale', (v) => `${Math.round(v * 100)}%`], ['islandX', 'islandX', String], ['islandY', 'islandY', String]]) {
+  $(id).oninput = (e) => { const v = +e.target.value; $(id === 'islandScale' ? 'scaleVal' : id === 'islandX' ? 'xVal' : 'yVal').textContent = lab(v); api.invoke('settings:set', { [key]: v }); };
+}
+$('resetIsland').onclick = () => set({ islandScale: 1, islandX: 0, islandY: 0 });
+
+// Voice
+$('voiceEngine').onchange = (e) => { $('voiceStatus').textContent = ''; set({ voiceEngine: e.target.value }); };
+$('groqVoice').onchange = (e) => set({ groqVoice: e.target.value });
+$('groqPlay').onclick = () => api.send('open:url', 'https://console.groq.com/playground');
+let testAudio = null;
+$('voiceTest').onclick = async () => {
+  if (testAudio) { testAudio.pause(); testAudio = null; }
+  speechSynthesis.cancel();
+  $('voiceTest').disabled = true; $('voiceStatus').textContent = 'Getting the voice…';
+  const r = await api.invoke('settings:voice-test');
+  $('voiceTest').disabled = false;
+  if (r.clips && r.clips.length) {
+    $('voiceStatus').textContent = 'That’s the natural voice.';
+    const play = (i) => {
+      if (i >= r.clips.length) return;
+      testAudio = new Audio(`data:audio/wav;base64,${r.clips[i]}`);
+      testAudio.onended = () => play(i + 1); testAudio.play().catch(() => {});
+    };
+    play(0);
+  } else {
+    $('voiceStatus').textContent = r.problem ? `Using the Windows voice: ${r.problem}` : 'That’s the Windows voice.';
+    const u = new SpeechSynthesisUtterance(r.text); const v = speechSynthesis.getVoices().find((x) => x.name === data.voice); if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  }
+  api.invoke('settings:get').then(fill);
+};
+
+// R3cket
+$('r3cket').onchange = (e) => set({ r3cket: e.target.checked });
+$('r3cketQuiet').onchange = (e) => set({ r3cketQuiet: e.target.checked });
+$('clickSpeed').oninput = (e) => { $('clickVal').textContent = speedLabel(fromSlider(+e.target.value)); };
+$('clickSpeed').onchange = (e) => set({ clickInterval: fromSlider(+e.target.value) });
+$('games').onchange = (e) => set({ games: e.target.value.split(/[,\n]/).map((x) => x.trim().replace(/\.exe$/i, '')).filter(Boolean) });
+$('addFront').onclick = () => {
+  $('addFront').disabled = true; $('addFront').textContent = 'Switch to your game now…';
+  setTimeout(async () => {
+    const fg = await api.invoke('settings:foreground');
+    $('addFront').disabled = false; $('addFront').textContent = 'Add the app I switch to in 3 s';
+    if (fg.exe && !['nebula', 'electron'].includes(fg.exe)) {
+      const list = [...new Set([...(data.games || []), fg.exe])];
+      set({ games: list });
+    }
+  }, 3000);
+};
+const ck = $('clickHotkey');
+ck.onclick = () => { ck.classList.add('recording'); ck.value = 'Press keys…'; };
+ck.onblur = () => { ck.classList.remove('recording'); fill(data); };
+ck.onkeydown = (e) => {
+  if (!ck.classList.contains('recording')) return;
+  e.preventDefault();
+  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+  const k = e.key;
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(k)) { ck.value = mods.join(' + ') + ' + …'; return; }
+  const key = k === ' ' ? 'Space' : k.length === 1 ? k.toUpperCase() : k;
+  if (!mods.length && !/^F\d{1,2}$/.test(key)) { ck.value = 'Add Ctrl, Alt or Shift (or use an F-key)…'; return; }
+  ck.classList.remove('recording');
+  set({ clickHotkey: [...mods, key].join('+') });
+  ck.blur();
+};
 
 // Shortcut recorder
 const hk = $('hotkey');

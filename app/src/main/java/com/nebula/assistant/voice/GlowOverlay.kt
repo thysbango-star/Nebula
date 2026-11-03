@@ -149,7 +149,7 @@ private fun DrawScope.halftone(t: Float, appear: Float, a: Float, lv: Float) {
     val k = ease(ramp(appear, 0.45f, 1.15f)) * a
     if (k <= 0f) return
     val gap = 9.dp.toPx()
-    val maxR = gap * 0.46f
+    val maxR = gap * 0.40f
     val buckets = 7
     val pts = Array(buckets) { ArrayList<Offset>(400) }
     val top = h * 0.55f
@@ -163,7 +163,7 @@ private fun DrawScope.halftone(t: Float, appear: Float, a: Float, lv: Float) {
             val centre = h * 0.80f + h * 0.045f * sin(x / w * 2f * PI.toFloat() * 1.15f + t * 1.6f) + h * 0.02f * sin(x / w * 9f - t * 2.3f)
             val d = (y - centre) / band
             // Dense below the crest, fading upward above it.
-            val v = if (d > 0) 0.35f + 0.65f * exp(-d * d * 0.35f) else exp(-d * d)
+            val v = if (d > 0) 0.12f + 0.88f * exp(-d * d * 0.7f) else exp(-d * d * 1.3f)
             val edgeFade = min(1f, (h - y) / (gap * 2f)) * min(1f, (y - top) / (h * 0.12f))
             val r = maxR * v * edgeFade * (0.75f + 0.25f * lv)
             if (r > 0.5f) {
@@ -177,7 +177,7 @@ private fun DrawScope.halftone(t: Float, appear: Float, a: Float, lv: Float) {
     for (b in 0 until buckets) {
         if (pts[b].isEmpty()) continue
         val r = maxR * (b + 0.7f) / buckets
-        drawPoints(pts[b], PointMode.Points, Color.White.copy(alpha = (0.35f + 0.4f * b / buckets) * k), strokeWidth = r * 2, cap = StrokeCap.Round)
+        drawPoints(pts[b], PointMode.Points, Color.White.copy(alpha = (0.18f + 0.42f * b / buckets) * k), strokeWidth = r * 2, cap = StrokeCap.Round)
     }
 }
 

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { Brain, cleanKey } = require('./brain');
 const { WakeWord, Utterance, wakeThreshold, levelOf, toWav } = require('./voice');
+const { WinHelper, NOT_GAMES } = require('./win32');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.setAppUserModelId('com.nebula.desktop');
@@ -29,6 +30,16 @@ const DEFAULTS = {
   model: '',
   noSearchModel: '',
   groqKeyEnc: '',
+  voiceEngine: 'groq',   // 'groq' (natural Orpheus voice) | 'system' (Windows voice)
+  groqVoice: 'troy',
+  islandScale: 1,        // 0.7 – 1.5
+  islandX: 0,            // px from centre
+  islandY: 0,            // px down from the top
+  r3cket: true,          // game mode
+  r3cketQuiet: true,     // hide the resting island while gaming
+  clickInterval: 100,    // ms between auto-clicks
+  clickHotkey: 'Ctrl+Alt+K',
+  games: [],             // extra .exe names that count as games
 };
 let configData = { ...DEFAULTS };
 const config = {
@@ -74,11 +85,18 @@ const baseWebPrefs = {
 };
 
 function primaryBounds() { return screen.getPrimaryDisplay().bounds; }
+const clamp = (v, a, b) => Math.min(b, Math.max(a, Number(v) || 0));
+function islandBounds() {
+  const b = primaryBounds();
+  const k = clamp(configData.islandScale || 1, 0.7, 1.5);
+  const w = Math.round(ISLAND_W * k), h = Math.round(ISLAND_H * k);
+  const x = Math.round(b.x + (b.width - w) / 2 + clamp(configData.islandX, -600, 600));
+  return { x: clamp(x, b.x, b.x + b.width - w), y: b.y + Math.round(clamp(configData.islandY, 0, 80)), width: w, height: h };
+}
 
 function createIsland() {
-  const b = primaryBounds();
   island = new BrowserWindow({
-    x: Math.round(b.x + (b.width - ISLAND_W) / 2), y: b.y, width: ISLAND_W, height: ISLAND_H,
+    ...islandBounds(),
     transparent: true, frame: false, resizable: false, movable: false, hasShadow: false,
     skipTaskbar: true, alwaysOnTop: true, show: false, fullscreenable: false, focusable: true,
     backgroundColor: '#00000000', webPreferences: baseWebPrefs,
@@ -87,6 +105,7 @@ function createIsland() {
   island.setVisibleOnAllWorkspaces(true);
   island.setIgnoreMouseEvents(true, { forward: true });
   island.loadFile(asset('island.html'));
+  island.webContents.on('did-finish-load', () => island.webContents.setZoomFactor(clamp(configData.islandScale || 1, 0.7, 1.5)));
   island.once('ready-to-show', () => {
     if (configData.islandMode === 'always') island.showInactive();
     pushIslandState();
@@ -125,7 +144,7 @@ function openSettings() {
 
 function repositionWindows() {
   const b = primaryBounds();
-  if (island) island.setBounds({ x: Math.round(b.x + (b.width - ISLAND_W) / 2), y: b.y, width: ISLAND_W, height: ISLAND_H });
+  if (island) { island.setBounds(islandBounds()); island.webContents.setZoomFactor(clamp(configData.islandScale || 1, 0.7, 1.5)); }
   if (glow) glow.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
 }
 
@@ -172,6 +191,8 @@ function registerHotkeys() {
   if (!registeredHotkey && wanted !== 'Ctrl+Alt+N') {
     try { if (globalShortcut.register('Ctrl+Alt+N', () => toggleSession('hotkey'))) registeredHotkey = 'Ctrl+Alt+N'; } catch { /* */ }
   }
+  // R3cket auto-clicker on/off.
+  try { if (configData.clickHotkey) globalShortcut.register(configData.clickHotkey, () => clicker(clickerState.running ? 'stop' : 'start')); } catch { /* invalid */ }
   // The Copilot key on newer keyboards sends Win+Shift+F23.
   try { globalShortcut.register('Super+Shift+F23', () => toggleSession('copilot')); } catch { /* not supported */ }
   refreshTrayMenu();
@@ -179,7 +200,8 @@ function registerHotkeys() {
 
 function applyIslandMode() {
   if (!island) return;
-  if (configData.islandMode === 'always' || session.active) island.showInactive();
+  const quiet = r3.gaming && configData.r3cketQuiet && !clickerState.running;
+  if (session.active || (configData.islandMode === 'always' && !quiet) || clickerState.running) island.showInactive();
   else island.hide();
 }
 
@@ -249,8 +271,9 @@ function pushIslandState() {
     active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
     sources: session.sources, timerEndsAt: timer.endsAt, intensity: configData.intensity,
     hasKey: !!getKey(), hotkey: registeredHotkey || configData.hotkey, wakeEnabled: configData.wakeEnabled && !!wake,
+    gaming: r3.gaming, game: r3.exe, clicker: clickerState, clickHotkey: configData.clickHotkey,
   });
-  send(glow, 'vibrance:state', { active: session.active, phase: session.phase, intensity: configData.intensity });
+  send(glow, 'vibrance:state', { active: session.active && !session.gaming, phase: session.phase, intensity: configData.intensity });
 }
 
 function setPhase(phase, extra = {}) {
@@ -271,9 +294,9 @@ function startSession(source, typed) {
   clearTimeout(session.endTimer);
   if (Date.now() - session.lastEnd > 90_000) brain.resetConversation(); // follow-ups within 90 s keep context
   session.token += 1;
-  Object.assign(session, { active: true, transcript: '', reply: '', sources: [], error: '' });
+  Object.assign(session, { active: true, transcript: '', reply: '', sources: [], error: '', gaming: r3.gaming });
   island.showInactive();
-  glow.showInactive();
+  if (!session.gaming) glow.showInactive(); // R3cket: no full-screen effects over a game
   send(island, 'island:speak-stop');
   if (typed) {
     session.utterance = null;
@@ -312,6 +335,11 @@ async function think(text, token) {
   const r = await brain.respond(text);
   if (token !== session.token) return;
   if (r.action && r.action.type === 'timer') setTimer(r.action.seconds);
+  if (r.action && r.action.type === 'clicker') {
+    if (r.action.interval) configData.clickInterval = clamp(r.action.interval, 20, 5000);
+    const msg = await clicker(r.action.cmd);
+    if (msg) r.text = msg;
+  }
   session.reply = r.text;
   session.sources = r.sources || [];
   if (r.close) {
@@ -321,7 +349,7 @@ async function think(text, token) {
   }
   if (configData.speak) {
     setPhase('speaking');
-    send(island, 'island:speak', { text: r.text, voice: configData.voice, token });
+    speakOut(r.text, token);
   } else {
     finishTurn(token);
   }
@@ -373,6 +401,90 @@ function setTimer(seconds) {
   pushIslandState();
 }
 
+// ------------------------------------------------------------------ natural voice
+
+let voiceProblem = '';
+/** Speaks with Groq Orpheus (streamed sentence by sentence to the island); falls back to the Windows voice. */
+async function speakOut(text, token) {
+  if (configData.voiceEngine === 'groq' && getKey()) {
+    let sent = 0;
+    try {
+      await brain.speak(text, (buf, last) => {
+        if (token !== session.token) return false;
+        sent++;
+        send(island, 'island:audio', { token, b64: buf.toString('base64'), last });
+        return true;
+      });
+      voiceProblem = '';
+      if (sent) return;
+    } catch (e) {
+      voiceProblem = e.spoken || e.message || 'Voice error';
+      console.error('voice', voiceProblem, e.detail || '');
+      if (sent) { send(island, 'island:audio', { token, b64: null, last: true }); return; }
+    }
+  }
+  if (token === session.token) send(island, 'island:speak', { text, voice: configData.voice, token });
+}
+
+// ------------------------------------------------------------------ R3cket game mode
+
+const helper = new WinHelper(path.join(app.getPath('userData'), 'helper'));
+const r3 = { gaming: false, exe: '' };
+const clickerState = { running: false, clicks: 0, interval: 100 };
+let clickPoll = null;
+
+async function pollForeground() {
+  if (process.platform !== 'win32' || !configData.r3cket) { if (r3.gaming) setGaming(false, ''); return; }
+  const fg = await helper.foreground();
+  if (!fg.exe || fg.exe === 'nebula' || fg.exe === 'electron' || fg.exe === 'powershell') return; // our own windows
+  const games = (configData.games || []).map((g) => String(g).toLowerCase().replace(/\.exe$/, ''));
+  const gaming = games.includes(fg.exe) || (fg.fullscreen && !NOT_GAMES.has(fg.exe));
+  if (gaming !== r3.gaming || (gaming && fg.exe !== r3.exe)) setGaming(gaming, fg.exe);
+}
+
+function setGaming(on, exe) {
+  r3.gaming = on; r3.exe = on ? exe : '';
+  if (!on && clickerState.running) clicker('stop');
+  applyIslandMode();
+  pushIslandState();
+}
+
+/** start | stop | faster | slower → a sentence for Nebula to say. */
+async function clicker(cmd) {
+  if (process.platform !== 'win32') return 'Auto-click works on Windows only.';
+  if (cmd === 'faster') configData.clickInterval = clamp(Math.round(configData.clickInterval / 1.5), 20, 5000);
+  if (cmd === 'slower') configData.clickInterval = clamp(Math.round(configData.clickInterval * 1.5), 20, 5000);
+  saveConfig();
+  clickerState.interval = configData.clickInterval;
+  if (cmd === 'stop') {
+    await helper.stopClicking();
+    clickerState.running = false; clearInterval(clickPoll);
+    applyIslandMode(); pushIslandState();
+    return `Stopped after ${clickerState.clicks} clicks.`;
+  }
+  if (cmd === 'start' || clickerState.running) {
+    const ok = await helper.startClicking(configData.clickInterval);
+    if (ok !== 'ok') return "I couldn't start the auto-clicker on this PC.";
+    if (cmd === 'start') clickerState.clicks = 0;
+    clickerState.running = true;
+    clearInterval(clickPoll);
+    clickPoll = setInterval(async () => {
+      const c = await helper.clicks();
+      clickerState.clicks = c.clicks; clickerState.running = c.running;
+      if (!c.running) clearInterval(clickPoll);
+      pushIslandState();
+    }, 500);
+    // A running clicker needs a fresh start for a new speed.
+    if (cmd !== 'start') { await helper.stopClicking(); await helper.startClicking(configData.clickInterval); }
+    applyIslandMode(); pushIslandState();
+    const cps = 1000 / configData.clickInterval;
+    return cmd === 'start'
+      ? `Auto-clicking where your pointer is, ${cps >= 1 ? `${cps.toFixed(cps < 10 ? 1 : 0)} times a second` : `every ${(configData.clickInterval / 1000).toFixed(1)} seconds`}. Press ${configData.clickHotkey.replace(/\+/g, ' ')} to stop.`
+      : `Now every ${configData.clickInterval} milliseconds.`;
+  }
+  return `Auto-click speed set to every ${configData.clickInterval} milliseconds.`;
+}
+
 // ------------------------------------------------------------------ IPC
 
 function broadcastSettings() {
@@ -384,6 +496,7 @@ function settingsPayload() {
   return {
     ...configData, groqKeyEnc: undefined, hasKey: !!getKey(), activeHotkey: registeredHotkey,
     wakeStatus: !configData.wakeEnabled ? 'off' : wake ? 'listening' : (wakeError || 'starting'),
+    voiceProblem, gaming: r3.gaming, game: r3.exe, helperProblem: helper.failed,
     version: app.getVersion(),
   };
 }
@@ -397,6 +510,7 @@ function wireIpc() {
   ipcMain.on('island:ask', (_e, text) => { if (String(text || '').trim()) startSession('typed', String(text).trim()); });
   ipcMain.on('island:spoken', (_e, token) => finishTurn(token));
   ipcMain.on('island:close', () => endSession());
+  ipcMain.on('island:clicker', (_e, cmd) => clicker(cmd));
   ipcMain.on('island:cancel-timer', () => setTimer(0));
   ipcMain.on('island:focus', () => { if (island) island.focus(); });
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
@@ -411,7 +525,16 @@ function wireIpc() {
     }
     saveConfig();
     if (before.sensitivity !== configData.sensitivity || before.wakeEnabled !== configData.wakeEnabled) { initWake(); updateEar(); }
-    if (before.hotkey !== configData.hotkey) registerHotkeys();
+    if (before.hotkey !== configData.hotkey || before.clickHotkey !== configData.clickHotkey) registerHotkeys();
+    if (['islandScale', 'islandX', 'islandY'].some((k) => before[k] !== configData[k])) {
+      repositionWindows();
+      // Show the island while its size is being adjusted.
+      if (island) island.showInactive();
+      clearTimeout(ipcMain.__hideIsland);
+      ipcMain.__hideIsland = setTimeout(applyIslandMode, 2500);
+    }
+    if (before.r3cket !== configData.r3cket || before.r3cketQuiet !== configData.r3cketQuiet) { pollForeground(); applyIslandMode(); }
+    if (before.clickInterval !== configData.clickInterval && clickerState.running) clicker('speed');
     if (before.startWithWindows !== configData.startWithWindows) applyLoginItem();
     if (before.islandMode !== configData.islandMode) applyIslandMode();
     refreshTrayMenu();
@@ -419,6 +542,16 @@ function wireIpc() {
     return settingsPayload();
   });
   ipcMain.handle('settings:test', (_e, key) => brain.test(key));
+  // Voice preview in Settings: natural voice clips, or tell the page to use the Windows voice.
+  ipcMain.handle('settings:voice-test', async () => {
+    const line = "Hey, I'm Nebula. This is how I'll sound when we talk.";
+    if (configData.voiceEngine !== 'groq') return { clips: [], text: line };
+    if (!getKey()) return { clips: [], text: line, problem: 'Add your Groq key first.' };
+    const clips = [];
+    try { await brain.speak(line, (buf) => { clips.push(buf.toString('base64')); }); return { clips, text: line }; }
+    catch (e) { voiceProblem = e.spoken || e.message; return { clips: [], text: line, problem: voiceProblem }; }
+  });
+  ipcMain.handle('settings:foreground', async () => (process.platform === 'win32' ? helper.foreground() : { exe: '', fullscreen: false }));
   ipcMain.on('settings:preview', () => {
     startSession('preview');
   });
@@ -450,7 +583,13 @@ app.whenReady().then(() => {
   screen.on('display-removed', repositionWindows);
 
   if (!getKey() && !process.argv.includes('--hidden')) openSettings();
+
+  // R3cket: watch for games (and warm up the helper so the first auto-click is instant).
+  if (process.platform === 'win32') {
+    helper.start().then((ok) => { if (!ok) console.error('helper', helper.failed); });
+    setInterval(() => { pollForeground().catch(() => {}); }, 2000);
+  }
 });
 
 app.on('window-all-closed', (e) => e.preventDefault()); // keep running in the tray
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => { globalShortcut.unregisterAll(); helper.stopClicking().finally(() => helper.stop()); });

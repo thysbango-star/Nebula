@@ -1,7 +1,7 @@
 {
   "name": "nebula-desktop",
   "productName": "Nebula",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Nebula for Windows: Vibrance island, screen glow and a voice assistant.",
   "author": "thysbango-star",
   "license": "UNLICENSED",
@@ -9,7 +9,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/brain.js && node --check src/voice.js && node --check src/preload.js",
+    "check": "node --check src/main.js && node --check src/brain.js && node --check src/voice.js && node --check src/preload.js && node --check src/win32.js",
     "dist": "electron-builder --win nsis portable --x64 --publish never"
   },
   "dependencies": {

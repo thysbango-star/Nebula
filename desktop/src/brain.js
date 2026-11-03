@@ -90,6 +90,40 @@ class Brain {
     throw toSpoken(lastErr);
   }
 
+  /**
+   * Natural speech with Groq's Orpheus voices. Returns WAV buffers (one per sentence group),
+   * calling onChunk as each arrives so playback can start straight away.
+   */
+  async speak(text, onChunk) {
+    const key = this.getKey();
+    if (!key) throw new SpokenError('No Groq key.');
+    const parts = chunkText(text, 190);
+    const fetchOne = async (input) => {
+      let res;
+      try {
+        res = await fetch(BASE + '/audio/speech', {
+          method: 'POST', signal: AbortSignal.timeout(25000),
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: this.config.get('voiceModel') || 'canopylabs/orpheus-v1-english', voice: this.config.get('groqVoice') || 'troy', input, response_format: 'wav' }),
+        });
+      } catch (e) { throw new SpokenError('Voice service unreachable.', e.message); }
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      const raw = await res.text();
+      if (/terms/i.test(raw)) throw new SpokenError('Groq needs you to accept the Orpheus terms once: console.groq.com → Playground → pick Orpheus → accept.');
+      if (res.status === 401) throw new SpokenError('The voice service rejected the key.');
+      if (res.status === 429) throw new SpokenError('Voice limit reached for now.');
+      throw new SpokenError(`Voice service error ${res.status}.`, raw.slice(0, 300));
+    };
+    // Fetch the next piece while the current one is being handed over.
+    let next = fetchOne(parts[0]);
+    for (let i = 0; i < parts.length; i++) {
+      const buf = await next;
+      if (i + 1 < parts.length) next = fetchOne(parts[i + 1]).catch((e) => e);
+      if (buf instanceof Error) { if (i === 0) throw buf; return; }
+      if (onChunk(buf, i === parts.length - 1) === false) return;
+    }
+  }
+
   // ------------------------------------------------------------ desktop commands
 
   handleLocal(input) {
@@ -109,6 +143,17 @@ class Brain {
     }
     if (/^(cancel|stop) (the )?timer/.test(q)) {
       return { text: 'Timer cancelled.', sources: [], action: { type: 'timer', seconds: 0 } };
+    }
+    // R3cket auto-clicker (clicks wherever the mouse pointer is).
+    if (/\b(auto ?-?click(er|ing)?|auto ?tap|clicking)\b/.test(q)) {
+      const ms = q.match(/(\d{2,4})\s*(ms|milliseconds?)/);
+      const cps = q.match(/(\d+(?:\.\d+)?)\s*(times a second|per second|clicks? a second|cps)/);
+      const interval = ms ? +ms[1] : cps ? Math.round(1000 / Math.max(0.2, +cps[1])) : 0;
+      if (/\b(stop|end|pause|cancel|turn off|disable)\b/.test(q)) return { text: 'Stopped clicking.', sources: [], action: { type: 'clicker', cmd: 'stop' } };
+      if (/\b(faster|speed up)\b/.test(q)) return { text: 'Faster.', sources: [], action: { type: 'clicker', cmd: 'faster' } };
+      if (/\b(slower|slow down)\b/.test(q)) return { text: 'Slower.', sources: [], action: { type: 'clicker', cmd: 'slower' } };
+      return { text: 'Auto-clicking where your pointer is. Press the auto-click shortcut or say stop clicking to stop.', sources: [],
+        action: { type: 'clicker', cmd: 'start', interval } };
     }
     const open = q.match(/^(open|launch|start|go to)\s+(.+)$/);
     if (open) return this.open(open[2].replace(/^the\s+/, '').replace(/\s+app$/, '').trim());
@@ -279,7 +324,7 @@ function systemPrompt(search) {
     '- Say numbers, times and units the way a person would speak them.',
     web,
     `It is now ${now}, time zone ${tz}. Use this for "today", "tonight", "this weekend" and local answers; if a question needs the user's city and you can't tell it, ask briefly.`,
-    'The PC itself handles timers ("set a timer for 10 minutes") and opening apps or sites ("open Spotify", "open YouTube"). If the user asks for one of those in a way that did not trigger it, tell them the phrase to use.',
+    'The PC itself handles the R3cket auto-clicker ("auto-click", "stop clicking", "click faster"), timers ("set a timer for 10 minutes") and opening apps or sites ("open Spotify", "open YouTube"). If the user asks for one of those in a way that did not trigger it, tell them the phrase to use.',
     "If you can't do something, say so in one sentence.",
   ].join('\n');
 }
@@ -294,6 +339,20 @@ function cleanForSpeech(s) {
     .replace(/\s*\n\s*/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/** Sentence-sized pieces under max characters (Orpheus reads up to ~200 at a time). */
+function chunkText(text, max) {
+  const out = []; let cur = '';
+  for (const s of String(text).split(/(?<=[.!?;:])\s+/)) {
+    const words = s.length > max ? s.split(/\s+/) : [s];
+    for (const w of words) {
+      if (cur && cur.length + w.length + 1 > max) { out.push(cur.trim()); cur = ''; }
+      cur += w + ' ';
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.length ? out : [String(text).slice(0, max)];
 }
 
 function cleanKey(raw) {
@@ -330,4 +389,4 @@ function describe(sec) {
     .filter(Boolean).join(' and ');
 }
 
-module.exports = { Brain, cleanKey, parseDuration, DEFAULT_MODEL };
+module.exports = { Brain, cleanKey, parseDuration, chunkText, DEFAULT_MODEL };
