@@ -27,6 +27,8 @@ data class ToolOutcome(
     val fileIds: List<String> = emptyList(),
     val sources: List<Source> = emptyList(),
     val plan: List<String>? = null,
+    /** Long result shown in the chat but not read aloud (e.g. the full song list). */
+    val details: String? = null,
 )
 
 object ToolDefs {
@@ -40,7 +42,7 @@ object ToolDefs {
     private fun obj(desc: String) = JSONObject().put("type", "object").put("description", desc)
 
     /** Tools that change something (or read the screen): using one turns the request into a tracked task. */
-    val ACTION = setOf("plan", "read_screen", "tap", "type_text", "scroll", "navigate", "open_app", "open_url", "send_sms",
+    val ACTION = setOf("plan", "read_screen", "collect_list", "look", "tap", "type_text", "scroll", "navigate", "open_app", "open_url", "send_sms",
         "send_whatsapp", "call", "set_timer", "set_alarm", "flashlight", "create_document", "update_document", "ask_user", "autoclicker")
 
     val all: JSONArray = JSONArray().apply {
@@ -48,7 +50,12 @@ object ToolDefs {
             JSONObject().put("steps", arr("Short step titles, e.g. 'Find Mom in contacts'")), listOf("steps")))
         put(fn("web_search", "Search the web for current facts (news, weather, prices, people, places).",
             JSONObject().put("query", s("Search query")), listOf("query")))
-        put(fn("read_screen", "Read the elements on the current screen as a numbered list. Use the numbers with tap/type_text.", JSONObject()))
+        put(fn("read_screen", "Read the elements on the current screen as a numbered list. Use the numbers with tap/type_text. " +
+            "Tappable rows (songs, chats, emails…) are one element with all their labels, e.g. title · artist · Explicit.", JSONObject()))
+        put(fn("collect_list", "Scroll through the whole list on screen and return every row (e.g. all songs in a playlist, all chats). " +
+            "Much faster than scrolling yourself. Open the list first.", JSONObject().put("max_items", i("Stop after this many rows (default 300)")), emptyList()))
+        put(fn("look", "Take a screenshot and ask a vision AI about it. Use when read_screen doesn't show what you need " +
+            "(icons, badges, images, games, pictures, colours).", JSONObject().put("question", s("What to find or check on the screen")), listOf("question")))
         put(fn("tap", "Tap an element by its [number] from read_screen, or by its visible text/label.",
             JSONObject().put("target", s("e.g. '12' or 'Settings'")), listOf("target")))
         put(fn("type_text", "Type into a text field (by [number] or label; omit to use the focused field).",
@@ -78,7 +85,8 @@ object ToolDefs {
         put(fn("ask_user", "Ask the user a question with tappable options when you need information or a choice. Pauses the task.",
             JSONObject().put("question", s("Question")).put("options", arr("2-6 options")).put("multiple", b("Allow several choices")), listOf("question")))
         put(fn("finish_task", "End the task and report the real result. Only say 'completed' if your tools confirmed success.",
-            JSONObject().put("outcome", s("completed|failed|cancelled")).put("summary", s("What actually happened, in one or two sentences")), listOf("outcome", "summary")))
+            JSONObject().put("outcome", s("completed|failed|cancelled")).put("summary", s("What actually happened, in one or two sentences (read aloud)"))
+                .put("details", s("Optional full result shown in the chat, not read aloud: e.g. the complete list of songs, one per line")), listOf("outcome", "summary")))
     }
 }
 
@@ -93,6 +101,17 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
 
     private fun result(ok: Boolean, verified: Boolean, message: String, extra: JSONObject? = null): String =
         (extra ?: JSONObject()).put("ok", ok).put("verified", ok && verified).put("result", message).toString()
+
+    /** Called with progress text during long tools (e.g. reading a playlist). */
+    var progress: ((String) -> Unit)? = null
+
+    /** Adds what the screen looks like now, so the AI doesn't need a separate read_screen after every action. */
+    private suspend fun withScreen(json: String): String {
+        val ax = NebulaAccessibility.instance ?: return json
+        delay(350)
+        val snap = ax.snapshot()
+        return runCatching { JSONObject(json).put("screen_now", snap.describe(70).take(3200)).toString() }.getOrDefault(json)
+    }
 
     private val sensitiveTap = Regex("\\b(pay|buy|purchase|order|checkout|check out|transfer|send money|delete|remove|uninstall|erase|reset|subscribe|confirm payment|place order)\\b", RegexOption.IGNORE_CASE)
 
@@ -112,6 +131,22 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
             val (text, sources) = groq.webSearch(q)
             ToolOutcome(text.take(3500).ifBlank { "No results." }, sources = sources)
         }
+        "collect_list" -> {
+            val ax = NebulaAccessibility.instance ?: return needsAccess("read the list")
+            val max = a.optInt("max_items", 300).coerceIn(10, 600)
+            val (rows, end) = ax.collectList(max) { n -> progress?.invoke("Reading the list… $n so far") }
+            val text = rows.mapIndexed { i, r -> "${i + 1}. ${r.take(160)}" }.joinToString("\n")
+            val note = if (end) "Reached the end of the list." else "Stopped at $max rows (more may exist)."
+            ToolOutcome("${rows.size} rows. $note\n$text".take(14000),
+                step("Read ${rows.size} items from the list", rows.isNotEmpty(), rows.isNotEmpty(), note))
+        }
+        "look" -> {
+            val ax = NebulaAccessibility.instance ?: return needsAccess("look at the screen")
+            val img = ax.screenshotJpeg() ?: return ToolOutcome(result(false, false, "Couldn't take a screenshot (needs Android 11+ and Screen control re-enabled once after updating)."),
+                step("Look at the screen", false, false, "Screenshot unavailable"))
+            val answer = groq.vision(a.optString("question"), img)
+            ToolOutcome(result(true, true, answer), step("Look at the screen", true, true, answer.take(80)))
+        }
         "read_screen" -> {
             val ax = NebulaAccessibility.instance ?: return needsAccess("read the screen")
             val snap = ax.snapshot()
@@ -129,26 +164,27 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
                     step = TaskStep(label = "Approval needed to tap “$label”", status = StepStatus.WAITING))
             }
             val r = ax.tap(target)
-            ToolOutcome(result(r.ok, r.verified, r.message), step("Tap “${label.take(40)}”", r.ok, r.verified, r.message))
+            ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Tap “${label.take(40)}”", r.ok, r.verified, r.message))
         }
         "type_text" -> {
             val ax = NebulaAccessibility.instance ?: return needsAccess("type on the screen")
             val r = ax.type(a.optString("target").takeIf { it.isNotBlank() }, a.optString("text"), a.optBoolean("submit"))
-            ToolOutcome(result(r.ok, r.verified, r.message), step("Type “${a.optString("text").take(30)}”", r.ok, r.verified, r.message))
+            ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Type “${a.optString("text").take(30)}”", r.ok, r.verified, r.message))
         }
         "scroll" -> {
             val ax = NebulaAccessibility.instance ?: return needsAccess("scroll")
             val r = ax.scroll(a.optString("direction", "down"), a.optString("target").takeIf { it.isNotBlank() })
-            ToolOutcome(result(r.ok, r.verified, r.message), step("Scroll ${a.optString("direction", "down")}", r.ok, r.verified, r.message))
+            ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Scroll ${a.optString("direction", "down")}", r.ok, r.verified, r.message))
         }
         "navigate" -> {
             val ax = NebulaAccessibility.instance ?: return needsAccess("navigate")
             val r = ax.global(a.optString("action"))
-            ToolOutcome(result(r.ok, r.verified, r.message), step("Go ${a.optString("action")}", r.ok, r.verified, r.message))
+            ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Go ${a.optString("action")}", r.ok, r.verified, r.message))
         }
         "open_app" -> {
             val r = phone.openApp(a.optString("name"))
-            ToolOutcome(result(r.ok, r.verified, r.message), step("Open ${a.optString("name")}", r.ok, r.verified, r.message))
+            if (r.ok) delay(900)
+            ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Open ${a.optString("name")}", r.ok, r.verified, r.message))
         }
         "open_url" -> {
             val r = phone.openUrl(a.optString("url"))
@@ -213,7 +249,8 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
             ToolOutcome("Waiting for the user's answer.", pause = InputRequest(if (opts.isEmpty()) "text" else "choice", a.optString("question"),
                 opts, a.optBoolean("multiple"), toolCallId = callId), step = TaskStep(label = "Waiting for your answer", status = StepStatus.WAITING))
         }
-        "finish_task" -> ToolOutcome("Finished.", finish = a.optString("outcome", "completed") to a.optString("summary"))
+        "finish_task" -> ToolOutcome("Finished.", finish = a.optString("outcome", "completed") to a.optString("summary"),
+            details = a.optString("details").takeIf { it.isNotBlank() })
         else -> ToolOutcome(result(false, false, "Unknown tool $name."))
     } }
 

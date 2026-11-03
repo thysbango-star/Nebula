@@ -156,8 +156,13 @@ class NotchController(private val service: AccessibilityService) {
                     c.running && g -> showMarkers(touchable = false)
                     else -> hideMarkers()
                 }
-                setKeepAwake(g && prefs.r3cketAwake)
+                gamingAwake = g && prefs.r3cketAwake
+                setKeepAwake(gamingAwake || taskAwake)
             }
+        }
+        // Nebula working on a task: keep the screen on so it doesn't sleep halfway through.
+        scope.launch {
+            com.nebula.assistant.agent.TaskEngine.get(service).busy.collect { b -> taskAwake = b; setKeepAwake(gamingAwake || taskAwake) }
         }
     }
 
@@ -199,6 +204,8 @@ class NotchController(private val service: AccessibilityService) {
     private fun update() { val v = view ?: return; lp?.let { runCatching { wm.updateViewLayout(v, it) } } }
 
     private var keepAwake = false
+    private var gamingAwake = false
+    private var taskAwake = false
     private fun setKeepAwake(on: Boolean) {
         val p = lp ?: return
         if (on == keepAwake) return

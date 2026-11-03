@@ -155,11 +155,14 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
                 "terms" in err.lowercase() -> "Groq needs you to accept the Orpheus terms once: open console.groq.com/playground, pick the Orpheus model and accept."
                 code == 401 -> "The voice service rejected the key."
                 code == 429 -> "Voice service limit reached for now; using the phone voice."
-                else -> "Voice service error $code."
+                code == 404 || "model" in err.lowercase() && "not" in err.lowercase() -> "Groq doesn't offer the voice model “${prefs.groqVoiceModel}” to this key. Groq says: ${groqMsg(err)}"
+                else -> "Voice service error $code. ${groqMsg(err)}".trim()
             }
             null
         }
     } catch (e: Exception) { lastProblem = "Voice service unreachable."; null }
+
+    private fun groqMsg(raw: String) = runCatching { JSONObject(raw).getJSONObject("error").optString("message") }.getOrNull().orEmpty().take(220)
 
     private suspend fun system(text: String) {
         init()

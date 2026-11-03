@@ -52,6 +52,20 @@ class TaskEngine private constructor(private val context: Context) {
     val activity: StateFlow<Map<String, String>> = _activity.asStateFlow()
 
     private val jobs = mutableMapOf<String, Job>()
+
+    /** True while any task is running — the Notch keeps the screen on so the phone doesn't sleep mid-task. */
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+    private var running = 0
+    private val cpu = (context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+        .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Nebula:task").apply { setReferenceCounted(false) }
+
+    private suspend fun <T> awake(block: suspend () -> T): T {
+        synchronized(this) { running++; _busy.value = true; runCatching { cpu.acquire(15 * 60_000L) } }
+        try { return block() } finally {
+            synchronized(this) { running = (running - 1).coerceAtLeast(0); if (running == 0) { _busy.value = false; runCatching { cpu.release() } } }
+        }
+    }
     private val waiters = mutableMapOf<String, CompletableDeferred<Result>>()
 
     data class Result(val text: String, val taskId: String?, val status: TaskStatus?, val needsInput: Boolean)
@@ -65,6 +79,7 @@ class TaskEngine private constructor(private val context: Context) {
         var pendingCallId: String? = null,
         var deferredCallIds: List<String> = emptyList(),
         var turns: Int = 0,
+        var details: String? = null,
     )
 
     // ================================================================ public API
@@ -81,7 +96,7 @@ class TaskEngine private constructor(private val context: Context) {
         }
         jobs[conversationId]?.cancel()
         jobs[conversationId] = scope.launch {
-            val r = try { handle(conversationId, text) } catch (e: Exception) { fail(conversationId, null, e) }
+            val r = awake { try { handle(conversationId, text) } catch (e: Exception) { fail(conversationId, null, e) } }
             done.complete(r)
         }
         return done
@@ -95,7 +110,7 @@ class TaskEngine private constructor(private val context: Context) {
         Store.updateTask(taskId) { it.copy(status = TaskStatus.IN_PROGRESS, input = null,
             steps = it.steps.map { s -> if (s.status == StepStatus.WAITING) s.copy(status = StepStatus.DONE, detail = "You chose: ${choices.joinToString()}", verified = true) else s }) }
         jobs[task.conversationId] = scope.launch {
-            val r = try { resume(task, input, choices) } catch (e: Exception) { fail(task.conversationId, taskId, e) }
+            val r = awake { try { resume(task, input, choices) } catch (e: Exception) { fail(task.conversationId, taskId, e) } }
             done.complete(r)
         }
         return done
@@ -144,9 +159,11 @@ class TaskEngine private constructor(private val context: Context) {
 
     private suspend fun loop(run: Run): Result {
         groq.onWait = { msg -> setActivity(run.conversationId, msg) }
+        tools.progress = { msg -> setActivity(run.conversationId, msg) }
         while (run.turns < MAX_TURNS) {
             run.turns++
             setActivity(run.conversationId, if (run.turns == 1) "Thinking…" else "Working on it…")
+            compact(run.messages)
             val reply = groq.chat(run.messages, ToolDefs.all, effort = "medium")
             run.sources += reply.sources.filter { s -> run.sources.none { it.url == s.url } }
             val msg = reply.message
@@ -169,6 +186,7 @@ class TaskEngine private constructor(private val context: Context) {
                 record(run, out)
 
                 if (out.finish != null) {
+                    run.details = out.details
                     run.messages.put(tool(id, out.content))
                     for (j in i + 1 until calls.length()) run.messages.put(tool(calls.getJSONObject(j).optString("id"), "Not run: task finished."))
                     return finalize(run, out.finish, null)
@@ -298,7 +316,8 @@ class TaskEngine private constructor(private val context: Context) {
             else -> { status = TaskStatus.FAILED; summary = "Nothing could be done or confirmed. $reply" }
         }
         Store.updateTask(id) { it.copy(status = status, summary = summary, input = input, fileIds = (it.fileIds + run.fileIds).distinct()) }
-        Store.addMessage(run.conversationId, ChatMessage(role = "assistant", text = input?.question?.let { "$summary\n\n$it" } ?: summary,
+        val shown = run.details?.let { "$summary\n\n$it" } ?: summary
+        Store.addMessage(run.conversationId, ChatMessage(role = "assistant", text = input?.question?.let { "$shown\n\n$it" } ?: shown,
             taskId = id, sources = run.sources.toList(), fileIds = run.fileIds.toList()))
         Sounds.play(context, when (status) {
             TaskStatus.COMPLETED -> NebulaSound.SUCCESS
@@ -324,11 +343,30 @@ class TaskEngine private constructor(private val context: Context) {
         _activity.value = _activity.value.toMutableMap().apply { if (text == null) remove(conversationId) else put(conversationId, text) }
     }
 
+    /**
+     * Keeps the conversation small enough for Groq's free tier: only the two newest screen readings stay in
+     * full; older ones shrink to a one-line note. (Old screens are out of date anyway.)
+     */
+    private fun compact(messages: JSONArray) {
+        var keep = 2
+        for (i in messages.length() - 1 downTo 0) {
+            val m = messages.optJSONObject(i) ?: continue
+            if (m.optString("role") != "tool") continue
+            val c = m.optString("content")
+            if (c.length < 1200 || c.startsWith("[older")) continue
+            if (keep > 0) { keep--; continue }
+            val head = Regex("\"result\":\"([^\"]{0,200})").find(c)?.groupValues?.get(1) ?: c.take(200)
+            m.put("content", "[older screen reading removed to save space] $head")
+        }
+    }
+
     private fun tool(id: String, content: String) = JSONObject().put("role", "tool").put("tool_call_id", id).put("content", content)
 
     private fun label(name: String, a: JSONObject) = when (name) {
         "web_search" -> "Searching the web…"
         "read_screen" -> "Reading the screen…"
+        "collect_list" -> "Reading the whole list…"
+        "look" -> "Looking at the screen…"
         "tap" -> "Tapping ${a.optString("target").take(30)}…"
         "type_text" -> "Typing…"
         "scroll" -> "Scrolling…"
@@ -380,7 +418,13 @@ $files
 How to work:
 - Do the task with tools instead of explaining how. Plain questions: answer directly; use web_search for anything current.
 - Multi-step tasks: call plan first, then act step by step.
-- Screen tasks: read_screen → tap/type_text using [numbers] → read_screen again to check it worked. Use open_app to switch apps and navigate(back) to return. Recover from mistakes (go back, scroll, try another element).
+- Screen tasks: open_app, then act. Every tap/type/scroll/open result includes "screen_now" (the screen after the action), so you rarely need read_screen. Use the [numbers] from the newest screen only — numbers change after every action.
+- Work like a careful person: one action at a time, check screen_now, and if you're on the wrong screen, go back (navigate back) and try another route (search box, tabs, menu, scrolling). Don't repeat an action that didn't work; try something different.
+- Whole lists (all songs in a playlist, all chats, all emails): open the list, then call collect_list ONCE and work from its rows. Don't scroll manually through long lists.
+- When labels aren't enough (icons, badges like the "E" explicit mark, images, games), use look with a precise question.
+- Shortcuts: open_url with app links is faster than tapping — e.g. Spotify Liked Songs: spotify:collection:tracks ; a Spotify search: spotify:search:QUERY ; YouTube search: https://www.youtube.com/results?search_query=QUERY ; Maps directions: google.navigation:q=PLACE ; WhatsApp chat: https://wa.me/NUMBER.
+- Spotify marks explicit songs with "Explicit" or an "E" badge in each row. If a row has no marker it's clean. If the list doesn't show markers, use look on each screen.
+- Long results (e.g. a list of 80 songs): say how many in the summary and put the full list in finish_task details, one per line (or create a document if the user asks for a file).
 - Messaging: use find_contact unless a number is given. If several numbers/people match, ask_user to pick. Use send_sms by default, send_whatsapp if they mention WhatsApp. Approval is handled for you — never ask "should I send?" yourself.
 - Files: write substantial, well-structured, professional content and call create_document ONCE with the full spec. To edit, call get_document then update_document with the complete edited spec. "Turn this conversation into a PDF" = summarise the chat into a pdf.
 - Missing essential details (who, which, when)? ask_user with short tappable options. Don't ask about things you can reasonably decide.
@@ -414,7 +458,7 @@ How to work:
     }.getOrNull()
 
     companion object {
-        private const val MAX_TURNS = 24
+        private const val MAX_TURNS = 45
         @Volatile private var instance: TaskEngine? = null
         fun get(context: Context): TaskEngine = instance ?: synchronized(this) {
             instance ?: TaskEngine(context.applicationContext).also { instance = it }

@@ -174,6 +174,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
 
 // ---------------------------------------------------------------------- voice
 
+private val VoiceModels = listOf("canopylabs/orpheus-v1-english" to "Orpheus English", "canopylabs/orpheus-arabic-saudi" to "Orpheus Arabic")
 private val Voices = listOf("troy" to "Troy", "austin" to "Austin", "daniel" to "Daniel", "autumn" to "Autumn", "diana" to "Diana", "hannah" to "Hannah")
 
 @Composable
@@ -183,6 +184,7 @@ private fun VoiceGroup(prefs: NebulaPrefs) {
     val scope = rememberCoroutineScope()
     var engine by remember { mutableStateOf(prefs.voiceEngine) }
     var voice by remember { mutableStateOf(prefs.groqVoice) }
+    var model by remember { mutableStateOf(prefs.groqVoiceModel) }
     var eleven by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf(false) }
@@ -211,9 +213,15 @@ private fun VoiceGroup(prefs: NebulaPrefs) {
             "groq" -> {
                 Text("Human-sounding speech from Groq's Orpheus voices, using your Groq key. First time only: open console.groq.com → Playground, choose the Orpheus model and accept its terms.",
                     style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 10.dp))
-                Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Voice", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+                Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Voices.forEach { (v, l) -> Chip(l, voice == v) { voice = v; prefs.groqVoice = v } }
                 }
+                Text("Model", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VoiceModels.forEach { (v, l) -> Chip(l, model == v) { model = v; prefs.groqVoiceModel = v; status = null } }
+                }
+                Text(model, style = MaterialTheme.typography.labelMedium, color = p.faint, modifier = Modifier.padding(top = 6.dp))
             }
             "eleven" -> {
                 Text("Paste a free ElevenLabs API key (elevenlabs.io → Profile → API keys). Kept only on this phone.",

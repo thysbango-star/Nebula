@@ -20,6 +20,7 @@ import java.net.UnknownHostException
  */
 class GroqClient(private val prefs: NebulaPrefs) {
 
+
     class ApiError(val code: Int, val msg: String, val raw: String, val retryAfterSec: Double? = null) : Exception(msg)
     class Spoken(val spoken: String, val detail: String? = null) : Exception(spoken)
 
@@ -65,6 +66,35 @@ class GroqClient(private val prefs: NebulaPrefs) {
     }
 
     /** Answers a question using Groq's built-in browser search; returns text + sources. */
+    /** Asks a vision model about a screenshot (JPEG base64). */
+    suspend fun vision(question: String, jpegB64: String): String = withContext(Dispatchers.IO) {
+        val key = NebulaPrefs.cleanKey(prefs.groqKey)
+        if (key.isEmpty()) throw Spoken("I need my AI key first.")
+        var last: Exception? = null
+        for (model in VISION_MODELS) {
+            val content = JSONArray()
+                .put(JSONObject().put("type", "text").put("text", "This is a screenshot of the user's Android phone. " +
+                    "Answer precisely and briefly. If you list items, list every one you can see, top to bottom. Question: $question"))
+                .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$jpegB64")))
+            val body = JSONObject().put("model", model).put("temperature", 0.1).put("max_completion_tokens", 900)
+                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
+            var tries = 0
+            while (true) {
+                try {
+                    val json = JSONObject(request("POST", "/chat/completions", key, body.toString()))
+                    return@withContext json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content").orEmpty()
+                        .replace(Regex("(?s)<think>.*?</think>"), "").trim().ifBlank { "I couldn't make out anything." }
+                } catch (e: ApiError) {
+                    last = e
+                    if (e.code == 429 && tries++ < 3) { onWait?.invoke("Waiting for Groq's rate limit…"); delay(((e.retryAfterSec ?: 5.0) * 1000).toLong()); continue }
+                    break
+                }
+            }
+            if (last is ApiError && !isModelGone(last as ApiError) && (last as ApiError).code != 400) break
+        }
+        "Vision isn't available right now (${(last as? ApiError)?.msg ?: last?.message}). Use read_screen instead."
+    }
+
     suspend fun webSearch(query: String): Pair<String, List<Source>> = withContext(Dispatchers.IO) {
         val key = NebulaPrefs.cleanKey(prefs.groqKey)
         val model = prefs.groqModel.takeIf { it.startsWith("openai/gpt-oss") } ?: "openai/gpt-oss-120b"
@@ -172,6 +202,8 @@ class GroqClient(private val prefs: NebulaPrefs) {
 
     companion object {
         const val BASE = "https://api.groq.com/openai/v1"
+        /** Image-capable Groq models, newest first. */
+        val VISION_MODELS = listOf("qwen/qwen3.8-27b", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct")
         val PREFERRED = listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant")
     }
 }

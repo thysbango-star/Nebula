@@ -124,15 +124,39 @@ class NebulaAccessibility : AccessibilityService() {
         if (!n.isVisibleToUser) return
         val b = Rect().also { n.getBoundsInScreen(it) }
         if (!Rect.intersects(b, screen) || b.width() <= 1 || b.height() <= 1) return
-        val text = listOfNotNull(n.text?.toString(), n.contentDescription?.toString(),
-            if (n.isEditable) n.hintText?.toString()?.let { "hint: $it" } else null)
-            .map { it.replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }.distinct().joinToString(" · ")
-        val interesting = text.isNotEmpty() || n.isClickable || n.isEditable || n.isScrollable || n.isCheckable
+        val own = ownText(n)
+        // A tappable row (song, chat, setting…) is read as ONE element with all its labels, so details like
+        // "Explicit", the artist or a timestamp stay attached to the right item.
+        val isRow = (n.isClickable || n.isLongClickable) && !n.isScrollable && n.childCount > 0 && b.height() < screen.height() * 0.4f
+        if (isRow) {
+            val parts = mutableListOf<String>().apply { if (own.isNotEmpty()) add(own) }
+            val inner = mutableListOf<AccessibilityNodeInfo>()
+            for (i in 0 until n.childCount) n.getChild(i)?.let { gather(it, parts, inner, 0) }
+            val text = parts.distinct().joinToString(" · ").take(240)
+            out += Element(out.size + 1, text, "row", true, false, false, if (n.isCheckable) n.isChecked else null, b, n)
+            inner.forEach { walk(it, out, screen, depth + 1) } // buttons inside the row (play, more options…)
+            return
+        }
+        val interesting = own.isNotEmpty() || n.isClickable || n.isEditable || n.isScrollable || n.isCheckable
         if (interesting) {
-            out += Element(out.size + 1, text, role(n), n.isClickable || n.isLongClickable, n.isEditable, n.isScrollable,
+            out += Element(out.size + 1, own, role(n), n.isClickable || n.isLongClickable, n.isEditable, n.isScrollable,
                 if (n.isCheckable) n.isChecked else null, b, n)
         }
         for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, out, screen, depth + 1) }
+    }
+
+    private fun ownText(n: AccessibilityNodeInfo): String = listOfNotNull(n.text?.toString(), n.contentDescription?.toString(),
+        if (n.isEditable) n.hintText?.toString()?.let { "hint: $it" } else null)
+        .map { it.replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }.distinct().joinToString(" · ")
+
+    /** Collects a row's labels; nested tappable things are returned separately in [inner]. */
+    private fun gather(n: AccessibilityNodeInfo, parts: MutableList<String>, inner: MutableList<AccessibilityNodeInfo>, depth: Int) {
+        if (depth > 12 || !n.isVisibleToUser) return
+        if (n.isEditable) { inner += n; return }
+        if ((n.isClickable || n.isCheckable) && n.childCount == 0) { ownText(n).takeIf { it.isNotEmpty() }?.let { parts += it }; inner += n; return }
+        ownText(n).takeIf { it.isNotEmpty() }?.let { parts += it }
+        if (n.isClickable && n.childCount > 0) { inner += n; return }
+        for (i in 0 until n.childCount) n.getChild(i)?.let { gather(it, parts, inner, depth + 1) }
     }
 
     private fun role(n: AccessibilityNodeInfo): String {
@@ -291,7 +315,14 @@ class NebulaAccessibility : AccessibilityService() {
     private suspend fun swipe(x1: Float, y1: Float, x2: Float, y2: Float): Boolean =
         gesture(Path().apply { moveTo(x1, y1); lineTo(x2, y2) }, 320)
 
-    private suspend fun gesture(path: Path, ms: Long): Boolean = withTimeoutOrNull(3000) {
+    /** Android cancels Nebula's gesture if you touch the screen at the same moment: wait a beat and retry once. */
+    private suspend fun gesture(path: Path, ms: Long): Boolean {
+        if (gestureOnce(path, ms)) return true
+        delay(1300)
+        return gestureOnce(path, ms)
+    }
+
+    private suspend fun gestureOnce(path: Path, ms: Long): Boolean = withTimeoutOrNull(3000) {
         suspendCancellableCoroutine { cont ->
             val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, ms)).build()
             val ok = dispatchGesture(g, object : GestureResultCallback() {
@@ -301,6 +332,64 @@ class NebulaAccessibility : AccessibilityService() {
             if (!ok && cont.isActive) cont.resume(false)
         }
     } ?: false
+
+    // ================================================================ whole lists & looking
+
+    /**
+     * Scrolls through the main list on screen collecting every row (deduplicated), e.g. a whole playlist.
+     * Returns rows in order and whether the end was reached.
+     */
+    suspend fun collectList(maxItems: Int, maxScrolls: Int = 60, onProgress: (Int) -> Unit = {}): Pair<List<String>, Boolean> {
+        val seen = LinkedHashSet<String>()
+        var stale = 0
+        var reachedEnd = false
+        repeat(maxScrolls) {
+            val snap = snapshot()
+            val list = snap.elements.filter { it.scrollable }.maxByOrNull { it.bounds.width() * it.bounds.height() }
+            val area = list?.bounds
+            val before = seen.size
+            snap.elements.filter { it.text.isNotBlank() && !it.scrollable && (area == null || Rect.intersects(area, it.bounds)) &&
+                (it.role == "row" || it.role == "item" || it.role == "text") }
+                .forEach { seen += it.text }
+            onProgress(seen.size)
+            if (seen.size >= maxItems) return seen.toList().take(maxItems) to false
+            stale = if (seen.size == before) stale + 1 else 0
+            if (stale >= 2) { reachedEnd = true; return seen.toList() to true }
+            val ok = list?.node?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) ?: false
+            if (!ok) {
+                val dm = resources.displayMetrics
+                swipe(dm.widthPixels / 2f, dm.heightPixels * 0.75f, dm.widthPixels / 2f, dm.heightPixels * 0.3f)
+            }
+            waitForChange(snap.signature, 1500)
+            delay(250)
+        }
+        return seen.toList() to reachedEnd
+    }
+
+    /** JPEG (base64) of the screen, ~720 px wide, for the vision model. Android 11+. */
+    suspend fun screenshotJpeg(): String? {
+        if (android.os.Build.VERSION.SDK_INT < 30) return null
+        return withTimeoutOrNull(5000) {
+            suspendCancellableCoroutine<String?> { cont ->
+                takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                    override fun onSuccess(r: ScreenshotResult) {
+                        val out = runCatching {
+                            val hw = android.graphics.Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)!!
+                            val soft = hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                            r.hardwareBuffer.close()
+                            val w = 720; val h = (soft.height * w.toFloat() / soft.width).toInt()
+                            val small = android.graphics.Bitmap.createScaledBitmap(soft, w, h, true)
+                            val bos = java.io.ByteArrayOutputStream()
+                            small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 72, bos)
+                            android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+                        }.getOrNull()
+                        if (cont.isActive) cont.resume(out)
+                    }
+                    override fun onFailure(code: Int) { if (cont.isActive) cont.resume(null) }
+                })
+            }
+        }
+    }
 
     companion object {
         @Volatile var instance: NebulaAccessibility? = null
