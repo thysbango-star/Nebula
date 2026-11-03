@@ -12,11 +12,11 @@ class Store extends EventEmitter {
   constructor(dir) {
     super();
     this.dir = dir;
-    this.file = path.join(dir, 'nebula-data.json');
+    this.dataFile = path.join(dir, 'nebula-data.json');
     this.filesDir = path.join(dir, 'Files');
     this.data = { conversations: [], tasks: [], files: [] };
     try { fs.mkdirSync(this.filesDir, { recursive: true }); } catch { /* */ }
-    try { Object.assign(this.data, JSON.parse(fs.readFileSync(this.file, 'utf8'))); } catch { /* first run */ }
+    try { Object.assign(this.data, JSON.parse(fs.readFileSync(this.dataFile, 'utf8'))); } catch { /* first run */ }
     // Anything that was running when the app closed can't still be running.
     for (const t of this.data.tasks) if (t.status === 'IN_PROGRESS') { t.status = 'FAILED'; t.summary = t.summary || 'Nebula was closed while this was running.'; }
     this.files = this.data.files.filter((f) => fs.existsSync(f.path));
@@ -27,7 +27,7 @@ class Store extends EventEmitter {
   save() {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      try { fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.data)); fs.renameSync(this.file + '.tmp', this.file); } catch { /* */ }
+      try { fs.writeFileSync(this.dataFile + '.tmp', JSON.stringify(this.data)); fs.renameSync(this.dataFile + '.tmp', this.dataFile); } catch { /* */ }
     }, 250);
     this.emit('change', this.snapshot());
   }

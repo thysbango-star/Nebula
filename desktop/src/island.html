@@ -400,7 +400,9 @@ function loop(now) {
       b.style.height = `${4 + 12 * Math.min(1, (0.15 + 0.85 * shownLevel) * wob)}px`;
     });
   }
-  requestAnimationFrame(loop);
+  // Light on the laptop: full frame rate only while Nebula is awake or you're hovering; the resting pill ticks at 8 fps.
+  if (state.active || hovering) requestAnimationFrame(loop);
+  else { last = 0; setTimeout(() => requestAnimationFrame(loop), 125); }
 }
 requestAnimationFrame(loop);
 

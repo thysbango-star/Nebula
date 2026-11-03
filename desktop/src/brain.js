@@ -20,10 +20,52 @@ class SpokenError extends Error {
 
 class Brain {
   /** @param {{get:Function,set:Function}} config  @param {Function} getKey */
-  constructor(config, getKey) {
+  constructor(config, getKey, rotateKey = () => false) {
     this.config = config;
     this.getKey = getKey;
+    this.rotateKey = rotateKey; // switches to the next backup key; returns false if there isn't one
     this.history = [];
+  }
+
+  // ------------------------------------------------------------ agent (tools)
+
+  /** One tool-calling turn for the task engine. Returns the assistant message ({content, tool_calls, sources}). */
+  async agentChat(messages, tools, onWait = () => {}) {
+    const key = this.getKey();
+    if (!key) throw new SpokenError('I need my AI key first. Open Settings and paste your Groq key.');
+    let model = this.config.get('model') || DEFAULT_MODEL;
+    const tried = new Set(); let waits = 0;
+    for (;;) {
+      tried.add(model);
+      const body = { model, messages, tools, tool_choice: 'auto', parallel_tool_calls: false, temperature: 0.3, max_completion_tokens: 2048 };
+      if (model.startsWith('openai/gpt-oss')) body.reasoning_effort = 'medium';
+      try {
+        const json = await this.request('POST', '/chat/completions', this.getKey(), JSON.stringify(body));
+        const m = json?.choices?.[0]?.message;
+        if (!m) throw new SpokenError('The AI returned an empty answer.');
+        if (this.config.get('model') !== model) this.config.set('model', model);
+        return { content: m.content || '', tool_calls: m.tool_calls || [], sources: sourcesFrom(m) };
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 429 && waits < 4 && !/per day|TPD|RPD/.test(e.message)) {
+          const s = Math.min(30, Math.max(1, +((/try again in ([0-9.]+)s/.exec(e.message) || [])[1]) || 6));
+          onWait(`Groq's free tier is busy, waiting ${Math.round(s)}s…`); waits++;
+          await new Promise((r) => setTimeout(r, s * 1000 + 300)); continue;
+        }
+        if (e instanceof ApiError && isModelGone(e)) { const next = await this.pickModel(this.getKey(), tried); if (next) { model = next; continue; } }
+        throw toSpoken(e);
+      }
+    }
+  }
+
+  /** Web search through Groq's browser tool: {text, sources}. */
+  async search(query) {
+    const key = this.getKey();
+    const model = this.config.get('model') || DEFAULT_MODEL;
+    try {
+      const r = await this.chat(key, model.startsWith('openai/gpt-oss') ? model : DEFAULT_MODEL,
+        [{ role: 'user', content: `Search the web and report the key facts with numbers and dates: ${query}` }], true);
+      return { text: r.text, sources: r.sources };
+    } catch (e) { return { text: `Search failed: ${e.spoken || e.message}`, sources: [] }; }
   }
 
   resetConversation() { this.history = []; }
@@ -98,7 +140,8 @@ class Brain {
     const key = this.getKey();
     if (!key) throw new SpokenError('No Groq key.');
     const parts = chunkText(text, 190);
-    const fetchOne = async (input) => {
+    const fetchOne = async (input, retry = 0) => {
+      const key = this.getKey();
       let res;
       try {
         res = await fetch(BASE + '/audio/speech', {
@@ -109,6 +152,7 @@ class Brain {
       } catch (e) { throw new SpokenError('Voice service unreachable.', e.message); }
       if (res.ok) return Buffer.from(await res.arrayBuffer());
       const raw = await res.text();
+      if ((res.status === 401 || (res.status === 429 && /per day|TPD|RPD/.test(raw))) && retry < 6 && this.rotateKey()) return fetchOne(input, retry + 1);
       if (/terms/i.test(raw)) throw new SpokenError('Groq needs you to accept the Orpheus terms once: console.groq.com → Playground → pick Orpheus → accept.');
       if (res.status === 401) throw new SpokenError('The voice service rejected the key.');
       if (res.status === 429) throw new SpokenError('Voice limit reached for now.');
@@ -156,7 +200,10 @@ class Brain {
         action: { type: 'clicker', cmd: 'start', interval } };
     }
     const open = q.match(/^(open|launch|start|go to)\s+(.+)$/);
-    if (open) return this.open(open[2].replace(/^the\s+/, '').replace(/\s+app$/, '').trim());
+    // Only a bare "open Spotify". "Open Spotify and play a song" is a task for the AI.
+    if (open && open[2].split(/\s+/).length <= 3 && !/\b(and|then|to|play|search|find|send|with|for|show|check)\b|,/.test(open[2])) {
+      return this.open(open[2].replace(/^the\s+/, '').replace(/\s+app$/, '').trim());
+    }
     return null;
   }
 
@@ -267,6 +314,12 @@ class Brain {
     if (res.ok) return JSON.parse(text);
     let msg = `HTTP ${res.status}`;
     try { msg = JSON.parse(text).error.message || msg; } catch { /* keep */ }
+    // Daily allowance used up (or key revoked): move to the next backup key and retry once per key.
+    const exhausted = res.status === 401 || (res.status === 429 && /per day|TPD|RPD/.test(msg)) || (res.status === 403 && /organization/i.test(msg));
+    if (exhausted && key === this.getKey() && (this._switches || 0) < 6 && this.rotateKey()) {
+      this._switches = (this._switches || 0) + 1;
+      try { return await this.request(method, path, this.getKey(), body); } finally { this._switches = 0; }
+    }
     throw new ApiError(res.status, msg, text);
   }
 }

@@ -4,13 +4,27 @@
 // the "Hey Nebula" wake word, and the listen → think → speak flow.
 
 const {
-  app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, nativeImage, safeStorage, Notification, shell,
+  app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, nativeImage, safeStorage, Notification, shell, nativeTheme,
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { Brain, cleanKey } = require('./brain');
 const { WakeWord, Utterance, wakeThreshold, levelOf, toWav } = require('./voice');
 const { WinHelper, NOT_GAMES } = require('./win32');
+const { Store } = require('./store');
+const { Agent } = require('./agent');
+
+// Never interrupt the user with crash dialogs: log quietly and keep running.
+const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
+function log(...a) {
+  try {
+    const line = `[${new Date().toISOString()}] ${a.map((x) => (x instanceof Error ? x.stack : typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`;
+    const f = LOG(); if (fs.existsSync(f) && fs.statSync(f).size > 512 * 1024) fs.renameSync(f, f + '.old');
+    fs.appendFileSync(f, line);
+  } catch { /* */ }
+}
+process.on('uncaughtException', (e) => log('uncaught', e));
+process.on('unhandledRejection', (e) => log('unhandled', e));
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.setAppUserModelId('com.nebula.desktop');
@@ -32,6 +46,7 @@ const DEFAULTS = {
   groqKeyEnc: '',
   voiceEngine: 'groq',   // 'groq' (natural Orpheus voice) | 'system' (Windows voice)
   groqVoice: 'troy',
+  voiceModel: 'canopylabs/orpheus-v1-english',
   islandScale: 1,        // 0.7 – 1.5
   islandX: 0,            // px from centre
   islandY: 0,            // px down from the top
@@ -40,6 +55,10 @@ const DEFAULTS = {
   clickInterval: 100,    // ms between auto-clicks
   clickHotkey: 'Ctrl+Alt+K',
   games: [],             // extra .exe names that count as games
+  groqExtraEnc: [],      // backup Groq keys (encrypted), used when the main one runs out for the day
+  activeKey: 0,
+  theme: 'system',       // 'system' | 'light' | 'dark'
+  currency: '',
 };
 let configData = { ...DEFAULTS };
 const config = {
@@ -52,8 +71,7 @@ function loadConfig() {
 function saveConfig() {
   try { fs.mkdirSync(path.dirname(CONFIG_PATH()), { recursive: true }); fs.writeFileSync(CONFIG_PATH(), JSON.stringify(configData, null, 2)); } catch { /* ignore */ }
 }
-function getKey() {
-  const enc = configData.groqKeyEnc;
+function decrypt(enc) {
   if (!enc) return '';
   try {
     return safeStorage.isEncryptionAvailable()
@@ -61,11 +79,34 @@ function getKey() {
       : Buffer.from(enc, 'base64').toString('utf8');
   } catch { return ''; }
 }
+function encrypt(key) {
+  const buf = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(key) : Buffer.from(key, 'utf8');
+  return key ? buf.toString('base64') : '';
+}
+/** Main key + backups, in order. */
+function allKeys() {
+  return [decrypt(configData.groqKeyEnc), ...(configData.groqExtraEnc || []).map(decrypt)].filter((k) => k.length >= 20)
+    .filter((k, i, a) => a.indexOf(k) === i);
+}
+function getKey() { const all = allKeys(); return all.length ? all[(configData.activeKey || 0) % all.length] : ''; }
+/** Move to the next backup key (when one hits its daily limit). */
+function rotateKey() {
+  const n = allKeys().length;
+  if (n < 2) return false;
+  configData.activeKey = ((configData.activeKey || 0) + 1) % n; saveConfig();
+  log('switched to Groq key', configData.activeKey + 1);
+  return true;
+}
+function setExtraKeys(list) {
+  configData.groqExtraEnc = list.map(cleanKey).filter((k) => k.length >= 20).map(encrypt);
+  configData.activeKey = 0; saveConfig();
+}
 function setKey(raw) {
   const key = cleanKey(raw);
   const buf = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(key) : Buffer.from(key, 'utf8');
   configData.groqKeyEnc = key ? buf.toString('base64') : '';
   configData.noSearchModel = '';
+  configData.activeKey = 0;
   saveConfig();
 }
 
@@ -131,16 +172,27 @@ function createEar() {
   ear.loadFile(asset('ear.html'));
 }
 
-function openSettings() {
-  if (settings && !settings.isDestroyed()) { settings.show(); settings.focus(); return; }
+/** The Nebula app window (Chat · Tasks · Files · Settings), in the phone app's design. */
+function openApp(view) {
+  if (settings && !settings.isDestroyed()) {
+    if (settings.isMinimized()) settings.restore();
+    settings.show(); settings.focus();
+    if (view) send(settings, 'app:open', view);
+    return;
+  }
+  const dark = configData.theme === 'dark' || (configData.theme !== 'light' && nativeTheme.shouldUseDarkColors);
   settings = new BrowserWindow({
-    width: 560, height: 820, minWidth: 460, minHeight: 600, title: 'Nebula',
-    backgroundColor: '#07060F', autoHideMenuBar: true, icon: iconPath(), show: false,
-    webPreferences: baseWebPrefs,
+    width: 1180, height: 780, minWidth: 860, minHeight: 580, title: 'Nebula',
+    backgroundColor: dark ? '#121110' : '#E7E5E2', icon: iconPath(), show: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#F3EFEA' : '#262422', height: 46 },
+    webPreferences: { ...baseWebPrefs, backgroundThrottling: true }, // the app window may sleep when hidden
   });
-  settings.loadFile(asset('settings.html'));
+  settings.loadFile(asset('app.html'), view ? { query: { view } } : undefined);
   settings.once('ready-to-show', () => settings.show());
+  settings.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
+const openSettings = () => openApp('settings');
 
 function repositionWindows() {
   const b = primaryBounds();
@@ -166,6 +218,7 @@ function createTray() {
 function refreshTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Nebula', click: () => openApp() },
     { label: `Talk to Nebula   (${configData.hotkey})`, click: () => startSession('tray') },
     { type: 'separator' },
     {
@@ -223,7 +276,7 @@ function initWake() {
     wake = new WakeWord(modelDir(), wakeThreshold(configData.sensitivity));
   } catch (e) {
     wakeError = `Wake word unavailable: ${e.message}`;
-    console.error(wakeError);
+    log(wakeError);
   }
 }
 
@@ -252,14 +305,39 @@ function onAudio(samples) {
     try {
       if (wake.accept(samples)) startSession('wake');
     } catch (e) {
-      console.error('wake word error', e);
+      log('wake word error', e);
     }
   }
 }
 
 // ------------------------------------------------------------------ the conversation
 
-const brain = new Brain(config, getKey);
+const brain = new Brain(config, getKey, rotateKey);
+let store = null; let agent = null;
+let voiceConv = null; // the chat that voice requests go into (kept for 10 minutes)
+
+/** PDF from HTML using Chromium's own print engine. */
+async function printPdf(html) {
+  const w = new BrowserWindow({ show: false, webPreferences: { offscreen: true, javascript: false } });
+  try {
+    await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    return await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' }, preferCSSPageSize: true });
+  } finally { w.destroy(); }
+}
+
+function initAgent() {
+  store = new Store(app.getPath('userData'));
+  store.on('change', (data) => send(settings, 'app:data', data));
+  agent = new Agent({
+    brain, store, config, printPdf,
+    launch: async (name) => { const r = brain.open(name.toLowerCase()); return { ok: !/couldn't/i.test(r.text) }; },
+    foreground: process.platform === 'win32' ? () => helper.foreground() : null,
+    timer: (s) => setTimer(s),
+    clicker: (cmd) => clicker(cmd),
+    onActivity: (a) => send(settings, 'app:activity', a),
+    sound: (kind) => send(settings, 'app:sound', kind),
+  });
+}
 const session = {
   active: false, phase: 'idle', transcript: '', reply: '', sources: [], error: '',
   utterance: null, lastEnd: 0, endTimer: null, token: 0,
@@ -332,16 +410,16 @@ async function onUtterance(audio, token) {
 
 async function think(text, token) {
   setPhase('thinking');
-  const r = await brain.respond(text);
+  // Voice requests run through the same task engine as the app, so they show up in Chat and Tasks.
+  const fresh = voiceConv && store.conversation(voiceConv) && Date.now() - store.conversation(voiceConv).updatedAt < 10 * 60_000;
+  if (!fresh) voiceConv = store.newConversation().id;
+  const r = await agent.submit(voiceConv, text);
   if (token !== session.token) return;
-  if (r.action && r.action.type === 'timer') setTimer(r.action.seconds);
-  if (r.action && r.action.type === 'clicker') {
-    if (r.action.interval) configData.clickInterval = clamp(r.action.interval, 20, 5000);
-    const msg = await clicker(r.action.cmd);
-    if (msg) r.text = msg;
-  }
+  const conv = store.conversation(voiceConv);
+  const lastMsg = conv?.messages.filter((m) => m.role === 'assistant').pop();
   session.reply = r.text;
-  session.sources = r.sources || [];
+  session.sources = lastMsg?.sources || [];
+  session.expectsAnswer = !!r.needsInput;
   if (r.close) {
     setPhase('done');
     session.endTimer = setTimeout(endSession, 1400);
@@ -357,6 +435,7 @@ async function think(text, token) {
 
 function finishTurn(token) {
   if (token !== session.token || !session.active) return;
+  if (session.expectsAnswer) { session.expectsAnswer = false; startSession('followup'); return; }
   setPhase('done');
   const hold = Math.min(25_000, 7_000 + session.reply.length * 40);
   session.endTimer = setTimeout(endSession, hold);
@@ -419,7 +498,7 @@ async function speakOut(text, token) {
       if (sent) return;
     } catch (e) {
       voiceProblem = e.spoken || e.message || 'Voice error';
-      console.error('voice', voiceProblem, e.detail || '');
+      log('voice', voiceProblem, e.detail || '');
       if (sent) { send(island, 'island:audio', { token, b64: null, last: true }); return; }
     }
   }
@@ -497,13 +576,15 @@ function settingsPayload() {
     ...configData, groqKeyEnc: undefined, hasKey: !!getKey(), activeHotkey: registeredHotkey,
     wakeStatus: !configData.wakeEnabled ? 'off' : wake ? 'listening' : (wakeError || 'starting'),
     voiceProblem, gaming: r3.gaming, game: r3.exe, helperProblem: helper.failed,
+    groqExtraEnc: undefined, keyCount: allKeys().length, activeKeyNumber: allKeys().length ? ((configData.activeKey || 0) % allKeys().length) + 1 : 0,
+    dark: configData.theme === 'dark' || (configData.theme !== 'light' && nativeTheme.shouldUseDarkColors), platform: process.platform,
     version: app.getVersion(),
   };
 }
 
 function wireIpc() {
   ipcMain.on('ear:audio', (_e, data) => onAudio(data instanceof Float32Array ? data : new Float32Array(data)));
-  ipcMain.on('ear:error', (_e, msg) => { console.error('mic', msg); if (session.active) fail('I can’t reach the microphone. Check Windows microphone privacy settings.'); });
+  ipcMain.on('ear:error', (_e, msg) => { log('mic', msg); if (session.active) fail('I can’t reach the microphone. Check Windows microphone privacy settings.'); });
 
   ipcMain.on('island:interactive', (_e, on) => island && island.setIgnoreMouseEvents(!on, { forward: true }));
   ipcMain.on('island:talk', () => toggleSession('island'));
@@ -515,12 +596,33 @@ function wireIpc() {
   ipcMain.on('island:focus', () => { if (island) island.focus(); });
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
   ipcMain.on('open:settings', openSettings);
+  ipcMain.on('open:app', (_e, view) => openApp(view));
+
+  // ---- the app window (Chat · Tasks · Files)
+  ipcMain.handle('app:init', () => ({ data: store.snapshot(), activity: agent.activity, settings: settingsPayload() }));
+  ipcMain.handle('app:send', async (_e, { conversationId, text }) => {
+    const cid = conversationId && store.conversation(conversationId) ? conversationId : store.newConversation().id;
+    agent.submit(cid, String(text || '').trim()).catch((e) => log('submit', e));
+    return cid;
+  });
+  ipcMain.handle('app:new-chat', () => store.newConversation().id);
+  ipcMain.on('app:answer', (_e, { taskId, choices }) => { agent.answer(taskId, choices).catch((e) => log('answer', e)); });
+  ipcMain.on('app:cancel', (_e, taskId) => agent.cancel(taskId));
+  ipcMain.on('app:stop', (_e, cid) => agent.stop(cid));
+  ipcMain.on('app:delete-task', (_e, id) => store.deleteTask(id));
+  ipcMain.on('app:delete-chat', (_e, id) => store.deleteConversation(id));
+  ipcMain.on('app:delete-file', (_e, id) => store.deleteFile(id));
+  ipcMain.on('app:open-file', (_e, id) => { const f = store.file(id); if (f) shell.openPath(f.path).then((err) => err && log('open', err)); });
+  ipcMain.on('app:show-file', (_e, id) => { const f = store.file(id); if (f) shell.showItemInFolder(f.path); });
+  ipcMain.on('app:files-folder', () => shell.openPath(store.filesDir));
+  ipcMain.on('app:mic', (_e, cid) => { if (cid && store.conversation(cid)) voiceConv = cid; startSession('app'); });
 
   ipcMain.handle('settings:get', () => settingsPayload());
   ipcMain.handle('settings:set', (_e, patch) => {
     const before = { ...configData };
     for (const [k, v] of Object.entries(patch || {})) {
       if (k === 'groqKey') setKey(v);
+      else if (k === 'groqExtraKeys') setExtraKeys(Array.isArray(v) ? v : String(v || '').split(/\s+/));
       else if (k in DEFAULTS && k !== 'groqKeyEnc') configData[k] = v;
     }
     saveConfig();
@@ -533,7 +635,11 @@ function wireIpc() {
       clearTimeout(ipcMain.__hideIsland);
       ipcMain.__hideIsland = setTimeout(applyIslandMode, 2500);
     }
-    if (before.r3cket !== configData.r3cket || before.r3cketQuiet !== configData.r3cketQuiet) { pollForeground(); applyIslandMode(); }
+    if (before.r3cket !== configData.r3cket || before.r3cketQuiet !== configData.r3cketQuiet) { if (configData.r3cket) helper.start(); pollForeground(); applyIslandMode(); }
+    if (before.theme !== configData.theme && settings && !settings.isDestroyed()) {
+      const dark = configData.theme === 'dark' || (configData.theme !== 'light' && nativeTheme.shouldUseDarkColors);
+      try { settings.setTitleBarOverlay({ color: '#00000000', symbolColor: dark ? '#F3EFEA' : '#262422', height: 46 }); } catch { /* */ }
+    }
     if (before.clickInterval !== configData.clickInterval && clickerState.running) clicker('speed');
     if (before.startWithWindows !== configData.startWithWindows) applyLoginItem();
     if (before.islandMode !== configData.islandMode) applyIslandMode();
@@ -559,7 +665,7 @@ function wireIpc() {
 
 // ------------------------------------------------------------------ app lifecycle
 
-app.on('second-instance', () => openSettings());
+app.on('second-instance', () => openApp());
 
 app.whenReady().then(() => {
   loadConfig();
@@ -568,7 +674,9 @@ app.whenReady().then(() => {
   electronSession.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'media'));
   electronSession.defaultSession.setPermissionCheckHandler((wc, permission) => permission === 'media');
 
+  initAgent();
   wireIpc();
+  nativeTheme.on('updated', () => broadcastSettings());
   createGlow();
   createIsland();
   createEar();
@@ -582,12 +690,14 @@ app.whenReady().then(() => {
   screen.on('display-added', repositionWindows);
   screen.on('display-removed', repositionWindows);
 
-  if (!getKey() && !process.argv.includes('--hidden')) openSettings();
+  if (!process.argv.includes('--hidden')) openApp(getKey() ? undefined : 'settings');
 
   // R3cket: watch for games (and warm up the helper so the first auto-click is instant).
   if (process.platform === 'win32') {
-    helper.start().then((ok) => { if (!ok) console.error('helper', helper.failed); });
-    setInterval(() => { pollForeground().catch(() => {}); }, 2000);
+    // Light on the laptop: the helper only starts when R3cket is on, and checks the front app every 3 s.
+    // Start the helper a little after launch so Nebula opens fast.
+    setTimeout(() => { if (configData.r3cket) helper.start().then((ok) => { if (!ok) log('helper', helper.failed); }); }, 15000);
+    setInterval(() => { if (configData.r3cket) pollForeground().catch(() => {}); }, 3000);
   }
 });
 
