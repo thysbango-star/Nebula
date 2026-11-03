@@ -90,6 +90,9 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Headset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.TouchApp
@@ -108,7 +111,7 @@ private val Mint = Color(0xFF4ADE80)
 private val Dim = Color(0x99FFFFFF)
 private val NotchGradient = Brush.linearGradient(listOf(Ember, Flame, Ruby))
 
-private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN }
+private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -122,6 +125,7 @@ fun NotchUi(c: NotchController) {
     val voice by VoiceState.session.collectAsState()
     val gaming by R3cket.inGame.collectAsState()
     val clicker by R3cket.clicker.collectAsState()
+    val device by NotchBus.device.collectAsState()
     val L = c.layout
     val base = LocalDensity.current
 
@@ -148,6 +152,7 @@ fun NotchUi(c: NotchController) {
         c.unlock != null -> Mode.UNLOCK
         call != null && prefs.notchCalls -> Mode.CALL
         c.volume != null -> Mode.VOLUME
+        device != null -> Mode.DEVICE
         clicker.running || clicker.editing -> Mode.R3CKET
         !quiet && message != null && shownMessage == message?.key && prefs.notchMessages -> Mode.MESSAGE
         task != null && !quiet -> Mode.TASK
@@ -202,6 +207,7 @@ fun NotchUi(c: NotchController) {
                             Mode.CALL -> call?.let { CallView(it, c) }
                             Mode.VOICE -> if (voice.gaming) VoiceCompact(voice, pillH) else VoiceView(voice, c)
                             Mode.VOLUME -> c.volume?.let { VolumeView(it.first, it.second, pillH) }
+                            Mode.DEVICE -> device?.let { DeviceView(it, pillH) }
                             Mode.R3CKET -> R3cketView(clicker, c)
                             Mode.MESSAGE -> message?.let { MessageView(it) { shownMessage = null } }
                             Mode.TASK -> task?.let { TaskView(it, pillH) }
@@ -462,6 +468,31 @@ private fun VolumeView(level: Float, muted: Boolean, h: Dp) {
         }
         Spacer(Modifier.width(10.dp))
         Text("${(level * 100).toInt()}", color = Dim, style = small())
+    }
+}
+
+// ---------------------------------------------------------------------- earbuds connected
+
+@Composable
+private fun DeviceView(d: NotchBus.Device, h: Dp) {
+    // A ring fills around the earbuds icon as they connect (empties when they disconnect).
+    val ring = remember(d.at) { androidx.compose.animation.core.Animatable(if (d.connected) 0f else 1f) }
+    LaunchedEffect(d.at) { ring.animateTo(if (d.connected) 1f else 0f, tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    val pop by animateFloatAsState(if (ring.value > 0.98f && d.connected) 1f else 0.85f, spring(dampingRatio = 0.45f, stiffness = 500f), label = "pop")
+    Row(Modifier.width(300.dp).height(h + 18.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(h + 6.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(h + 6.dp)) {
+                val s = 2.6.dp.toPx()
+                drawArc(Color(0x33FFFFFF), 0f, 360f, false, style = Stroke(s))
+                drawArc(if (d.connected) Mint else Color(0xFFEF4444), -90f, 360f * ring.value, false, style = Stroke(s, cap = StrokeCap.Round))
+            }
+            Icon(if (d.kind == "buds") Icons.Rounded.Headphones else Icons.Rounded.Headset, null, tint = Color.White,
+                modifier = Modifier.size(h * 0.52f).graphicsLayer { scaleX = pop; scaleY = pop })
+        }
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(d.name, color = Color.White, style = small().copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (d.connected) "Connected" else "Disconnected", color = if (d.connected) Mint else Dim, style = TextStyle(fontSize = 11.sp))
+        }
     }
 }
 

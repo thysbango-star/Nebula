@@ -98,6 +98,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
                 Text("Get a free key ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.pressable(a.getKey))
             }
             keyStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 10.dp)) }
+            BackupKeys(prefs)
         }
 
         Group("Hey Nebula") {
@@ -117,6 +118,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
                 Toggle("Incoming calls", "Answer or decline from the island.", prefs.notchCalls) { prefs.notchCalls = it; tick++ }
                 Toggle("Messages", "New message previews with reply.", prefs.notchMessages) { prefs.notchMessages = it; tick++ }
                 Toggle("Volume", "Animated level when you press the volume keys.", prefs.notchVolume) { prefs.notchVolume = it; tick++ }
+                Toggle("Earbuds & headphones", "Shows when AirPods, Buds or headphones connect.", prefs.notchDevices) { prefs.notchDevices = it; tick++ }
                 Toggle("Unlock animation", "Scan ring → tick when your phone unlocks.", prefs.notchUnlock) { prefs.notchUnlock = it; tick++ }
                 Toggle("Nebula tasks", "Live progress of what Nebula is doing.", prefs.notchTasks) { prefs.notchTasks = it; tick++ }
             }
@@ -169,6 +171,45 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
             Text("Show the welcome tour again ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.padding(top = 8.dp).pressable(a.replayOnboarding))
         }
         Spacer(Modifier.height(30.dp))
+    }
+}
+
+// ---------------------------------------------------------------------- backup keys
+
+@Composable
+private fun BackupKeys(prefs: NebulaPrefs) {
+    val p = Pal
+    var open by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    var count by remember { mutableStateOf(prefs.groqExtraKeys.size) }
+    var note by remember { mutableStateOf<String?>(null) }
+    Spacer(Modifier.height(14.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Backup keys", style = MaterialTheme.typography.bodyLarge)
+            Text(if (count == 0) "Add more Groq keys: when one runs out for the day, Nebula switches automatically."
+                else "$count backup key${if (count > 1) "s" else ""} · using key ${prefs.activeKeyNumber} of ${prefs.allGroqKeys.size}",
+                style = MaterialTheme.typography.bodySmall, color = p.dim)
+        }
+        Text(if (open) "Done" else if (count == 0) "Add" else "Edit", style = MaterialTheme.typography.labelLarge, color = p.flame,
+            modifier = Modifier.padding(start = 10.dp).pressable({ open = !open; note = null }))
+    }
+    if (open) {
+        Box(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.surface).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp)) {
+            if (text.isEmpty()) Text("Paste one key per line (gsk_…)", color = p.faint, style = MaterialTheme.typography.bodyMedium)
+            BasicTextField(text, { text = it }, visualTransformation = PasswordVisualTransformation(), minLines = 2,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = p.text), cursorBrush = SolidColor(p.flame), modifier = Modifier.fillMaxWidth())
+        }
+        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Add keys", primary = true) {
+                val fresh = text.split(Regex("[\\s,]+")).map { NebulaPrefs.cleanKey(it) }.filter { it.length >= 20 }
+                if (fresh.isEmpty()) { note = "Paste at least one full key."; return@Btn }
+                prefs.groqExtraKeys = prefs.groqExtraKeys + fresh; count = prefs.groqExtraKeys.size; text = ""
+                note = "Added ${fresh.size}. Tip: make each key in a different Groq account — limits are per account."
+            }
+            if (count > 0) Btn("Remove all") { prefs.groqExtraKeys = emptyList(); count = 0; note = "Backup keys removed." }
+        }
+        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 8.dp)) }
     }
 }
 

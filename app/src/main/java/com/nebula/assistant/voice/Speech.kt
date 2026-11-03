@@ -22,7 +22,7 @@ import kotlin.coroutines.resume
 /** Hearing (Groq Whisper) for the in-Notch voice session. */
 object Hearing {
     /** 16 kHz WAV → text. Throws with a speakable message on failure. */
-    suspend fun transcribe(prefs: NebulaPrefs, wav: ByteArray): String = withContext(Dispatchers.IO) {
+    suspend fun transcribe(prefs: NebulaPrefs, wav: ByteArray, attempt: Int = 0): String = withContext(Dispatchers.IO) {
         val key = NebulaPrefs.cleanKey(prefs.groqKey)
         if (key.isEmpty()) throw IllegalStateException("I need my AI key first. Add your Groq key in Nebula's settings.")
         var last: Exception? = null
@@ -43,6 +43,9 @@ object Hearing {
                 val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
                 c.disconnect()
                 if (code in 200..299) return@withContext JSONObject(text).optString("text").trim()
+                if ((code == 401 || code == 429 && "per day" in text) && attempt < prefs.allGroqKeys.size - 1 && prefs.nextGroqKey()) {
+                    return@withContext transcribe(prefs, wav, attempt + 1) // try with the next key
+                }
                 last = IllegalStateException(if (code == 401) "My Groq key isn't working." else if (code == 429) "Groq is busy, try again in a moment." else "I couldn't understand that ($code).")
                 if (code != 404) break
             } catch (e: java.net.UnknownHostException) { throw IllegalStateException("I can't reach the internet right now.")
@@ -65,6 +68,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
     @Volatile private var stopped = false
     /** Last cloud-voice problem, shown in Settings so the user knows why it fell back. */
     var lastProblem: String? = null; private set
+    @Volatile private var lastCode = 0
 
     fun init() { if (tts == null) tts = TextToSpeech(context, this) }
     override fun onInit(status: Int) {
@@ -128,10 +132,12 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
-    private fun groqChunk(text: String): Pair<ByteArray, String>? {
+    private fun groqChunk(text: String, retry: Boolean = true): Pair<ByteArray, String>? {
         val key = NebulaPrefs.cleanKey(prefs.groqKey).ifEmpty { return null }
         val body = JSONObject().put("model", prefs.groqVoiceModel).put("input", text).put("voice", prefs.groqVoice).put("response_format", "wav")
-        return post("https://api.groq.com/openai/v1/audio/speech", mapOf("Authorization" to "Bearer $key"), body)?.let { it to "wav" }
+        val r = post("https://api.groq.com/openai/v1/audio/speech", mapOf("Authorization" to "Bearer $key"), body)?.let { it to "wav" }
+        if (r == null && retry && lastCode in setOf(401, 429) && prefs.nextGroqKey()) return groqChunk(text, false)
+        return r
     }
 
     private fun elevenChunk(text: String): Pair<ByteArray, String>? {
@@ -148,6 +154,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
         }
         c.outputStream.use { it.write(body.toString().toByteArray()) }
         val code = c.responseCode
+        lastCode = code
         if (code in 200..299) c.inputStream.use { it.readBytes() }.also { lastProblem = null; c.disconnect() }
         else {
             val err = c.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty(); c.disconnect()

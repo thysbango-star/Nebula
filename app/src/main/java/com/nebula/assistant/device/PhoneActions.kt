@@ -186,7 +186,9 @@ class PhoneActions(private val context: Context) {
     }
 
     fun openUrl(url: String): Outcome {
-        val u = if (url.startsWith("http")) url else "https://$url"
+        val t = url.trim()
+        // App links (spotify:…, whatsapp:…, google.navigation:…) keep their own scheme.
+        val u = if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(t) && !Regex("^[\\w.-]+\\.[a-z]{2,}(:\\d+)?(/|$)").containsMatchIn(t)) t else "https://$t"
         return try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             Outcome(true, false, "Opened $u.")

@@ -30,11 +30,12 @@ class GroqClient(private val prefs: NebulaPrefs) {
     var onWait: ((String) -> Unit)? = null
 
     suspend fun chat(messages: JSONArray, tools: JSONArray?, effort: String = "medium"): Reply = withContext(Dispatchers.IO) {
-        val key = NebulaPrefs.cleanKey(prefs.groqKey)
+        var key = NebulaPrefs.cleanKey(prefs.groqKey)
         if (key.isEmpty()) throw Spoken("I need my AI key first. Open Nebula, go to Settings and paste your Groq key.")
         var model = prefs.groqModel
         val tried = mutableSetOf<String>()
         var rateRetries = 0
+        var switches = 0
         while (true) {
             tried += model
             val body = JSONObject().put("model", model).put("messages", messages).put("temperature", 0.3)
@@ -56,6 +57,10 @@ class GroqClient(private val prefs: NebulaPrefs) {
                         delay((wait * 1000).toLong() + 300)
                         rateRetries++
                     }
+                    keyExhausted(e) && switches < prefs.allGroqKeys.size - 1 && prefs.nextGroqKey() -> {
+                        switches++; key = NebulaPrefs.cleanKey(prefs.groqKey)
+                        onWait?.invoke("That Groq key is used up, switching to key ${prefs.activeKeyNumber}…")
+                    }
                     isToolUnsupported(e) && tools != null -> throw e
                     isModelGone(e) -> model = pickModel(key, tried) ?: throw toSpoken(e)
                     else -> throw toSpoken(e)
@@ -68,8 +73,9 @@ class GroqClient(private val prefs: NebulaPrefs) {
     /** Answers a question using Groq's built-in browser search; returns text + sources. */
     /** Asks a vision model about a screenshot (JPEG base64). */
     suspend fun vision(question: String, jpegB64: String): String = withContext(Dispatchers.IO) {
-        val key = NebulaPrefs.cleanKey(prefs.groqKey)
+        var key = NebulaPrefs.cleanKey(prefs.groqKey)
         if (key.isEmpty()) throw Spoken("I need my AI key first.")
+        var switches = 0
         var last: Exception? = null
         for (model in VISION_MODELS) {
             val content = JSONArray()
@@ -86,6 +92,7 @@ class GroqClient(private val prefs: NebulaPrefs) {
                         .replace(Regex("(?s)<think>.*?</think>"), "").trim().ifBlank { "I couldn't make out anything." }
                 } catch (e: ApiError) {
                     last = e
+                    if (keyExhausted(e) && switches++ < prefs.allGroqKeys.size - 1 && prefs.nextGroqKey()) { key = NebulaPrefs.cleanKey(prefs.groqKey); continue }
                     if (e.code == 429 && tries++ < 3) { onWait?.invoke("Waiting for Groq's rate limit…"); delay(((e.retryAfterSec ?: 5.0) * 1000).toLong()); continue }
                     break
                 }
@@ -96,7 +103,8 @@ class GroqClient(private val prefs: NebulaPrefs) {
     }
 
     suspend fun webSearch(query: String): Pair<String, List<Source>> = withContext(Dispatchers.IO) {
-        val key = NebulaPrefs.cleanKey(prefs.groqKey)
+        var key = NebulaPrefs.cleanKey(prefs.groqKey)
+        var switches = 0
         val model = prefs.groqModel.takeIf { it.startsWith("openai/gpt-oss") } ?: "openai/gpt-oss-120b"
         val body = JSONObject().put("model", model).put("temperature", 0.2).put("max_completion_tokens", 1200)
             .put("reasoning_effort", "low")
@@ -112,6 +120,7 @@ class GroqClient(private val prefs: NebulaPrefs) {
                 val msg = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: JSONObject()
                 return@withContext msg.optString("content") to sourcesFrom(msg)
             } catch (e: ApiError) {
+                if (keyExhausted(e) && switches++ < prefs.allGroqKeys.size - 1 && prefs.nextGroqKey()) { key = NebulaPrefs.cleanKey(prefs.groqKey); continue }
                 if (e.code == 429 && tries++ < 3) { onWait?.invoke("Waiting for Groq's rate limit…"); delay(((e.retryAfterSec ?: 6.0) * 1000).toLong()); continue }
                 return@withContext "Web search isn't available right now (${e.msg})." to emptyList()
             }
@@ -162,6 +171,10 @@ class GroqClient(private val prefs: NebulaPrefs) {
             .filter { id -> id !in exclude && listOf("whisper", "guard", "tts", "orpheus", "playai", "embed", "compound").none { it in id } }
         PREFERRED.firstOrNull { it in ids } ?: ids.firstOrNull { "70b" in it } ?: ids.firstOrNull()
     }.getOrNull()
+
+    /** Daily allowance used up, or the key was revoked: worth trying the next key. */
+    private fun keyExhausted(e: ApiError) = e.code == 401 || (e.code == 429 && (e.msg.contains("per day", true) || e.msg.contains("TPD", false) || e.msg.contains("RPD", false))) ||
+        (e.code == 403 && e.msg.contains("organization", true))
 
     private fun isModelGone(e: ApiError): Boolean {
         val t = (e.msg + " " + e.raw.take(600)).lowercase()

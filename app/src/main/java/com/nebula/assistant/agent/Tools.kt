@@ -189,7 +189,8 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
         "open_url" -> {
             val r = phone.openUrl(a.optString("url"))
             // Android accepted the link; a browser/app is opening it.
-            ToolOutcome(result(r.ok, r.ok, r.message), step("Open link", r.ok, r.ok, r.message))
+            if (r.ok) delay(1200)
+            ToolOutcome(withScreen(result(r.ok, r.ok, r.message)), step("Open link", r.ok, r.ok, r.message))
         }
         "wait" -> { delay(a.optInt("seconds", 2).coerceIn(1, 5) * 1000L); ToolOutcome(result(true, true, "Waited.")) }
         "find_contact" -> {

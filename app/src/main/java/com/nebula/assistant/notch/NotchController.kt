@@ -142,6 +142,8 @@ class NotchController(private val service: AccessibilityService) {
             addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_USER_PRESENT)
         }, ContextCompat.RECEIVER_EXPORTED)
         service.getSharedPreferences("nebula", Context.MODE_PRIVATE).registerOnSharedPreferenceChangeListener(prefListener)
+        registeredDevicesAt = System.currentTimeMillis()
+        audio.registerAudioDeviceCallback(deviceCallback, main)
         lastVol = audio.getStreamVolume(stream())
 
         // Full-screen glow while Nebula is listening (not in games).
@@ -166,7 +168,39 @@ class NotchController(private val service: AccessibilityService) {
         }
     }
 
+    // ------------------------------------------------------------------ earbuds & headsets
+
+    private var registeredDevicesAt = 0L
+    private val hideDevice = Runnable { NotchBus.device.value = null }
+    private val deviceCallback = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>) = onDevices(added, true)
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>) = onDevices(removed, false)
+    }
+
+    private fun onDevices(list: Array<out android.media.AudioDeviceInfo>, connected: Boolean) {
+        // Android reports what's already connected right after registering: that's not news.
+        if (System.currentTimeMillis() - registeredDevicesAt < 1500) return
+        if (!prefs.notchEnabled || !prefs.notchDevices) return
+        val d = list.filter { it.isSink }.firstOrNull { isWireless(it.type) || it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+            it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET } ?: return
+        val name = d.productName?.toString()?.takeIf { it.isNotBlank() && it != android.os.Build.MODEL } ?: if (isWireless(d.type)) "Bluetooth headphones" else "Headphones"
+        val last = NotchBus.device.value
+        if (last != null && last.name == name && last.connected == connected && System.currentTimeMillis() - last.at < 4000) return // A2DP + SCO pairs
+        val kind = when {
+            Regex("airpods|buds|earbud|pods", RegexOption.IGNORE_CASE).containsMatchIn(name) -> "buds"
+            isWireless(d.type) -> "headphones"
+            else -> "wired"
+        }
+        NotchBus.device.value = NotchBus.Device(name, connected, kind)
+        main.removeCallbacks(hideDevice); main.postDelayed(hideDevice, 3800)
+    }
+
+    private fun isWireless(t: Int) = t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+        (android.os.Build.VERSION.SDK_INT >= 31 && (t == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET || t == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
+        t == android.media.AudioDeviceInfo.TYPE_HEARING_AID
+
     fun stop() {
+        runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
         scope.cancel()
         runCatching { service.contentResolver.unregisterContentObserver(volumeObserver) }
         runCatching { service.unregisterReceiver(screenReceiver) }

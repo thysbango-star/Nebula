@@ -88,7 +88,7 @@ class NebulaNotificationListener : NotificationListenerService() {
         val n = sbn.notification
         val extras = n.extras
         when {
-            n.category == Notification.CATEGORY_CALL || (n.fullScreenIntent != null && n.category == null && isDialer(sbn.packageName)) -> {
+            isLiveCall(sbn) -> {
                 val actions = n.actions.orEmpty()
                 val answer = actions.firstOrNull { it.title?.toString()?.contains(Regex("answer|accept|antwoord", RegexOption.IGNORE_CASE)) == true }
                 val decline = actions.firstOrNull { it.title?.toString()?.contains(Regex("decline|reject|hang|end|dismiss|weier", RegexOption.IGNORE_CASE)) == true }
@@ -117,6 +117,32 @@ class NebulaNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         NotchBus.clearCall(sbn.key)
         NotchBus.clearMessage(sbn.key)
+    }
+
+    /**
+     * Only a call that is actually ringing (has an Answer button) or actually in progress counts.
+     * Missed-call notes, call logs, "call back" reminders and call-app status cards are ignored —
+     * these were showing a fake call every time the phone was unlocked.
+     */
+    private fun isLiveCall(sbn: StatusBarNotification): Boolean {
+        val n = sbn.notification
+        val looksLikeCall = n.category == Notification.CATEGORY_CALL || (n.fullScreenIntent != null && isDialer(sbn.packageName))
+        if (!looksLikeCall) return false
+        val words = listOfNotNull(n.extras.getCharSequence(Notification.EXTRA_TITLE), n.extras.getCharSequence(Notification.EXTRA_TEXT),
+            n.extras.getCharSequence(Notification.EXTRA_SUB_TEXT)).joinToString(" ").lowercase()
+        if (Regex("missed|gemis|voicemail|call back|callback|call log|recent call").containsMatchIn(words)) return false
+        if (android.os.Build.VERSION.SDK_INT >= 31 && n.category == "missed_call") return false
+        val actions = n.actions.orEmpty().mapNotNull { it.title?.toString()?.lowercase() }
+        val canAnswer = actions.any { Regex("answer|accept|antwoord").containsMatchIn(it) }
+        if (canAnswer) return true
+        // Ongoing call: must be ongoing AND either timed (call timer) or confirmed by the phone's call state.
+        if (!sbn.isOngoing) return false
+        val timed = n.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER) || n.`when` > 0 && n.extras.getBoolean("android.showChronometer")
+        val inCall = runCatching {
+            @Suppress("MissingPermission") getSystemService(android.telecom.TelecomManager::class.java).isInCall
+        }.getOrDefault(false)
+        val hangUp = actions.any { Regex("hang|end call|end|beëindig").containsMatchIn(it) }
+        return (inCall && isDialer(sbn.packageName)) || (timed && hangUp)
     }
 
     private fun isMessage(sbn: StatusBarNotification): Boolean {

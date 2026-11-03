@@ -26,8 +26,25 @@ class NebulaPrefs(context: Context) {
 
     /** The user's own Groq API key. Stored only in this app's private storage (backups disabled). */
     var groqKey: String
-        get() = sp.getString(KEY_GROQ, "").orEmpty()
-        set(v) = sp.edit().putString(KEY_GROQ, cleanKey(v)).remove(KEY_NO_SEARCH).apply()
+        get() = allGroqKeys.let { all -> if (all.isEmpty()) "" else all[sp.getInt("groq_key_active", 0).mod(all.size)] }
+        set(v) = sp.edit().putString(KEY_GROQ, cleanKey(v)).putInt("groq_key_active", 0).remove(KEY_NO_SEARCH).apply()
+
+    /** Backup Groq keys: when one runs out of its daily allowance (or stops working) Nebula moves to the next. */
+    var groqExtraKeys: List<String>
+        get() = sp.getString("groq_keys_extra", "").orEmpty().split('\n').map { cleanKey(it) }.filter { it.length >= 20 }
+        set(v) = sp.edit().putString("groq_keys_extra", v.map { cleanKey(it) }.filter { it.length >= 20 }.distinct().joinToString("\n")).apply()
+
+    val allGroqKeys: List<String>
+        get() = (listOf(sp.getString(KEY_GROQ, "").orEmpty()) + groqExtraKeys).filter { it.isNotBlank() }.distinct()
+
+    /** Switches to the next key. Returns false if there's no other key. */
+    fun nextGroqKey(): Boolean {
+        val n = allGroqKeys.size
+        if (n < 2) return false
+        sp.edit().putInt("groq_key_active", (sp.getInt("groq_key_active", 0) + 1).mod(n)).commit()
+        return true
+    }
+    val activeKeyNumber get() = allGroqKeys.let { if (it.isEmpty()) 0 else sp.getInt("groq_key_active", 0).mod(it.size) + 1 }
 
     var groqModel: String
         get() = sp.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
@@ -84,6 +101,7 @@ class NebulaPrefs(context: Context) {
     var notchVolume: Boolean get() = bool("notch_volume", true); set(v) = setBool("notch_volume", v)
     var notchUnlock: Boolean get() = bool("notch_unlock", true); set(v) = setBool("notch_unlock", v)
     var notchTasks: Boolean get() = bool("notch_tasks", true); set(v) = setBool("notch_tasks", v)
+    var notchDevices: Boolean get() = bool("notch_devices", true); set(v) = setBool("notch_devices", v)
 
     /**
      * Detection threshold handed to the wake word engine. Lower = triggers more easily.

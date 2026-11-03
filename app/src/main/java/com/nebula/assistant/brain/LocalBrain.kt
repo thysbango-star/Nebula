@@ -24,7 +24,8 @@ class LocalBrain(context: Context) {
             Regex("\\b(auto ?-?click|autoclick|auto tap|clicking|tapping)\\b").containsMatchIn(q) -> clicker(q)
             "timer" in q && (Regex("\\b(set|start)\\b").containsMatchIn(q) || q.startsWith("timer")) -> timer(q)
             ("alarm" in q && "set" in q) || q.startsWith("wake me") -> alarm(q)
-            q.startsWith("open ") || q.startsWith("launch ") -> openApp(q)
+            // Only a bare "open Spotify". Anything more ("open Spotify and play a song") is a task for the AI.
+            (q.startsWith("open ") || q.startsWith("launch ")) && isJustAnApp(q) -> openApp(q)
             ("flashlight" in q || "torch" in q || "flash light" in q) &&
                 Regex("\\b(on|off|turn|switch)\\b").containsMatchIn(q) ->
                 torch(on = !Regex("\\boff\\b").containsMatchIn(q))
@@ -119,7 +120,13 @@ class LocalBrain(context: Context) {
         return BrainReply("Alarm set for $label.", launch = intent)
     }
 
-    private fun openApp(q: String): BrainReply {
+    private fun isJustAnApp(q: String): Boolean {
+        val rest = q.substringAfter(' ').trim()
+        if (rest.split(Regex("\\s+")).size > 4) return false
+        return !Regex("\\b(and|then|to|play|search|find|send|message|text|call|show|check|look|go|with|on|for|in)\\b|,").containsMatchIn(rest)
+    }
+
+    private fun openApp(q: String): BrainReply? {
         val name = q.substringAfter(' ').removePrefix("the ").removeSuffix(" app").trim()
         if (name.isBlank()) return BrainReply("Which app should I open?")
 
@@ -132,7 +139,7 @@ class LocalBrain(context: Context) {
         val match = apps.firstOrNull { it.first.equals(name, ignoreCase = true) }
             ?: apps.firstOrNull { it.first.lowercase().startsWith(name) }
             ?: apps.firstOrNull { name in it.first.lowercase() }
-            ?: return BrainReply("I couldn't find an app called “$name”.")
+            ?: return null // not an installed app name: let the AI work out what was meant
 
         val intent = pm.getLaunchIntentForPackage(match.second)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             ?: return BrainReply("I found ${match.first}, but it can't be opened.")
