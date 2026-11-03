@@ -168,11 +168,42 @@ class PhoneActions(private val context: Context) {
         val apps = pm.queryIntentActivities(launcher, 0).map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
             .filter { it.second != context.packageName }
         apps.forEach { NebulaAccessibility.appLabelCache[it.second] = it.first }
-        val q = name.lowercase().trim().removePrefix("the ").removeSuffix(" app")
-        return apps.firstOrNull { it.first.equals(q, true) }
-            ?: apps.firstOrNull { it.first.lowercase().startsWith(q) }
-            ?: apps.firstOrNull { it.first.lowercase().contains(q) }
-            ?: apps.firstOrNull { it.second.lowercase().contains(q.replace(" ", "")) }
+        // "Spotify and play a song" → try "spotify and play a song", then "spotify and play a", … down to "spotify".
+        val full = name.lowercase().trim().removePrefix("open ").removePrefix("the ").removeSuffix(" app")
+            .split(Regex("\\s+(and|then|to|&|,|so|that)\\s+|[,.!?]"))[0].trim()
+        val words = full.split(Regex("\\s+")).filter { it.isNotBlank() }
+        for (n in words.size downTo 1) {
+            val q = words.take(n).joinToString(" ").removeSuffix(" app")
+            if (q.length < 2) continue
+            (apps.firstOrNull { it.first.equals(q, true) }
+                ?: apps.firstOrNull { it.first.lowercase().startsWith(q) }
+                ?: apps.firstOrNull { q.length >= 3 && it.first.lowercase().contains(q) }
+                ?: apps.firstOrNull { q.length >= 4 && it.second.lowercase().contains(q.replace(" ", "")) })?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * Starts playing music straight away ("play something by Tems on Spotify"). Uses Android's
+     * play-from-search, which Spotify, YouTube Music and most players support.
+     */
+    suspend fun playMusic(query: String, app: String?): Outcome {
+        val pkg = app?.takeIf { it.isNotBlank() }?.let { findApp(it)?.second }
+            ?: listOf("com.spotify.music", "com.google.android.apps.youtube.music", "com.samsung.android.app.music").firstOrNull { installed(it) }
+        val q = query.trim()
+        val i = Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(android.app.SearchManager.QUERY, q)
+            .putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+        if (pkg != null) i.setPackage(pkg)
+        val ok = runCatching { context.startActivity(i); true }.getOrDefault(false)
+        if (!ok) return Outcome(false, false, "No music app accepted the request.")
+        // Confirm through the media session the Notch already watches.
+        repeat(16) {
+            delay(500)
+            val m = com.nebula.assistant.notch.NotchBus.media.value
+            if (m != null && m.playing && (pkg == null || m.pkg == pkg)) return Outcome(true, true, "Playing “${m.title}” by ${m.artist}.")
+        }
+        return Outcome(true, false, "Asked ${pkg ?: "the music app"} to play “$q”, but couldn't confirm it started (needs Notification access to check).")
     }
 
     suspend fun openApp(name: String): Outcome {

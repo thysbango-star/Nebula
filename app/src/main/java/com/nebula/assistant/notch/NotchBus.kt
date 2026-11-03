@@ -34,7 +34,7 @@ object NotchBus {
     val message: StateFlow<Message?> = _message.asStateFlow()
 
     /** Earbuds / headset just connected or disconnected. */
-    data class Device(val name: String, val connected: Boolean, val kind: String, val at: Long = System.currentTimeMillis())
+    data class Device(val name: String, val connected: Boolean, val kind: String, val at: Long = System.currentTimeMillis(), val battery: Int? = null)
     val device = MutableStateFlow<Device?>(null)
 
     /** True while the user drags the Notch size sliders, so the island shows itself for preview. */

@@ -74,6 +74,10 @@ class NotchController(private val service: AccessibilityService) {
     var unlock by mutableStateOf<UnlockPhase?>(null)
         private set
 
+    /** Phone really ringing / in a call (WhatsApp calls too)? From the audio system, so stale notifications can't fake one. */
+    var phoneInCall by mutableStateOf(false)
+        private set
+
     data class Layout(val scale: Float, val height: Float, val x: Float, val y: Float)
     /** Live size/position from Settings — sliders move the island instantly. */
     var layout by mutableStateOf(readLayout())
@@ -144,7 +148,24 @@ class NotchController(private val service: AccessibilityService) {
         service.getSharedPreferences("nebula", Context.MODE_PRIVATE).registerOnSharedPreferenceChangeListener(prefListener)
         registeredDevicesAt = System.currentTimeMillis()
         audio.registerAudioDeviceCallback(deviceCallback, main)
+        ContextCompat.registerReceiver(service, budsBattery, IntentFilter("android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"), ContextCompat.RECEIVER_EXPORTED)
         lastVol = audio.getStreamVolume(stream())
+
+        // Calls: a call card is only real while the audio system is in call/ringing mode. Clears leftovers.
+        scope.launch {
+            var quiet = 0
+            while (true) {
+                val m = audio.mode
+                val inCall = m == AudioManager.MODE_RINGTONE || m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_IN_COMMUNICATION ||
+                    (Build.VERSION.SDK_INT >= 30 && m == AudioManager.MODE_CALL_SCREENING)
+                phoneInCall = inCall
+                if (NotchBus.call.value != null) {
+                    quiet = if (inCall) 0 else quiet + 1
+                    if (quiet >= 4) { NotchBus.setCall(null); quiet = 0 } // ~3 s without call audio: it's not a call
+                } else quiet = 0
+                kotlinx.coroutines.delay(if (NotchBus.call.value != null) 700 else 2000)
+            }
+        }
 
         // Full-screen glow while Nebula is listening (not in games).
         scope.launch {
@@ -191,8 +212,33 @@ class NotchController(private val service: AccessibilityService) {
             isWireless(d.type) -> "headphones"
             else -> "wired"
         }
-        NotchBus.device.value = NotchBus.Device(name, connected, kind)
+        NotchBus.device.value = NotchBus.Device(name, connected, kind, battery = if (connected) budsBatteryOf(name) else null)
         main.removeCallbacks(hideDevice); main.postDelayed(hideDevice, 3800)
+        // Earbuds often report their battery a moment after connecting.
+        if (connected) main.postDelayed({
+            NotchBus.device.value?.takeIf { it.connected && it.battery == null && it.name == name }?.let { d ->
+                budsBatteryOf(name)?.let { NotchBus.device.value = d.copy(battery = it) }
+            }
+        }, 1400)
+    }
+
+    /** Battery (0-100) of connected earbuds, if Android knows it. Needs "Nearby devices" on Android 12+. */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun budsBatteryOf(name: String): Int? = runCatching {
+        if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(service, android.Manifest.permission.BLUETOOTH_CONNECT) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED) return null
+        val bt = service.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter ?: return null
+        val dev = bt.bondedDevices.firstOrNull { it.name.equals(name, true) }
+            ?: bt.bondedDevices.firstOrNull { val n = it.name.orEmpty(); n.isNotBlank() && (name.contains(n, true) || n.contains(name, true)) } ?: return null
+        (dev.javaClass.getMethod("getBatteryLevel").invoke(dev) as Int).takeIf { it in 0..100 }
+    }.getOrNull()
+
+    private val budsBattery = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val level = i.getIntExtra("android.bluetooth.device.extra.BATTERY_LEVEL", -1)
+            val d = NotchBus.device.value ?: return
+            if (level in 0..100 && d.connected) NotchBus.device.value = d.copy(battery = level)
+        }
     }
 
     private fun isWireless(t: Int) = t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
@@ -201,6 +247,7 @@ class NotchController(private val service: AccessibilityService) {
 
     fun stop() {
         runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
+        runCatching { service.unregisterReceiver(budsBattery) }
         scope.cancel()
         runCatching { service.contentResolver.unregisterContentObserver(volumeObserver) }
         runCatching { service.unregisterReceiver(screenReceiver) }

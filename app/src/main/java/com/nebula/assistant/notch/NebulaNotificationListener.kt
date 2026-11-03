@@ -141,7 +141,7 @@ class NebulaNotificationListener : NotificationListenerService() {
         val inCall = runCatching {
             @Suppress("MissingPermission") getSystemService(android.telecom.TelecomManager::class.java).isInCall
         }.getOrDefault(false)
-        val hangUp = actions.any { Regex("hang|end call|end|beëindig").containsMatchIn(it) }
+        val hangUp = actions.any { Regex("\\b(hang up|end call|end|beëindig)\\b").containsMatchIn(it) }
         return (inCall && isDialer(sbn.packageName)) || (timed && hangUp)
     }
 

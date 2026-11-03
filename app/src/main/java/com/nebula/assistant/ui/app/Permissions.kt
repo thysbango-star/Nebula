@@ -53,6 +53,8 @@ object Permissions {
                 c.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(c.packageName) == true,
                 settings = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)),
         )
+        if (Build.VERSION.SDK_INT >= 31) list.add(Perm("bluetooth", "Nearby devices", "Shows your AirPods or headphones with their battery in the Notch when they connect.",
+            has(c, Manifest.permission.BLUETOOTH_CONNECT), arrayOf(Manifest.permission.BLUETOOTH_CONNECT)))
         if (Build.VERSION.SDK_INT >= 33) list.add(1, Perm("notifications", "Notifications", "Show when Nebula is listening and when tasks finish.",
             has(c, Manifest.permission.POST_NOTIFICATIONS), arrayOf(Manifest.permission.POST_NOTIFICATIONS)))
         return list

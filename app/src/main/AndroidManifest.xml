@@ -16,6 +16,8 @@
     <!-- Small extras: wake haptic, timers -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Messaging: find contacts and send texts you approve -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />

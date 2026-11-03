@@ -42,7 +42,7 @@ object ToolDefs {
     private fun obj(desc: String) = JSONObject().put("type", "object").put("description", desc)
 
     /** Tools that change something (or read the screen): using one turns the request into a tracked task. */
-    val ACTION = setOf("plan", "read_screen", "collect_list", "look", "tap", "type_text", "scroll", "navigate", "open_app", "open_url", "send_sms",
+    val ACTION = setOf("plan", "read_screen", "collect_list", "look", "play_music", "tap", "type_text", "scroll", "navigate", "open_app", "open_url", "send_sms",
         "send_whatsapp", "call", "set_timer", "set_alarm", "flashlight", "create_document", "update_document", "ask_user", "autoclicker")
 
     val all: JSONArray = JSONArray().apply {
@@ -62,7 +62,10 @@ object ToolDefs {
             JSONObject().put("text", s("Text to type")).put("target", s("Field number or label")).put("submit", b("Press enter/send after typing")), listOf("text")))
         put(fn("scroll", "Scroll the screen or a list.", JSONObject().put("direction", s("down|up")).put("target", s("Optional list number")), listOf("direction")))
         put(fn("navigate", "System navigation.", JSONObject().put("action", s("back|home|recents|notifications|quick_settings|screenshot")), listOf("action")))
-        put(fn("open_app", "Open an installed app by name.", JSONObject().put("name", s("App name")), listOf("name")))
+        put(fn("open_app", "Open an installed app by name. The name only (e.g. 'Spotify'), never the rest of the request.", JSONObject().put("name", s("Just the app's name")), listOf("name")))
+        put(fn("play_music", "Play music right away in Spotify (or the user's music app): a song, artist, album, playlist, genre or mood. " +
+            "For 'a song of your choice', pick a specific, popular song yourself.", JSONObject().put("query", s("e.g. 'Blinding Lights The Weeknd' or 'chill afrobeats'"))
+            .put("app", s("Optional app name, e.g. Spotify")), listOf("query")))
         put(fn("open_url", "Open a web address or deep link.", JSONObject().put("url", s("URL")), listOf("url")))
         put(fn("wait", "Wait a moment for the screen to load.", JSONObject().put("seconds", i("1-5")), listOf("seconds")))
         put(fn("find_contact", "Look up a contact's phone numbers.", JSONObject().put("name", s("Contact name")), listOf("name")))
@@ -180,6 +183,10 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
             val ax = NebulaAccessibility.instance ?: return needsAccess("navigate")
             val r = ax.global(a.optString("action"))
             ToolOutcome(withScreen(result(r.ok, r.verified, r.message)), step("Go ${a.optString("action")}", r.ok, r.verified, r.message))
+        }
+        "play_music" -> {
+            val r = phone.playMusic(a.optString("query"), a.optString("app"))
+            ToolOutcome(result(r.ok, r.verified, r.message), step("Play “${a.optString("query").take(40)}”", r.ok, r.verified, r.message))
         }
         "open_app" -> {
             val r = phone.openApp(a.optString("name"))

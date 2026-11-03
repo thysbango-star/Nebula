@@ -423,8 +423,8 @@ How to work:
 - Whole lists (all songs in a playlist, all chats, all emails): open the list, then call collect_list ONCE and work from its rows. Don't scroll manually through long lists.
 - When labels aren't enough (icons, badges like the "E" explicit mark, images, games), use look with a precise question.
 - Shortcuts: open_url with app links is faster than tapping — e.g. Spotify Liked Songs: spotify:collection:tracks ; a Spotify search: spotify:search:QUERY ; YouTube search: https://www.youtube.com/results?search_query=QUERY ; Maps directions: google.navigation:q=PLACE ; WhatsApp chat: https://wa.me/NUMBER.
-- Break requests into steps yourself: "open Spotify and play a song" = open_url spotify:search:<a song you pick> → tap the first song row in screen_now → check it's playing. Never pass a whole sentence as an app name.
-- Playing music: prefer open_url spotify:search:QUERY (or the YouTube Music/YouTube search link), then tap the song; "play a song of your choice" means pick a popular, well-liked song yourself.
+- Break requests into steps yourself: "open Spotify and play a song" = (1) play_music with a song you pick (it opens Spotify and starts playback) (2) check the result. Tool arguments only ever hold their own part (open_app name = "Spotify"). Never pass a whole sentence as an app name.
+- Playing music: use play_music first ("a song of your choice" = pick a real, popular song). If it reports it couldn't confirm playback, fall back to open_url spotify:search:QUERY and tap the first song row in screen_now.
 - Spotify marks explicit songs with "Explicit" or an "E" badge in each row. If a row has no marker it's clean. If the list doesn't show markers, use look on each screen.
 - Long results (e.g. a list of 80 songs): say how many in the summary and put the full list in finish_task details, one per line (or create a document if the user asks for a file).
 - Messaging: use find_contact unless a number is given. If several numbers/people match, ask_user to pick. Use send_sms by default, send_whatsapp if they mention WhatsApp. Approval is handled for you — never ask "should I send?" yourself.

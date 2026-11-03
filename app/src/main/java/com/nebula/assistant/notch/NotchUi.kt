@@ -150,7 +150,7 @@ fun NotchUi(c: NotchController) {
         voice.active -> Mode.VOICE // Hey Nebula always shows, even with the notch's extras switched off
         !prefs.notchEnabled -> Mode.NONE
         c.unlock != null -> Mode.UNLOCK
-        call != null && prefs.notchCalls -> Mode.CALL
+        call != null && prefs.notchCalls && (c.phoneInCall || call?.ringing == true) -> Mode.CALL
         c.volume != null -> Mode.VOLUME
         device != null -> Mode.DEVICE
         clicker.running || clicker.editing -> Mode.R3CKET
@@ -492,6 +492,17 @@ private fun DeviceView(d: NotchBus.Device, h: Dp) {
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(d.name, color = Color.White, style = small().copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (d.connected) "Connected" else "Disconnected", color = if (d.connected) Mint else Dim, style = TextStyle(fontSize = 11.sp))
+        }
+        if (d.connected && d.battery != null) {
+            // Battery pill, like the phone's own earbuds card.
+            val b = d.battery
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(width = 26.dp, height = 13.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x33FFFFFF))) {
+                    Box(Modifier.fillMaxWidth(b / 100f).height(13.dp).clip(RoundedCornerShape(4.dp)).background(if (b <= 20) Color(0xFFEF4444) else Mint))
+                }
+                Spacer(Modifier.width(6.dp))
+                Text("$b%", color = Color.White, style = small().copy(fontWeight = FontWeight.SemiBold))
+            }
         }
     }
 }
