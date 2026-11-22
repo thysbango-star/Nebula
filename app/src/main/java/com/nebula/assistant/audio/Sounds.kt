@@ -16,6 +16,7 @@ import com.nebula.assistant.data.NebulaPrefs
 enum class NebulaSound(val res: Int, val cue: Boolean) {
     WAKE(R.raw.nebula_wake, true),
     LISTEN_END(R.raw.nebula_listen_end, true),
+    THINKING(R.raw.nebula_thinking, true),
     SUCCESS(R.raw.nebula_success, false),
     NEEDS_INPUT(R.raw.nebula_needs_input, false),
     FAILURE(R.raw.nebula_failure, false),

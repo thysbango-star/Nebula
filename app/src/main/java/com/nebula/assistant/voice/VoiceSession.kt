@@ -60,24 +60,35 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
         try {
             delay(350) // let the wake-word mic close and the chime finish before we record
             var again = true
+            var followUp = false
+            var asked = false
+            var quietEnd = false
             while (again && coroutineContext.isActive && !stopRequested) {
                 again = false
-                VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f) }
-                val u = record() ?: break
-                if (u.empty) { fail("I didn't catch that."); return }
+                VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f, followUp = followUp) }
+                if (followUp) delay(250) // let the last word of Nebula's voice fade before listening
+                // A follow-up only waits a few seconds for you to start talking (longer if Nebula asked you something).
+                val u = record(if (!followUp) 7 else if (asked) 8 else 5) ?: break
+                if (u.empty) { if (followUp) { quietEnd = true; break } else { fail("I didn't catch that."); return } }
                 Sounds.play(context, NebulaSound.LISTEN_END)
-                VoiceState.update { it.copy(phase = VoiceState.Phase.THINKING, level = 0f) }
+                VoiceState.update { it.copy(phase = VoiceState.Phase.THINKING, level = 0f, followUp = false) }
+                Sounds.play(context, NebulaSound.THINKING)
                 val text = try { Hearing.transcribe(prefs, u.wav()) } catch (e: Exception) { fail(e.message ?: "I couldn't hear that."); return }
                 if (text.isBlank() || text.trim('.', ' ').isEmpty()) { fail("I didn't catch that."); return }
-                VoiceState.update { it.copy(transcript = text) }
-                val reply = brain.respond(text)
+                val heard = Names.fixHeard(prefs, text)
+                VoiceState.update { it.copy(transcript = heard) }
+                val reply = brain.respond(heard)
                 VoiceState.update { it.copy(phase = VoiceState.Phase.SPEAKING, reply = reply.text, sources = reply.sources, taskId = reply.taskId) }
-                if (prefs.speakReplies) speaker.speak(reply.text) { VoiceState.level(it) }
-                again = reply.expectsAnswer
+                if (prefs.speakReplies) speaker.speak(Names.forSpeech(prefs, reply.text)) { VoiceState.level(it) }
+                // Conversation mode: keep listening for a follow-up instead of needing a button.
+                asked = reply.expectsAnswer
+                again = asked || prefs.followUps
+                followUp = true
             }
             if (stopRequested) return
-            VoiceState.update { it.copy(phase = VoiceState.Phase.DONE, level = 0f) }
-            delay((5000L + VoiceState.session.value.reply.length * 35L).coerceAtMost(20_000L))
+            VoiceState.update { it.copy(phase = VoiceState.Phase.DONE, level = 0f, followUp = false) }
+            // You already had time to read while Nebula listened for a follow-up, so close soon after silence.
+            delay(if (quietEnd) 900L else (5000L + VoiceState.session.value.reply.length * 35L).coerceAtMost(20_000L))
         } finally {
             if (!stopRequested) end()
         }
@@ -85,18 +96,18 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
 
     private suspend fun fail(msg: String) {
         VoiceState.update { it.copy(phase = VoiceState.Phase.ERROR, reply = msg, level = 0f) }
-        Sounds.play(context, NebulaSound.SOFT)
+        Sounds.play(context, NebulaSound.FAILURE)
         delay(3500)
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun record(): Utterance? = withContext(Dispatchers.IO) {
+    private suspend fun record(waitSeconds: Int = 7): Utterance? = withContext(Dispatchers.IO) {
         finishListening = false
         val min = AudioRecord.getMinBufferSize(Audio.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, Audio.RATE, AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT, maxOf(min, Audio.RATE / 2))
         if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); return@withContext null.also { fail("The microphone is busy.") } }
-        val u = Utterance()
+        val u = Utterance(waitSeconds = waitSeconds)
         val chunk = ShortArray(Audio.RATE / 20) // 50 ms
         try {
             rec.startRecording()

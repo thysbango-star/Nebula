@@ -154,7 +154,31 @@ class TaskEngine private constructor(private val context: Context) {
             return Result(r.text, null, null, false)
         }
         val run = Run(conversationId, buildMessages(conversationId))
+        screenContext(run)
         return loop(run)
+    }
+
+    /**
+     * Screen share: when it's on, Nebula looks at the screen first and tells the AI what's there, so
+     * "what's this?", "reply to this" or "help me with this level" work without explaining.
+     */
+    private suspend fun screenContext(run: Run) {
+        if (!prefs.screenShare) return
+        val ax = NebulaAccessibility.instance ?: return
+        setActivity(run.conversationId, "Looking at your screen…")
+        val img = runCatching { ax.screenshotJpeg() }.getOrNull() ?: return
+        val seen = runCatching {
+            groq.vision("Describe this phone screen for an assistant who will help the user with it: which app, what's shown, " +
+                "all important text (names, messages, numbers, prices, questions), and anything the user is likely asking about. Be concise but complete.", img)
+        }.getOrNull()?.takeIf { it.isNotBlank() && !it.startsWith("Vision isn't available") } ?: return
+        // Attach it to the user's latest message so the AI reads it as context, not as a request.
+        for (i in run.messages.length() - 1 downTo 0) {
+            val m = run.messages.optJSONObject(i) ?: continue
+            if (m.optString("role") == "user") {
+                m.put("content", m.optString("content") + "\n\n[Screen share — what's on my screen right now: ${seen.take(2500)}]")
+                break
+            }
+        }
     }
 
     private suspend fun loop(run: Run): Result {
@@ -412,7 +436,8 @@ class TaskEngine private constructor(private val context: Context) {
         return """
 You are Nebula, a voice-first assistant that DOES things on the user's Samsung Android phone using tools.
 Now: $now (${TimeZone.getDefault().id}). Screen control: $screen.${if (com.nebula.assistant.game.R3cket.inGame.value) "\nR3cket game mode: the user is playing ${com.nebula.assistant.game.R3cket.gameName.value}. Keep replies to one short sentence, don't open other apps unless asked, and use autoclicker for repeated tapping." else ""}
-Recent files Nebula made:
+${prefs.userName.takeIf { it.isNotBlank() }?.let { "The user's name is $it — use it naturally now and then, never every message.
+" } ?: ""}Recent files Nebula made:
 $files
 
 How to work:

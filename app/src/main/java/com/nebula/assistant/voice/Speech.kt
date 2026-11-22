@@ -22,7 +22,7 @@ import kotlin.coroutines.resume
 /** Hearing (Groq Whisper) for the in-Notch voice session. */
 object Hearing {
     /** 16 kHz WAV → text. Throws with a speakable message on failure. */
-    suspend fun transcribe(prefs: NebulaPrefs, wav: ByteArray, attempt: Int = 0): String = withContext(Dispatchers.IO) {
+    suspend fun transcribe(prefs: NebulaPrefs, wav: ByteArray, attempt: Int = 0, coaching: Boolean = false): String = withContext(Dispatchers.IO) {
         val key = NebulaPrefs.cleanKey(prefs.groqKey)
         if (key.isEmpty()) throw IllegalStateException("I need my AI key first. Add your Groq key in Nebula's settings.")
         var last: Exception? = null
@@ -32,6 +32,8 @@ object Hearing {
                 val body = ByteArrayOutputStream()
                 fun field(name: String, value: String) = body.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n".toByteArray())
                 field("model", model); field("response_format", "json"); field("temperature", "0")
+                // Name coach: a hint so Whisper spells the user's name the way they write it.
+                if (prefs.userName.isNotBlank() && !coaching) field("prompt", "My name is ${prefs.userName}.")
                 body.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n".toByteArray())
                 body.write(wav); body.write("\r\n--$boundary--\r\n".toByteArray())
                 val c = (URL("https://api.groq.com/openai/v1/audio/transcriptions").openConnection() as HttpURLConnection).apply {
@@ -44,7 +46,7 @@ object Hearing {
                 c.disconnect()
                 if (code in 200..299) return@withContext JSONObject(text).optString("text").trim()
                 if ((code == 401 || code == 429 && "per day" in text) && attempt < prefs.allGroqKeys.size - 1 && prefs.nextGroqKey()) {
-                    return@withContext transcribe(prefs, wav, attempt + 1) // try with the next key
+                    return@withContext transcribe(prefs, wav, attempt + 1, coaching) // try with the next key
                 }
                 last = IllegalStateException(if (code == 401) "My Groq key isn't working." else if (code == 429) "Groq is busy, try again in a moment." else "I couldn't understand that ($code).")
                 if (code != 404) break

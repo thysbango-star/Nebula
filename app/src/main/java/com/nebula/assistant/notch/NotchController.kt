@@ -173,10 +173,10 @@ class NotchController(private val service: AccessibilityService) {
         }
         // R3cket: tap-point markers, and keep the screen awake while gaming.
         scope.launch {
-            combine(R3cket.clicker, R3cket.inGame) { c, g -> c to g }.collect { (c, g) ->
+            combine(R3cket.clicker, R3cket.inGame, R3cket.session) { c, g, s -> Triple(c, g, s) }.collect { (c, g, s) ->
                 when {
                     c.editing -> showMarkers(touchable = true)
-                    c.running && g -> showMarkers(touchable = false)
+                    (c.running || s?.crosshair == true) && g -> showMarkers(touchable = false)
                     else -> hideMarkers()
                 }
                 gamingAwake = g && prefs.r3cketAwake
@@ -385,6 +385,7 @@ class NotchController(private val service: AccessibilityService) {
     }
 
     val notchPrefs get() = prefs
+    fun later(ms: Long, f: () -> Unit) { main.postDelayed(f, ms) }
     val context: Context get() = service
 
     /** Minimal lifecycle so Compose can run inside a service window. */

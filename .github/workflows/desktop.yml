@@ -41,6 +41,9 @@ jobs:
       - name: Test the R3cket helper on Windows
         run: node test/win-helper-test.js
 
+      - name: Test the background listening process (wake word + question recording)
+        run: node test/ears-test.js
+
       - name: Test the document writers (docx, xlsx, pptx, csv, md, txt, html)
         run: node test/docs-test.js
 

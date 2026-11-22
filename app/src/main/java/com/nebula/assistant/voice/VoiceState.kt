@@ -18,6 +18,8 @@ object VoiceState {
         /** True while a game is in front: compact bar, no full-screen effects. */
         val gaming: Boolean = false,
         val startedAt: Long = 0L,
+        /** Listening for a follow-up after Nebula answered (no button needed). */
+        val followUp: Boolean = false,
     ) {
         val active get() = phase != Phase.IDLE
     }

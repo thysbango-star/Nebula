@@ -91,6 +91,18 @@ class NebulaPrefs(context: Context) {
     var r3cketQuiet: Boolean get() = bool("r3cket_quiet", true); set(v) = setBool("r3cket_quiet", v)
     var r3cketAwake: Boolean get() = bool("r3cket_awake", true); set(v) = setBool("r3cket_awake", v)
     var clickInterval: Int get() = sp.getInt("click_interval", 150); set(v) = sp.edit().putInt("click_interval", v.coerceIn(30, 5000)).apply()
+    /** After Nebula answers, keep listening a few seconds for a follow-up. */
+    var followUps: Boolean get() = bool("follow_ups", true); set(v) = setBool("follow_ups", v)
+    // Name coach
+    var userName: String get() = sp.getString("user_name", "") ?: ""; set(v) = sp.edit().putString("user_name", v.trim()).apply()
+    var nameSayAs: String get() = sp.getString("name_say_as", "") ?: ""; set(v) = sp.edit().putString("name_say_as", v.trim()).apply()
+    var nameHeardAs: Set<String> get() = sp.getStringSet("name_heard_as", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("name_heard_as", v).apply()
+    var screenShare: Boolean get() = bool("screen_share", false); set(v) = setBool("screen_share", v)
+    var r3cketBoost: Boolean get() = bool("r3cket_boost", true); set(v) = setBool("r3cket_boost", v)
+    var r3cketDnd: Boolean get() = bool("r3cket_dnd", true); set(v) = setBool("r3cket_dnd", v)
+    var r3cketCrosshair: Boolean get() = bool("r3cket_crosshair", false); set(v) = setBool("r3cket_crosshair", v)
+    var r3cketHud: Boolean get() = bool("r3cket_hud", true); set(v) = setBool("r3cket_hud", v)
+    var notGames: Set<String> get() = sp.getStringSet("not_games", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("not_games", v).apply()
     var gamePackages: Set<String> get() = sp.getStringSet("game_pkgs", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("game_pkgs", v).apply()
 
     // Nebula Notch

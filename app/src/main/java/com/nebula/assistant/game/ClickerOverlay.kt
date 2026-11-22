@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun ClickerOverlay(@Suppress("UNUSED_PARAMETER") context: Context) {
     val k by R3cket.clicker.collectAsState()
+    val sess by R3cket.session.collectAsState()
     val pulse = rememberInfiniteTransition(label = "pts").animateFloat(0.6f, 1f, infiniteRepeatable(tween(500), RepeatMode.Reverse), label = "p")
     val dragging = remember { intArrayOf(-1) }
 
@@ -64,6 +65,17 @@ fun ClickerOverlay(@Suppress("UNUSED_PARAMETER") context: Context) {
                     }
             )
         ) {
+            // R3cket crosshair: a clean centre reticle for shooters (dark outline so it shows on any background).
+            if (sess?.crosshair == true) {
+                val c = center; val arm = 9.dp.toPx(); val gap = 4.dp.toPx(); val w = 2.dp.toPx()
+                for ((col, sw) in listOf(Color(0xAA000000) to w + 2.dp.toPx(), Color(0xFFB8FF3D) to w)) {
+                    drawLine(col, Offset(c.x - gap - arm, c.y), Offset(c.x - gap, c.y), sw)
+                    drawLine(col, Offset(c.x + gap, c.y), Offset(c.x + gap + arm, c.y), sw)
+                    drawLine(col, Offset(c.x, c.y - gap - arm), Offset(c.x, c.y - gap), sw)
+                    drawLine(col, Offset(c.x, c.y + gap), Offset(c.x, c.y + gap + arm), sw)
+                }
+                drawCircle(Color(0xFFB8FF3D), 1.6.dp.toPx(), c)
+            }
             val r = 22.dp.toPx()
             val active = if (k.running && k.points.isNotEmpty()) ((k.clicks - 1).coerceAtLeast(0) % k.points.size).toInt() else -1
             k.points.forEachIndexed { i, p ->

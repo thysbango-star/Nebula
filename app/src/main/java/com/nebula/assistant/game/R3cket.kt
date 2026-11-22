@@ -46,22 +46,127 @@ object R3cket {
         val prefs = NebulaPrefs(context)
         val game = prefs.r3cketEnabled && pkg.isNotBlank() && isGame(context, pkg, prefs)
         if (game != _inGame.value || (game && pkg != lastPkg)) {
+            val was = _inGame.value
             _inGame.value = game
             _game.value = if (game) label(context, pkg) else ""
-            if (!game) stopClicker()
+            if (game) enterGame(context.applicationContext, pkg, _game.value, prefs)
+            else { stopClicker(); if (was) exitGame(context.applicationContext) }
         }
         lastPkg = pkg
     }
     private var lastPkg = ""
+    private val engineCache = HashMap<String, Boolean>()
 
     fun isGame(context: Context, pkg: String, prefs: NebulaPrefs = NebulaPrefs(context)): Boolean {
         if (pkg in prefs.gamePackages) return true
+        if (pkg in prefs.notGames) return false
         if (KNOWN.any { pkg.startsWith(it) }) return true
         return runCatching {
             val ai = context.packageManager.getApplicationInfo(pkg, 0)
-            ai.category == ApplicationInfo.CATEGORY_GAME || @Suppress("DEPRECATION") (ai.flags and ApplicationInfo.FLAG_IS_GAME) != 0
+            if (ai.flags and ApplicationInfo.FLAG_SYSTEM != 0) return@runCatching false
+            ai.category == ApplicationInfo.CATEGORY_GAME || @Suppress("DEPRECATION") (ai.flags and ApplicationInfo.FLAG_IS_GAME) != 0 ||
+                engineCache.getOrPut(pkg) { usesGameEngine(ai) }
         }.getOrDefault(false)
     }
+
+    /** Most games don't label themselves, but they all ship a game engine: look for it inside the app. */
+    private val ENGINES = listOf("libunity.so", "libil2cpp.so", "libUE4.so", "libUnreal.so", "libcocos2dcpp.so", "libcocos2djs.so",
+        "libcocos.so", "libgodot_android.so", "libgame.so", "libmain.so", "libgdx.so", "libyoyo.so", "libsolarengine.so", "libfmod.so")
+    private fun usesGameEngine(ai: ApplicationInfo): Boolean = runCatching {
+        ai.nativeLibraryDir?.let { java.io.File(it).list()?.any { f -> f in ENGINES } }?.let { if (it) return@runCatching true }
+        val apks = listOfNotNull(ai.sourceDir) + (ai.splitSourceDirs?.toList() ?: emptyList())
+        apks.any { path -> java.util.zip.ZipFile(path).use { z -> z.entries().asSequence().any { e -> e.name.startsWith("lib/") && e.name.substringAfterLast('/') in ENGINES } } }
+    }.getOrDefault(false)
+
+    // ---------------------------------------------------------------- the boost
+
+    /** What R3cket did for this game session (shown in the Notch). */
+    data class Session(val game: String, val pkg: String, val startedAt: Long = System.currentTimeMillis(),
+                       val freedMb: Int = 0, val closedApps: Int = 0, val dnd: Boolean = false, val crosshair: Boolean = false,
+                       val boosting: Boolean = true)
+    private val _session = MutableStateFlow<Session?>(null)
+    val session: StateFlow<Session?> = _session.asStateFlow()
+    private val _ping = MutableStateFlow<Int?>(null)
+    /** Network latency in ms (TCP connect to a nearby server), refreshed every few seconds in game. */
+    val ping: StateFlow<Int?> = _ping.asStateFlow()
+    /** Opens R3cket's panel in the Notch. */
+    val panel = MutableStateFlow(false)
+    private var pingJob: Job? = null
+    private var prevFilter: Int? = null
+
+    private fun enterGame(c: Context, pkg: String, name: String, prefs: NebulaPrefs) {
+        _session.value = Session(name, pkg)
+        panel.value = false
+        scope.launch {
+            // 1. Free memory: ask Android to close apps sitting in the background.
+            var freed = 0; var closed = 0
+            if (prefs.r3cketBoost) {
+                val am = c.getSystemService(android.app.ActivityManager::class.java)
+                val before = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val pm = c.packageManager
+                    val launcher = pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
+                    val keep = setOf(pkg, c.packageName, launcher, "com.spotify.music", "com.google.android.apps.youtube.music") +
+                        (com.nebula.assistant.notch.NotchBus.media.value?.pkg?.let { setOf(it) } ?: emptySet())
+                    pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                        .map { it.activityInfo.packageName }.distinct().filter { it !in keep }
+                        .forEach { p -> runCatching { am.killBackgroundProcesses(p); closed++ } }
+                }
+                delay(900)
+                val after = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
+                freed = ((after - before) / 1_048_576L).toInt().coerceAtLeast(0)
+            }
+            // 2. Do not disturb (only with permission), restored when you leave the game.
+            var dnd = false
+            if (prefs.r3cketDnd) dnd = setDnd(c, true)
+            _session.value = _session.value?.copy(freedMb = freed, closedApps = closed, dnd = dnd, boosting = false, crosshair = prefs.r3cketCrosshair)
+            com.nebula.assistant.audio.Sounds.play(c, com.nebula.assistant.audio.NebulaSound.SOFT)
+        }
+        pingJob?.cancel()
+        pingJob = scope.launch(Dispatchers.IO) { while (isActive) { _ping.value = measurePing(); delay(4000) } }
+    }
+
+    private fun exitGame(c: Context) {
+        pingJob?.cancel(); pingJob = null; _ping.value = null
+        if (_session.value?.dnd == true) setDnd(c, false)
+        _session.value = null; panel.value = false
+    }
+
+    private fun measurePing(): Int? = runCatching {
+        val t = System.nanoTime()
+        java.net.Socket().use { it.connect(java.net.InetSocketAddress("1.1.1.1", 443), 1500) }
+        ((System.nanoTime() - t) / 1_000_000L).toInt()
+    }.getOrNull()
+
+    /** Turns Do Not Disturb on/off. Needs "Do not disturb access" for Nebula. */
+    fun setDnd(c: Context, on: Boolean): Boolean {
+        val nm = c.getSystemService(android.app.NotificationManager::class.java)
+        if (!nm.isNotificationPolicyAccessGranted) return false
+        return runCatching {
+            if (on) { prevFilter = nm.currentInterruptionFilter; nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY) }
+            else nm.setInterruptionFilter(prevFilter ?: android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+            true
+        }.getOrDefault(false)
+    }
+    fun dndAllowed(c: Context) = c.getSystemService(android.app.NotificationManager::class.java).isNotificationPolicyAccessGranted
+
+    fun toggleDnd(c: Context) {
+        val s = _session.value ?: return
+        if (!dndAllowed(c)) {
+            runCatching { c.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            return
+        }
+        val next = !s.dnd
+        if (setDnd(c, next)) _session.value = s.copy(dnd = next)
+    }
+    fun toggleCrosshair(c: Context) {
+        val s = _session.value ?: return
+        val on = !s.crosshair
+        NebulaPrefs(c).r3cketCrosshair = on
+        _session.value = s.copy(crosshair = on)
+    }
+    /** Screenshot without leaving the game. */
+    fun screenshot(): Boolean = service?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT) == true
 
     private fun label(c: Context, pkg: String) = runCatching {
         c.packageManager.getApplicationLabel(c.packageManager.getApplicationInfo(pkg, 0)).toString()

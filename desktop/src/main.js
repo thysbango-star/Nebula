@@ -5,11 +5,12 @@
 
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, nativeImage, safeStorage, Notification, shell, nativeTheme,
+  utilityProcess, MessageChannelMain, powerMonitor,
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { Brain, cleanKey } = require('./brain');
-const { WakeWord, Utterance, wakeThreshold, levelOf, toWav } = require('./voice');
+const { wakeThreshold } = require('./voice');
 const { WinHelper, NOT_GAMES } = require('./win32');
 const { Store } = require('./store');
 const { Agent } = require('./agent');
@@ -38,6 +39,8 @@ const DEFAULTS = {
   intensity: 0.75,
   hotkey: 'Alt+Space',
   speak: true,
+  followUps: true,       // keep listening briefly after Nebula answers
+  performance: 'auto',   // 'auto' (lite on battery) | 'full' | 'lite'
   voice: '',
   startWithWindows: true,
   islandMode: 'always', // 'always' | 'active'
@@ -264,25 +267,50 @@ function applyLoginItem() {
 
 // ------------------------------------------------------------------ wake word + mic
 
-let wake = null;
+// Listening runs in a separate background process (ears.js) so the wake word never stalls the PC.
+let ears = null;
+let wake = false;       // wake word loaded and listening
 let wakeError = '';
 function modelDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'kws') : path.join(__dirname, '..', 'models', 'kws');
 }
-function initWake() {
-  wake = null; wakeError = '';
-  if (!configData.wakeEnabled) return;
-  try {
-    wake = new WakeWord(modelDir(), wakeThreshold(configData.sensitivity));
-  } catch (e) {
-    wakeError = `Wake word unavailable: ${e.message}`;
-    log(wakeError);
+function startEars() {
+  if (ears) return;
+  ears = utilityProcess.fork(path.join(__dirname, 'ears.js'), [], { serviceName: 'Nebula listening' });
+  ears.on('message', onEars);
+  ears.on('exit', (code) => {
+    ears = null; wake = false;
+    log('ears stopped', code);
+    if (!quitting) setTimeout(() => { startEars(); initWake(); connectEarPort(); }, 2000); // restart quietly
+  });
+  connectEarPort();
+}
+/** A direct pipe from the mic window to the listening process (audio never passes through here). */
+function connectEarPort() {
+  if (!ears || !ear || ear.isDestroyed()) return;
+  const { port1, port2 } = new MessageChannelMain();
+  ears.postMessage({ type: 'port' }, [port2]);
+  ear.webContents.postMessage('ear:port', null, [port1]);
+}
+function onEars(m) {
+  if (m.type === 'ready') { wake = !!m.wake; wakeError = ''; broadcastSettings(); pushIslandState(); }
+  else if (m.type === 'error') { wakeError = m.message; log(m.message); if (/Wake word/.test(m.message)) { wake = false; broadcastSettings(); } }
+  else if (m.type === 'wake') { if (!session.active) startSession('wake'); }
+  else if (m.type === 'level') { if (session.active) { send(island, 'island:level', m.level); if (glow && !glow.isDestroyed() && glow.isVisible()) send(glow, 'vibrance:level', m.level); } }
+  else if (m.type === 'utterance') {
+    if (m.token !== session.token || session.listening !== m.token) return;
+    session.listening = 0;
+    onUtterance(m.wav ? Buffer.from(m.wav) : null, m.token);
   }
+}
+function initWake() {
+  if (!ears) startEars();
+  ears.postMessage({ type: 'config', modelDir: modelDir(), threshold: wakeThreshold(configData.sensitivity), wake: !!configData.wakeEnabled });
 }
 
 let earRunning = false;
+let quitting = false;
 function updateEar() {
-  if (configData.wakeEnabled && !wake) initWake();
   const shouldRun = configData.wakeEnabled || session.active;
   if (shouldRun !== earRunning) {
     earRunning = shouldRun;
@@ -290,24 +318,9 @@ function updateEar() {
   }
 }
 
-let lastLevelSent = 0;
+/** Fallback path if the direct mic pipe isn't available. */
 function onAudio(samples) {
-  const { level } = levelOf(samples);
-  const now = Date.now();
-  if (session.active && now - lastLevelSent > 45) {
-    lastLevelSent = now;
-    send(glow, 'vibrance:level', level);
-    send(island, 'island:level', level);
-  }
-  if (session.utterance) {
-    session.utterance.push(samples);
-  } else if (!session.active && wake) {
-    try {
-      if (wake.accept(samples)) startSession('wake');
-    } catch (e) {
-      log('wake word error', e);
-    }
-  }
+  if (ears) ears.postMessage({ type: 'audio', samples });
 }
 
 // ------------------------------------------------------------------ the conversation
@@ -340,7 +353,7 @@ function initAgent() {
 }
 const session = {
   active: false, phase: 'idle', transcript: '', reply: '', sources: [], error: '',
-  utterance: null, lastEnd: 0, endTimer: null, token: 0,
+  listening: 0, lastEnd: 0, endTimer: null, token: 0,
 };
 const timer = { endsAt: 0, label: '', handle: null };
 
@@ -361,7 +374,7 @@ function setPhase(phase, extra = {}) {
 
 function toggleSession(source) {
   if (session.active) {
-    if (session.phase === 'listening' && session.utterance) session.utterance.stop();
+    if (session.phase === 'listening' && session.listening) { if (ears) ears.postMessage({ type: 'finish' }); }
     else endSession();
   } else {
     startSession(source);
@@ -377,27 +390,33 @@ function startSession(source, typed) {
   if (!session.gaming) glow.showInactive(); // R3cket: no full-screen effects over a game
   send(island, 'island:speak-stop');
   if (typed) {
-    session.utterance = null;
+    session.voice = false;
+    session.listening = 0;
     session.transcript = typed;
     think(typed, session.token);
     return;
   }
   setPhase('listening');
-  const token = session.token;
-  session.utterance = new Utterance((audio) => {
-    session.utterance = null;
-    if (token !== session.token) return;
-    onUtterance(audio, token);
-  });
+  session.listening = session.token;
+  if (!ears) startEars();
+  // A follow-up only waits a few seconds for you to start talking; silence closes Nebula.
+  if (!String(source).startsWith('followup')) session.voice = source !== 'typed';
+  const wait = source === 'followup-asked' ? { waitSeconds: 8 } : source === 'followup' ? { waitSeconds: 5 } : {};
+  ears.postMessage({ type: 'listen', token: session.token, opts: wait });
+  ears.postMessage({ type: 'levels', on: true });
   updateEar();
-  if (wake) wake.reset();
 }
 
-async function onUtterance(audio, token) {
-  if (!audio) { fail("I didn't catch that."); return; }
+async function onUtterance(wav, token) {
+  if (!wav) {
+    // Silence after a follow-up just means you're done.
+    if (session.followup) { session.followup = false; endSession(); return; }
+    fail("I didn't catch that."); return;
+  }
+  session.followup = false;
   setPhase('thinking');
   try {
-    const text = await brain.transcribe(toWav(audio));
+    const text = await brain.transcribe(wav);
     if (token !== session.token) return;
     if (!text || /^[\s.,!?]*$/.test(text)) { fail("I didn't catch that."); return; }
     session.transcript = text;
@@ -435,7 +454,15 @@ async function think(text, token) {
 
 function finishTurn(token) {
   if (token !== session.token || !session.active) return;
-  if (session.expectsAnswer) { session.expectsAnswer = false; startSession('followup'); return; }
+  // Conversation mode: after Nebula answers, keep listening a few seconds for a follow-up — no button needed.
+  // If Nebula asked you something, it waits a little longer. Silence closes the island.
+  if (session.voice && configData.followUps !== false) {
+    const asked = session.expectsAnswer; session.expectsAnswer = false;
+    session.followup = true;
+    startSession(asked ? 'followup-asked' : 'followup');
+    return;
+  }
+  if (session.expectsAnswer) { session.expectsAnswer = false; session.followup = true; startSession('followup-asked'); return; }
   setPhase('done');
   const hold = Math.min(25_000, 7_000 + session.reply.length * 40);
   session.endTimer = setTimeout(endSession, hold);
@@ -448,7 +475,9 @@ function fail(message) {
 
 function endSession() {
   clearTimeout(session.endTimer);
-  if (session.utterance) { session.utterance.cancel(); session.utterance = null; }
+  if (session.listening && ears) ears.postMessage({ type: 'cancel' });
+  session.listening = 0; session.followup = false;
+  if (ears) ears.postMessage({ type: 'levels', on: false });
   session.token += 1;
   session.active = false;
   session.lastEnd = Date.now();
@@ -461,7 +490,6 @@ function endSession() {
     }
   }, 900); // let the glow fade and the island settle first
   updateEar();
-  if (wake) wake.reset();
 }
 
 function setTimer(seconds) {
@@ -584,6 +612,7 @@ function settingsPayload() {
 
 function wireIpc() {
   ipcMain.on('ear:audio', (_e, data) => onAudio(data instanceof Float32Array ? data : new Float32Array(data)));
+  ipcMain.on('ear:need-port', () => connectEarPort());
   ipcMain.on('ear:error', (_e, msg) => { log('mic', msg); if (session.active) fail('I can’t reach the microphone. Check Windows microphone privacy settings.'); });
 
   ipcMain.on('island:interactive', (_e, on) => island && island.setIgnoreMouseEvents(!on, { forward: true }));
@@ -684,7 +713,7 @@ app.whenReady().then(() => {
   registerHotkeys();
   applyLoginItem();
   initWake();
-  ear.webContents.once('did-finish-load', () => { earRunning = false; updateEar(); });
+  ear.webContents.on('did-finish-load', () => { earRunning = false; connectEarPort(); updateEar(); });
 
   screen.on('display-metrics-changed', repositionWindows);
   screen.on('display-added', repositionWindows);
@@ -702,4 +731,5 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', (e) => e.preventDefault()); // keep running in the tray
-app.on('will-quit', () => { globalShortcut.unregisterAll(); helper.stopClicking().finally(() => helper.stop()); });
+app.on('before-quit', () => { quitting = true; });
+app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); try { if (ears) ears.kill(); } catch { /* */ } helper.stopClicking().finally(() => helper.stop()); });

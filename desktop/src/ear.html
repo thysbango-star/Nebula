@@ -46,6 +46,8 @@ registerProcessor('downsampler', Downsampler);
 `;
 
 let ctx = null; let stream = null; let node = null; let src = null;
+let earPort = null;
+window.addEventListener('message', (e) => { if (e.data && e.data.type === 'nebula-ear-port' && e.ports && e.ports[0]) { earPort = e.ports[0]; earPort.start(); } });
 
 async function start() {
   if (ctx) return;
@@ -58,7 +60,8 @@ async function start() {
     await ctx.audioWorklet.addModule(url);
     src = ctx.createMediaStreamSource(stream);
     node = new AudioWorkletNode(ctx, 'downsampler');
-    node.port.onmessage = (e) => window.nebula.send('ear:audio', e.data);
+    // Straight to the listening process when the pipe is up (keeps the main thread free); IPC as a fallback.
+    node.port.onmessage = (e) => { if (earPort) earPort.postMessage(e.data, [e.data.buffer]); else window.nebula.send('ear:audio', e.data); };
     src.connect(node);
     // Keep the graph running without playing anything.
     const mute = ctx.createGain(); mute.gain.value = 0;

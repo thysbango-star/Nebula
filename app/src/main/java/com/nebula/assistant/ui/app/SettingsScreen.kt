@@ -106,7 +106,13 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
             Text("Sensitivity · ${if (sens < 0.34f) "Relaxed" else if (sens > 0.66f) "Eager" else "Balanced"}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
             Slider(sens, { sens = it }, onValueChangeFinished = { a.wakeSensitivity(sens) }, colors = sliderColors())
             Toggle("Speak replies", "Answers out loud as well as on screen.", prefs.speakReplies) { prefs.speakReplies = it; tick++ }
+            Keyed(tick) {
+                Toggle("Conversation mode", "After Nebula answers it keeps listening a few seconds, so you can just ask a follow-up.", prefs.followUps) { prefs.followUps = it; tick++ }
+                Toggle("Share my screen", "Nebula looks at your screen when you ask something, so it understands what you're looking at. Needs Screen control (Android 11+).", prefs.screenShare) { prefs.screenShare = it; tick++ }
+            }
         }
+
+        NameCoach(prefs)
 
         VoiceGroup(prefs)
 
@@ -332,6 +338,14 @@ private fun R3cketGroup(prefs: NebulaPrefs) {
             Toggle("R3cket", "Detect games automatically.", prefs.r3cketEnabled) { prefs.r3cketEnabled = it; tick++ }
             Toggle("Quiet island", "Hide message pop-ups and music while you play.", prefs.r3cketQuiet) { prefs.r3cketQuiet = it; tick++ }
             Toggle("Keep screen awake", "Stops the screen dimming mid-game.", prefs.r3cketAwake) { prefs.r3cketAwake = it; tick++ }
+            Toggle("Boost on launch", "Closes apps idling in the background to free memory for the game, and shows how much it freed.", prefs.r3cketBoost) { prefs.r3cketBoost = it; tick++ }
+            Toggle("Do not disturb while playing", "Silences calls and notifications during a game, then puts things back.", prefs.r3cketDnd) {
+                prefs.r3cketDnd = it; tick++
+                if (it && !com.nebula.assistant.game.R3cket.dndAllowed(ctx)) runCatching {
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
+            Toggle("Game HUD", "Game time, ping and phone temperature around the camera. Tap it for the R3cket panel.", prefs.r3cketHud) { prefs.r3cketHud = it; tick++ }
+            Toggle("Crosshair", "A centre aim dot for shooters (can also be switched from the panel).", prefs.r3cketCrosshair) { prefs.r3cketCrosshair = it; tick++ }
         }
         val cps = 1000f / interval
         SliderRow("Auto-click speed", if (cps >= 1) "${"%.1f".format(cps)} taps/s" else "every ${"%.1f".format(interval / 1000f)} s",
@@ -356,15 +370,25 @@ private fun GameList(prefs: NebulaPrefs) {
             .distinctBy { it.first }.filter { it.first != ctx.packageName }.sortedBy { it.second.lowercase() }
     }
     var picked by remember { mutableStateOf(prefs.gamePackages) }
+    var blocked by remember { mutableStateOf(prefs.notGames) }
+    // Looking inside apps for a game engine takes a moment: do it off the main thread.
+    val detected by androidx.compose.runtime.produceState(emptySet<String>(), apps) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val clean = NebulaPrefs(ctx).also { } // fresh read, ignoring the user's own lists below
+            apps.map { it.first }.filter { p -> p !in clean.gamePackages && p !in clean.notGames && com.nebula.assistant.game.R3cket.isGame(ctx, p, clean) }.toSet()
+        }
+    }
     Column(Modifier.padding(top = 6.dp)) {
+        if (detected.isEmpty()) Text("Scanning your apps for games…", style = MaterialTheme.typography.bodySmall, color = p.faint)
         apps.forEach { (pkg, label) ->
-            val auto = com.nebula.assistant.game.R3cket.isGame(ctx, pkg, prefs) && pkg !in picked
+            val auto = pkg in detected && pkg !in picked
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 if (auto) Text("auto", style = MaterialTheme.typography.labelMedium, color = p.ok, modifier = Modifier.padding(end = 8.dp))
-                Switch(auto || pkg in picked, { on ->
-                    picked = if (on) picked + pkg else picked - pkg; prefs.gamePackages = picked
-                }, enabled = !auto, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = p.flame, checkedBorderColor = Color.Transparent,
+                Switch((auto || pkg in picked) && pkg !in blocked, { on ->
+                    picked = if (on && !auto) picked + pkg else picked - pkg; prefs.gamePackages = picked
+                    blocked = if (on) blocked - pkg else if (auto) blocked + pkg else blocked; prefs.notGames = blocked
+                }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = p.flame, checkedBorderColor = Color.Transparent,
                     uncheckedThumbColor = p.faint, uncheckedTrackColor = p.surface2, uncheckedBorderColor = p.line))
             }
         }
@@ -373,6 +397,96 @@ private fun GameList(prefs: NebulaPrefs) {
 
 @Composable
 private fun Keyed(k: Any, content: @Composable () -> Unit) = androidx.compose.runtime.key(k) { content() }
+
+// ---------------------------------------------------------------------- name coach
+
+/** Say your name five times; Nebula learns how it's spelled, how it sounds, and how to say it back. */
+@Composable
+private fun NameCoach(prefs: NebulaPrefs) {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(prefs.userName) }
+    var step by remember { mutableStateOf(-1) }           // -1 idle, 0..4 recording takes, 5 choosing
+    var heard by remember { mutableStateOf(listOf<String>()) }
+    var options by remember { mutableStateOf(listOf<String>()) }
+    var chosen by remember { mutableStateOf(prefs.nameSayAs) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var listening by remember { mutableStateOf(false) }
+    val speaker = remember { com.nebula.assistant.voice.Speaker(ctx) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { speaker.release() } }
+    fun say(spelling: String) = scope.launch { speaker.speak("Hi $spelling, nice to meet you.") }
+
+    suspend fun take() {
+        listening = true; status = null
+        val wav = com.nebula.assistant.voice.Names.recordTake()
+        listening = false
+        if (wav == null) { status = "I didn't hear anything. Try again."; return }
+        val t = runCatching { com.nebula.assistant.voice.Hearing.transcribe(prefs, wav, coaching = true) }.getOrElse { status = it.message; return }
+            .trim().trim('.', '!', '?', ',').removePrefix("My name is ").removePrefix("my name is ").trim()
+        heard = heard + t.ifBlank { "?" }
+        step++
+        if (step == 5) {
+            status = "Finding how to say it…"
+            options = runCatching { com.nebula.assistant.voice.Names.suggest(prefs, name, heard) }.getOrElse { listOf(name) }
+            chosen = options.first(); status = "Tap each one to hear it, then pick the one that sounds like you."
+        }
+    }
+
+    Group("Name coach", if (prefs.nameSayAs.isNotBlank()) "Learned" else null, p.ok) {
+        Text("Teach Nebula your name: say it 5 times so Nebula hears it right and says it the way you do.", style = MaterialTheme.typography.bodySmall, color = p.dim)
+        Box(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.surface).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp)) {
+            if (name.isEmpty()) Text("Your name, as you write it", color = p.faint, style = MaterialTheme.typography.bodyMedium)
+            BasicTextField(name, { name = it }, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = p.text),
+                cursorBrush = SolidColor(p.flame), modifier = Modifier.fillMaxWidth())
+        }
+        when {
+            step in 0..4 -> {
+                Text("Say your name — take ${step + 1} of 5", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 14.dp))
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    repeat(5) { i -> Box(Modifier.size(10.dp).clip(CircleShape).background(if (i < step) p.ok else if (i == step) p.flame else p.surface2)) }
+                }
+                if (heard.isNotEmpty()) Text("Heard: ${heard.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 8.dp))
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn(if (listening) "Listening…" else "● Record", primary = true) { if (!listening) scope.launch { take() } }
+                    Btn("Cancel") { step = -1; heard = emptyList() }
+                }
+            }
+            step == 5 -> {
+                Text("How should Nebula say it?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 14.dp))
+                Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { o -> Chip("▶ $o", chosen == o) { chosen = o; say(o) } }
+                }
+                Box(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.surface).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp)) {
+                    BasicTextField(chosen, { chosen = it }, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = p.text),
+                        cursorBrush = SolidColor(p.flame), modifier = Modifier.fillMaxWidth())
+                }
+                Text("Or type your own spelling above and tap Hear.", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 6.dp))
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn("Save", primary = true) {
+                        prefs.userName = name; prefs.nameSayAs = chosen
+                        prefs.nameHeardAs = heard.filter { it != "?" }.map { it.lowercase() }.toSet()
+                        step = -1; status = "Got it. Nebula will call you ${name}."
+                        say(chosen)
+                    }
+                    Btn("Hear") { say(chosen) }
+                    Btn("Start over") { step = 0; heard = emptyList() }
+                }
+            }
+            else -> Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn(if (prefs.nameSayAs.isBlank()) "Teach my name" else "Coach again", primary = true) {
+                    if (name.isBlank()) status = "Type your name first." else {
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                            status = "Nebula needs microphone permission (Permissions above)."
+                        else { prefs.userName = name; step = 0; heard = emptyList() }
+                    }
+                }
+                if (prefs.nameSayAs.isNotBlank()) Btn("Hear it") { say(prefs.nameSayAs) }
+            }
+        }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 8.dp)) }
+    }
+}
 
 @Composable
 private fun Group(title: String, badge: String? = null, badgeColor: Color = Color.Unspecified, content: @Composable ColumnScope.() -> Unit) {
