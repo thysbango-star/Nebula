@@ -66,6 +66,13 @@ class Utterance(private val maxSeconds: Int = 15, private val waitSeconds: Int =
 
     fun finishNow() { done = true; empty = !heard }
 
+    /** Keeps audio as lead-in only (e.g. while Nebula's wake sound plays) without letting it count as speech. */
+    fun preroll(chunk: ShortArray, len: Int) {
+        if (done || heard) return
+        total += len
+        pre.addLast(chunk.copyOf(len)); if (pre.size > 4) pre.removeFirst()
+    }
+
     private fun append(c: ShortArray, len: Int) {
         val k = minOf(len, buf.size - n); System.arraycopy(c, 0, buf, n, k); n += k
     }

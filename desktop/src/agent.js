@@ -73,6 +73,7 @@ class Agent {
     try {
       const local = this.brain.handleLocal(text);
       if (local) return await this.localReply(run, text, local);
+      await this.attachScreen(run);
       return await this.loop(run);
     } catch (e) {
       return this.fail(run, e);
@@ -239,6 +240,19 @@ class Agent {
     }
   }
 
+  /** Screen share: tell the AI what's on the screen right now (when the user switched it on). */
+  async attachScreen(run) {
+    if (!this.config.get('screenShare') || !this.screenshot) return;
+    this.setActivity(run.cid, 'Looking at your screen…');
+    try {
+      const img = await this.screenshot();
+      if (!img) return;
+      const seen = await this.brain.vision('Describe this screen for an assistant who will help the user with it: which app or website, what is shown, all important text (names, messages, numbers, prices, errors, questions), and what the user is probably asking about. Be concise but complete.', img);
+      const last = [...run.messages].reverse().find((m) => m.role === 'user');
+      if (seen && last) last.content += `\n\n[Screen share — what's on my screen right now: ${seen.slice(0, 2500)}]`;
+    } catch { /* carry on without it */ }
+  }
+
   // ------------------------------------------------------------ bookkeeping
 
   createTask(run, firstTool) {
@@ -317,7 +331,7 @@ class Agent {
     const files = this.store.data.files.slice(0, 12).map((f) => `- ${f.fileName} (id=${f.id}, ${f.ext})`).join('\n') || 'none yet';
     return `You are Nebula, a warm, capable assistant that DOES things on the user's Windows PC using tools.
 Now: ${now} (${Intl.DateTimeFormat().resolvedOptions().timeZone}).
-Recent files Nebula made:
+${this.config.get('userName') ? `The user's name is ${this.config.get('userName')} — use it naturally now and then, never every message.\n` : ''}Recent files Nebula made:
 ${files}
 
 How to work:

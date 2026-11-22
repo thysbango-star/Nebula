@@ -69,10 +69,11 @@ function levelOf(samples) {
  * Calls onDone(Float32Array | null) — null when nothing was said.
  */
 class Utterance {
-  constructor(onDone, { maxSeconds = 15, waitSeconds = 7, silenceMs = 850 } = {}) {
+  constructor(onDone, { maxSeconds = 15, waitSeconds = 7, silenceMs = 850, ignoreMs = 0 } = {}) {
+    this.ignore = (ignoreMs / 1000) * SAMPLE_RATE; // e.g. while Nebula's wake sound is still ringing
     this.onDone = onDone;
     this.max = maxSeconds * SAMPLE_RATE;
-    this.wait = waitSeconds * SAMPLE_RATE;
+    this.wait = (waitSeconds + ignoreMs / 1000) * SAMPLE_RATE;
     this.silenceSamples = (silenceMs / 1000) * SAMPLE_RATE;
     this.chunks = [];
     this.preroll = [];
@@ -87,6 +88,7 @@ class Utterance {
     if (this.finished) return;
     const { rms } = levelOf(samples);
     this.total += samples.length;
+    if (!this.heard && this.total <= this.ignore) { this.preroll.push(samples); if (this.preroll.length > 4) this.preroll.shift(); return; }
 
     // Learn the room's noise level from the first moments.
     if (this.noise.length < 3 && !this.heard) this.noise.push(rms);

@@ -531,6 +531,15 @@ function renderSettings() {
     <div class="slider">Sensitivity<small id="sSensV">${lab(d.sensitivity, ['Relaxed', 'Balanced', 'Eager'])}</small></div><input type="range" id="sSens" min="0" max="1" step="0.01" value="${d.sensitivity}">
     ${toggle('sSpeak', 'Speak replies', 'Answers out loud as well as in the island.', d.speak)}</div>
 
+  <div class="group"><h3>Conversation</h3>
+    ${toggle('sFollow', 'Conversation mode', 'After Nebula answers it keeps listening a few seconds, so you can just ask a follow-up — no buttons.', d.followUps !== false)}
+    ${toggle('sShare', 'Share my screen', 'Nebula looks at your screen when you ask something, so “what is this?” or “fix this error” just work. Only used when you ask.', !!d.screenShare)}</div>
+
+  <div class="group"><h3>Name coach <small style="color:var(--ok)">${d.nameSayAs ? 'Learned' : ''}</small></h3>
+    <p class="sub">Teach Nebula your name: say it 5 times so it hears it right and says it the way you do.</p>
+    <input class="field" id="nName" placeholder="Your name, as you write it" value="${esc(d.userName || '')}" spellcheck="false">
+    <div id="nCoach"></div></div>
+
   <div class="group"><h3>Voice <small style="color:${d.voiceProblem && d.voiceEngine !== 'system' ? 'var(--warn)' : 'var(--ok)'}">${d.voiceEngine === 'system' ? 'Windows' : d.voiceProblem ? 'Using Windows voice' : 'Natural'}</small></h3>
     <p class="sub">How Nebula sounds when it talks back.</p>
     <div class="chiprow">${[['groq', 'Natural (free)'], ['system', 'Windows voice']].map(([v, l]) => `<button class="chip press ${(d.voiceEngine || 'groq') === v ? 'on' : ''}" data-engine="${v}">${l}</button>`).join('')}</div>
@@ -551,7 +560,10 @@ function renderSettings() {
   <div class="group"><h3>R3cket <small style="color:var(--flame)">Game mode</small></h3>
     <p class="sub">When a game fills your screen, “Hey Nebula” becomes a slim bar and the glow stays off so play never stops. Say “auto-click”, “click faster” or “stop clicking”.</p>
     ${toggle('sR3', 'R3cket', 'Detect full-screen games automatically.', d.r3cket !== false)}
-    ${toggle('sQuiet', 'Quiet island', 'Hide the resting island while you play.', d.r3cketQuiet !== false)}
+    ${toggle('sQuiet', 'Quiet island', 'No message or music pop-ups while you play.', d.r3cketQuiet !== false)}
+    ${toggle('sHud', 'Game HUD', 'Game time, ping, CPU and RAM in the island while you play.', d.r3cketHud !== false)}
+    ${toggle('sPower', 'Performance boost', 'High performance power plan and high CPU priority for the game; your settings come back when you stop.', d.r3cketPower !== false)}
+    <div class="slider">Crosshair shortcut</div><input class="field hk" id="sCrossHk" readonly value="${esc((d.crosshairHotkey || '').replace(/\+/g, ' + '))}">
     <div class="slider">Auto-click speed<small id="sClickV">${speedLabel(d.clickInterval || 100)}</small></div><input type="range" id="sClick" min="0" max="1" step="0.001" value="${toSlider(d.clickInterval || 100)}">
     <div class="slider">Auto-click shortcut</div><input class="field hk" id="sClickHk" readonly value="${esc((d.clickHotkey || '').replace(/\+/g, ' + '))}">
     <div class="slider">Games list<small>${d.gaming ? `Playing now: ${esc(d.game)}` : ''}</small></div><input class="field" id="sGames" placeholder="e.g. RobloxPlayerBeta, Minecraft" value="${esc((d.games || []).join(', '))}" spellcheck="false">
@@ -561,6 +573,10 @@ function renderSettings() {
     <div class="slider">Talk to Nebula</div><input class="field hk" id="sHk" readonly value="${esc((d.activeHotkey || d.hotkey || '').replace(/\+/g, ' + '))}">
     <p class="sub" style="margin-top:8px">${d.activeHotkey && d.activeHotkey !== d.hotkey ? `“${esc(d.hotkey)}” is taken by another app, so Nebula is using ${esc(d.activeHotkey)}.` : 'Click, then press the keys you want. The Copilot key works too.'}</p>
     ${toggle('sStart', 'Start with Windows', 'Nebula waits quietly in the tray.', d.startWithWindows)}</div>
+
+  <div class="group"><h3>Performance</h3>
+    <p class="sub">Lite skips the full-screen glow (the island still lights up) — much easier on laptops. Auto uses Lite whenever you're on battery.</p>
+    <div class="chiprow">${[['auto', 'Auto'], ['full', 'Full glow'], ['lite', 'Lite']].map(([v, l]) => `<button class="chip press ${(d.performance || 'auto') === v ? 'on' : ''}" data-perf="${v}">${l}</button>`).join('')}</div></div>
 
   <div class="group"><h3>Appearance</h3><div class="chiprow">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button class="chip press ${(d.theme || 'system') === v ? 'on' : ''}" data-theme="${v}">${l}</button>`).join('')}</div></div>
 
@@ -605,6 +621,13 @@ function renderSettings() {
   on('sPreview', 'onclick', () => api.send('settings:preview'));
   on('sReset', 'onclick', () => setS({ islandScale: 1, islandX: 0, islandY: 0 }).then(renderSettings));
   on('sR3', 'onchange', (e) => setS({ r3cket: e.target.checked }));
+  on('sHud', 'onchange', (e) => setS({ r3cketHud: e.target.checked }));
+  on('sPower', 'onchange', (e) => setS({ r3cketPower: e.target.checked }));
+  on('sFollow', 'onchange', (e) => setS({ followUps: e.target.checked }));
+  on('sShare', 'onchange', (e) => setS({ screenShare: e.target.checked }));
+  B.querySelectorAll('[data-perf]').forEach((b) => (b.onclick = () => setS({ performance: b.dataset.perf }).then(renderSettings)));
+  recorder($('sCrossHk'), (k) => setS({ crosshairHotkey: k }).then(renderSettings), true);
+  coach.render();
   on('sQuiet', 'onchange', (e) => setS({ r3cketQuiet: e.target.checked }));
   on('sClick', 'oninput', (e) => { $('sClickV').textContent = speedLabel(fromSlider(+e.target.value)); });
   on('sClick', 'onchange', (e) => setS({ clickInterval: fromSlider(+e.target.value) }));
@@ -613,6 +636,73 @@ function renderSettings() {
   recorder($('sHk'), (k) => setS({ hotkey: k }).then(renderSettings), false);
   recorder($('sClickHk'), (k) => setS({ clickHotkey: k }).then(renderSettings), true);
 }
+// ------------------------------------------------------------ name coach
+const coach = {
+  step: -1, heard: [], options: [], chosen: '', status: '', busy: false,
+  render() {
+    const box = $('nCoach'); if (!box) return;
+    const c = this; const d = S;
+    let html = '';
+    if (c.step >= 0 && c.step < 5) {
+      html = `<div class="slider" style="margin-top:14px">Say your name — take ${c.step + 1} of 5</div>
+        <div class="chiprow">${[0, 1, 2, 3, 4].map((i) => `<span style="width:10px;height:10px;border-radius:5px;background:${i < c.step ? 'var(--ok)' : i === c.step ? 'var(--flame)' : 'var(--surface2)'}"></span>`).join('')}</div>
+        ${c.heard.length ? `<div class="status">Heard: ${c.heard.map(esc).join(' · ')}</div>` : ''}
+        <div class="row"><button class="pill primary press" id="nRec">${c.busy ? 'Listening… say it now' : '● Record (3 s)'}</button><button class="pill press" id="nCancel">Cancel</button></div>`;
+    } else if (c.step === 5) {
+      html = `<div class="slider" style="margin-top:14px">How should Nebula say it?</div>
+        <div class="chiprow">${c.options.map((o) => `<button class="chip press ${c.chosen === o ? 'on' : ''}" data-say="${esc(o)}">▶ ${esc(o)}</button>`).join('')}</div>
+        <input class="field" id="nChosen" value="${esc(c.chosen)}" spellcheck="false">
+        <p class="sub" style="margin-top:6px">Or type your own spelling and press Hear.</p>
+        <div class="row"><button class="pill primary press" id="nSave">Save</button><button class="pill press" id="nHear">Hear</button><button class="pill press" id="nAgain">Start over</button></div>`;
+    } else {
+      html = `<div class="row"><button class="pill primary press" id="nStart">${d.nameSayAs ? 'Coach again' : 'Teach my name'}</button>${d.nameSayAs ? '<button class="pill press" id="nHearSaved">Hear it</button>' : ''}</div>`;
+    }
+    box.innerHTML = html + (c.status ? `<div class="status">${esc(c.status)}</div>` : '');
+    const on = (id, f) => { const el = $(id); if (el) el.onclick = f; };
+    on('nStart', () => { const n = $('nName').value.trim(); if (!n) { c.status = 'Type your name first.'; return c.render(); } setS({ userName: n }); Object.assign(c, { step: 0, heard: [], status: '' }); c.render(); });
+    on('nCancel', () => { c.step = -1; c.render(); });
+    on('nRec', () => c.take());
+    on('nAgain', () => { Object.assign(c, { step: 0, heard: [] }); c.render(); });
+    on('nHear', () => c.say($('nChosen').value.trim()));
+    on('nHearSaved', () => c.say(S.nameSayAs));
+    on('nSave', async () => {
+      const n = $('nName').value.trim(); const say = $('nChosen').value.trim() || n;
+      await setS({ userName: n, nameSayAs: say, nameHeardAs: c.heard.filter((h) => h && h !== '?').map((h) => h.toLowerCase()) });
+      Object.assign(c, { step: -1, status: `Got it. Nebula will call you ${n}.` }); c.render(); c.say(say);
+    });
+    box.querySelectorAll('[data-say]').forEach((b) => (b.onclick = () => { c.chosen = b.dataset.say; c.render(); c.say(c.chosen); }));
+  },
+  async take() {
+    if (this.busy) return;
+    this.busy = true; this.status = ''; this.render();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' }); const parts = [];
+      rec.ondataavailable = (e) => parts.push(e.data);
+      const done = new Promise((r) => (rec.onstop = r));
+      rec.start(); setTimeout(() => rec.stop(), 3000); await done;
+      stream.getTracks().forEach((t) => t.stop());
+      const buf = await new Blob(parts, { type: 'audio/webm' }).arrayBuffer();
+      const r = await api.invoke('settings:name-take', buf);
+      if (r.error) this.status = r.error;
+      else if (!r.text) this.status = "I didn't hear anything. Try again.";
+      else { this.heard.push(r.text); this.step++; }
+      if (this.step === 5) {
+        this.status = 'Finding how to say it…'; this.render();
+        this.options = await api.invoke('settings:name-suggest', { name: $('nName').value.trim(), heard: this.heard });
+        this.chosen = this.options[0]; this.status = 'Tap each one to hear it, then pick the one that sounds like you.';
+      }
+    } catch (e) { this.status = `Microphone problem: ${e.message}`; }
+    this.busy = false; this.render();
+  },
+  async say(spelling) {
+    if (!spelling) return;
+    const r = await api.invoke('settings:say', `Hi ${spelling}, nice to meet you.`);
+    if (r.clips?.length) { const play = (i) => { if (i >= r.clips.length) return; const a = new Audio(`data:audio/wav;base64,${r.clips[i]}`); a.onended = () => play(i + 1); a.play().catch(() => {}); }; play(0); }
+    else speechSynthesis.speak(new SpeechSynthesisUtterance(r.text));
+  },
+};
+
 function recorder(el, save, allowF) {
   el.onclick = () => { el.classList.add('rec'); el.value = 'Press keys…'; };
   el.onblur = () => { if (el.classList.contains('rec')) { el.classList.remove('rec'); renderSettings(); } };
@@ -629,6 +719,7 @@ function recorder(el, save, allowF) {
 
 // ------------------------------------------------------------ sounds (task done / needs you / failed)
 function chime(kind) {
+  if (kind === 'failure') { try { const a = new Audio('sounds/failure.ogg'); a.volume = 0.8; a.play().catch(() => {}); } catch { /* */ } return; }
   try {
     const ctx = new AudioContext(); const now = ctx.currentTime;
     const notes = { success: [659, 988], needs: [784, 784], failure: [440, 330], soft: [587] }[kind] || [587];

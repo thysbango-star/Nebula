@@ -57,6 +57,38 @@ class Brain {
     }
   }
 
+  /** Asks a vision model about a screenshot (JPEG base64). */
+  async vision(question, jpegB64) {
+    const models = ['qwen/qwen3.8-27b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-maverick-17b-128e-instruct'];
+    let last;
+    for (const model of models) {
+      try {
+        const json = await this.request('POST', '/chat/completions', this.getKey(), JSON.stringify({
+          model, temperature: 0.1, max_completion_tokens: 900,
+          messages: [{ role: 'user', content: [
+            { type: 'text', text: `This is a screenshot of the user's Windows PC. Answer precisely and briefly. Question: ${question}` },
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${jpegB64}` } }] }],
+        }));
+        return String(json?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      } catch (e) { last = e; if (!(e instanceof ApiError) || !(isModelGone(e) || e.code === 400)) break; }
+    }
+    throw toSpoken(last);
+  }
+
+  /** Name coach: spellings that make the voice say a name the way the user does. */
+  async nameSpellings(name, heard) {
+    const json = await this.request('POST', '/chat/completions', this.getKey(), JSON.stringify({
+      model: this.config.get('model') || DEFAULT_MODEL, temperature: 0.4, max_completion_tokens: 400,
+      messages: [
+        { role: 'system', content: 'You help a text-to-speech voice pronounce a person\'s name correctly. Reply with JSON only: {"spellings":[...]} with 4 different phonetic respellings in plain English letters, most likely first.' },
+        { role: 'user', content: `The name is written "${name}". When the person said it 5 times, speech recognition heard: ${heard.map((h) => `"${h}"`).join(', ')}. Give respellings an English voice would read aloud the way the person says it.` },
+      ],
+    }));
+    const text = String(json?.choices?.[0]?.message?.content || '');
+    try { const list = JSON.parse((/\{[\s\S]*\}/.exec(text) || ['{}'])[0]).spellings || []; return [...new Set(list.map(String).filter((x) => x && x.length < 40))].slice(0, 4); }
+    catch { return [name]; }
+  }
+
   /** Web search through Groq's browser tool: {text, sources}. */
   async search(query) {
     const key = this.getKey();
@@ -111,17 +143,20 @@ class Brain {
   }
 
   /** Speech-to-text: 16 kHz mono WAV buffer → text. */
-  async transcribe(wav) {
+  async transcribe(wav, { prompt, mime = 'audio/wav', file = 'speech.wav' } = {}) {
     const key = this.getKey();
     if (!key) throw new SpokenError("I need my AI key first. Open Nebula settings and paste your Groq key.");
     let lastErr;
     for (const model of STT_MODELS) {
       try {
         const form = new FormData();
-        form.append('file', new Blob([wav], { type: 'audio/wav' }), 'speech.wav');
+        form.append('file', new Blob([wav], { type: mime }), file);
         form.append('model', model);
         form.append('response_format', 'json');
         form.append('temperature', '0');
+        // Name coach: a hint so Whisper spells the user's name the way they write it.
+        const hint = prompt === undefined ? (this.config.get('userName') ? `My name is ${this.config.get('userName')}.` : '') : prompt;
+        if (hint) form.append('prompt', hint);
         const json = await this.request('POST', '/audio/transcriptions', key, form);
         return (json.text || '').trim();
       } catch (e) {

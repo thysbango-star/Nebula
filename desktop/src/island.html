@@ -51,8 +51,32 @@
     background: conic-gradient(from var(--spin), #3FC8FF, #B45CFF, #FF4F9A, #FF8A3D, #3FC8FF); animation: spin 6s linear infinite; }
   #glowShadow.on { opacity: .55; }
 
-  .view { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
-  .view.on { opacity: 1; pointer-events: auto; transition: opacity .35s ease .12s; }
+  /* Content morph: old view blurs out fast, new one un-blurs in once the shape is on its way (like the references). */
+  .view { position: absolute; inset: 0; opacity: 0; pointer-events: none; filter: blur(8px); transform: scale(.97); transform-origin: 50% 0;
+    transition: opacity .14s ease, filter .14s ease, transform .2s ease; }
+  .view.on { opacity: 1; pointer-events: auto; filter: none; transform: none;
+    transition: opacity .32s ease .14s, filter .38s ease .12s, transform .5s var(--spring) .1s; }
+
+  /* Curved shoulders that join the island to the top edge of the screen (moves in step with the island). */
+  .shoulder { position: absolute; top: 0; width: 16px; height: 16px; pointer-events: none; opacity: 1;
+    transition: left .62s var(--spring), opacity .3s ease; }
+  #shL { left: calc(50% - 105px - 16px); background: radial-gradient(circle at 0 100%, transparent 15.5px, #000 16px); }
+  #shR { left: calc(50% + 105px); background: radial-gradient(circle at 100% 100%, transparent 15.5px, #000 16px); }
+  body.m-hidden .shoulder { opacity: 0; }
+  body.m-hover #shL { left: calc(50% - 320px - 16px); } body.m-hover #shR { left: calc(50% + 320px); }
+  body.m-session #shL { left: calc(50% - 300px - 16px); } body.m-session #shR { left: calc(50% + 300px); }
+  body.m-game #shL, body.m-hud #shL { left: calc(50% - 270px - 16px); } body.m-game #shR, body.m-hud #shR { left: calc(50% + 270px); }
+  body.m-clicking #shL { left: calc(50% - 135px - 16px); } body.m-clicking #shR { left: calc(50% + 135px); }
+
+  /* R3cket HUD while you play */
+  #island.hud { width: 540px; height: 34px; }
+  #hud { display: flex; align-items: center; gap: 14px; height: 34px; padding: 0 14px; font: 600 12.5px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; }
+  #hud .tag { color: #B8FF3D; letter-spacing: 1.2px; font-size: 10.5px; font-weight: 700; }
+  #hud .k { color: var(--faint); font-size: 10px; letter-spacing: .8px; margin-right: 4px; font-weight: 700; }
+  #hud .sp { flex: 1; }
+  #hud .x { cursor: pointer; color: #B8FF3D; }
+  .shared { display: none; align-items: center; gap: 5px; color: var(--sky); font: 600 11px/1 "Segoe UI", sans-serif; margin-left: 10px; }
+  .shared.on { display: inline-flex; }
 
   /* --- resting pill --- */
   #rest { display: flex; align-items: center; padding: 0 12px 0 10px; height: 34px; }
@@ -111,6 +135,7 @@
 </head>
 <body>
 <div id="glowShadow"></div>
+<div class="shoulder" id="shL"></div><div class="shoulder" id="shR"></div>
 <div id="island" class="hidden">
   <div id="rim"></div>
 
@@ -138,6 +163,16 @@
     </div>
   </div>
 
+  <div class="view" id="hud">
+    <span class="tag">⚡ R3CKET</span>
+    <span id="hudTime">0:00</span>
+    <span class="sp"></span>
+    <span><span class="k">PING</span><span id="hudPing">—</span></span>
+    <span><span class="k">CPU</span><span id="hudCpu">—</span></span>
+    <span><span class="k">RAM</span><span id="hudRam">—</span></span>
+    <span class="x" id="hudCross" title="Crosshair (Ctrl+Alt+X)">⌖</span>
+  </div>
+
   <div class="view" id="game">
     <canvas class="orb" id="orbGame" width="52" height="52" style="width:26px;height:26px"></canvas>
     <span class="tag">R3CKET</span>
@@ -150,6 +185,7 @@
     <div class="head">
       <canvas class="orb" id="orbBig" width="68" height="68" style="width:34px;height:34px"></canvas>
       <div class="status" id="status">Listening</div>
+      <span class="shared" id="shared" title="Nebula can see your screen">◉ Screen</span>
       <div class="bars" id="bars"><i></i><i></i><i></i><i></i><i></i></div>
       <button class="x" id="closeBtn" title="Close">✕</button>
     </div>
@@ -157,9 +193,7 @@
     <div class="reply" id="reply"></div>
     <div class="sources" id="sources"></div>
     <div class="foot">
-      <button class="mic" id="micBtn2" title="Ask again" style="width:44px;height:44px;border-radius:22px">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
-      </button>
+      <div class="chip" id="followHint">Just keep talking — I'm listening for a follow-up</div>
       <button class="gear" id="gearBtn" title="Settings">⚙</button>
     </div>
   </div>
@@ -176,6 +210,7 @@ let hovering = false; let interactive = false; let level = 0;
 // ---------------------------------------------------------------- layout
 function mode() {
   if (state.active) return state.gaming ? 'game' : 'session';
+  if (state.hud && !hovering) return 'hud';
   if (hovering || document.activeElement === $('askInput') && $('askInput').value) return 'hover';
   return 'rest';
 }
@@ -186,10 +221,14 @@ function render() {
   island.classList.toggle('hover', m === 'hover');
   island.classList.toggle('session', m === 'session');
   island.classList.toggle('game', m === 'game');
+  island.classList.toggle('hud', m === 'hud');
+  const ckOn = !!(state.clicker && state.clicker.running);
+  document.body.className = `m-${m}${m === 'rest' && ckOn ? ' m-clicking' : ''}`;
+  if (m === 'hud') renderHud();
   island.classList.toggle('awake', state.active);
   island.classList.toggle('thinking', state.phase === 'thinking');
   $('glowShadow').classList.toggle('on', state.active);
-  for (const v of ['rest', 'hover', 'session', 'game']) $(v).classList.toggle('on', v === m);
+  for (const v of ['rest', 'hover', 'session', 'game', 'hud']) $(v).classList.toggle('on', v === m);
   if (m === 'game') {
     const labels = { listening: 'Listening…', thinking: 'Thinking…', error: 'Hmm' };
     $('gameLine').textContent = (state.phase !== 'listening' && state.reply) || state.transcript || labels[state.phase] || 'Nebula';
@@ -201,9 +240,11 @@ function render() {
   if (ck.running) $('clickRest').lastElementChild.textContent = `${(ck.clicks || 0).toLocaleString()} clicks`;
 
   if (m === 'session') {
-    const labels = { listening: 'Listening', thinking: 'Thinking', speaking: 'Nebula', done: 'Nebula', error: 'Hmm' };
+    const labels = { listening: state.followup ? 'Listening for a follow-up' : 'Listening', thinking: 'Thinking', speaking: 'Nebula', done: 'Nebula', error: 'Hmm' };
     $('status').textContent = labels[state.phase] || 'Nebula';
-    const t = state.transcript || (state.phase === 'listening' ? 'Listening…' : '');
+    $('shared').classList.toggle('on', !!state.screenShare);
+    $('followHint').style.display = state.phase === 'listening' && state.followup ? '' : 'none';
+    const t = state.transcript || (state.phase === 'listening' ? (state.followup ? 'Anything else?' : 'Listening…') : '');
     $('transcript').textContent = t;
     $('transcript').classList.toggle('placeholder', !state.transcript);
     $('reply').textContent = state.reply || '';
@@ -237,6 +278,27 @@ function render() {
     c.onclick = () => api.send('open:settings'); hints.appendChild(c);
   }
   updateTimer();
+}
+
+function renderHud() {
+  const h = state.hud || {};
+  const s = Math.max(0, Math.floor((Date.now() - (h.since || Date.now())) / 1000));
+  $('hudTime').textContent = s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${Math.floor(s / 60)}:${pad(s % 60)}`;
+  const ping = h.ping; $('hudPing').textContent = ping == null ? '—' : `${ping}ms`;
+  $('hudPing').style.color = ping == null ? '' : ping < 60 ? '#5CF2B0' : ping < 120 ? '#FFC266' : '#FF5A5A';
+  $('hudCpu').textContent = h.cpu == null ? '—' : `${h.cpu}%`;
+  $('hudRam').textContent = h.ram == null ? '—' : `${h.ram}%`;
+  $('hudCross').style.opacity = h.crosshair ? '1' : '.45';
+}
+setInterval(() => { if (mode() === 'hud') renderHud(); }, 1000);
+
+// Nebula's sounds: wake (Open), thinking, error.
+const SOUNDS = {};
+function playSound(name) {
+  try {
+    const a = SOUNDS[name] || (SOUNDS[name] = new Audio(`sounds/${name}.ogg`));
+    a.currentTime = 0; a.volume = 0.8; a.play().catch(() => {});
+  } catch {}
 }
 
 // ---------------------------------------------------------------- clocks + timer
@@ -287,7 +349,7 @@ $('askInput').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); }
 });
 $('micBtn').onclick = () => { hovering = false; api.send('island:talk'); };
-$('micBtn2').onclick = () => api.send('island:talk');
+$('hudCross').onclick = (e) => { e.stopPropagation(); api.send('island:crosshair'); };
 $('closeBtn').onclick = () => api.send('island:close');
 $('closeBtn2').onclick = () => api.send('island:close');
 $('clickRest').onclick = (e) => { e.stopPropagation(); api.send('island:clicker', 'stop'); };
@@ -412,6 +474,7 @@ api.on('island:level', (l) => { level = l; });
 api.on('island:speak', speak);
 api.on('island:speak-stop', stopSpeaking);
 api.on('island:audio', onAudio);
+api.on('island:sound', playSound);
 api.on('island:timer-done', () => {
   try {
     const ctx = new AudioContext();
@@ -436,6 +499,8 @@ if (q.has('demo')) {
     sources: [{ title: 'weather.com', url: 'https://weather.com' }, { title: 'Windy.com', url: 'https://windy.com' }] };
   if (d === 'game') state = { ...state, active: true, gaming: true, phase: 'done', reply: 'Your squad is still in the lobby — two more players to go.' };
   if (d === 'clicker') state.clicker = { running: true, clicks: 1284 };
+  if (d === 'hud') state.hud = { since: Date.now() - 754000, ping: 34, cpu: 41, ram: 63, crosshair: true };
+  if (d === 'followup') state = { ...state, active: true, phase: 'listening', followup: true, screenShare: true, reply: 'It will be warm and mostly sunny on Saturday, around 27°.' };
   if (d === 'rest') state.timerEndsAt = Date.now() + 4 * 60 * 1000 + 32 * 1000;
 }
 render();

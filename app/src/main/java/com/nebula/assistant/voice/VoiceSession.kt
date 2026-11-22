@@ -68,7 +68,8 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
                 VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f, followUp = followUp) }
                 if (followUp) delay(250) // let the last word of Nebula's voice fade before listening
                 // A follow-up only waits a few seconds for you to start talking (longer if Nebula asked you something).
-                val u = record(if (!followUp) 7 else if (asked) 8 else 5) ?: break
+                // First turn: the wake sound is still ringing for ~1.2 s, so don't treat it as you talking.
+                val u = record(if (!followUp) 7 else if (asked) 8 else 5, ignoreMs = if (!followUp) 1200 else 0) ?: break
                 if (u.empty) { if (followUp) { quietEnd = true; break } else { fail("I didn't catch that."); return } }
                 Sounds.play(context, NebulaSound.LISTEN_END)
                 VoiceState.update { it.copy(phase = VoiceState.Phase.THINKING, level = 0f, followUp = false) }
@@ -101,13 +102,14 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun record(waitSeconds: Int = 7): Utterance? = withContext(Dispatchers.IO) {
+    private suspend fun record(waitSeconds: Int = 7, ignoreMs: Int = 0): Utterance? = withContext(Dispatchers.IO) {
         finishListening = false
         val min = AudioRecord.getMinBufferSize(Audio.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, Audio.RATE, AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT, maxOf(min, Audio.RATE / 2))
         if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); return@withContext null.also { fail("The microphone is busy.") } }
-        val u = Utterance(waitSeconds = waitSeconds)
+        val u = Utterance(waitSeconds = waitSeconds + ignoreMs / 1000)
+        val startedAt = System.currentTimeMillis()
         val chunk = ShortArray(Audio.RATE / 20) // 50 ms
         try {
             rec.startRecording()
@@ -116,6 +118,7 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
                 if (n <= 0) continue
                 VoiceState.level(Audio.level(Audio.rms(chunk, n)))
                 if (finishListening) { u.finishNow(); break }
+                if (System.currentTimeMillis() - startedAt < ignoreMs) { u.preroll(chunk, n); continue }
                 if (u.push(chunk, n)) break
             }
         } finally { runCatching { rec.stop() }; rec.release() }

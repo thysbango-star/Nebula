@@ -5,7 +5,7 @@
 
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, nativeImage, safeStorage, Notification, shell, nativeTheme,
-  utilityProcess, MessageChannelMain, powerMonitor,
+  utilityProcess, MessageChannelMain, powerMonitor, desktopCapturer,
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -368,6 +368,16 @@ const brain = new Brain(config, getKey, rotateKey);
 let store = null; let agent = null;
 let voiceConv = null; // the chat that voice requests go into (kept for 10 minutes)
 
+/** Screen share: a ~1280px JPEG of the main screen (base64), straight from Windows — no picker needed. */
+async function captureScreen() {
+  const d = screen.getPrimaryDisplay();
+  const k = Math.min(1, 1280 / d.size.width);
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(d.size.width * k), height: Math.round(d.size.height * k) } });
+  const src = sources.find((s) => String(s.display_id) === String(d.id)) || sources[0];
+  if (!src || src.thumbnail.isEmpty()) return null;
+  return src.thumbnail.toJPEG(72).toString('base64');
+}
+
 /** PDF from HTML using Chromium's own print engine. */
 async function printPdf(html) {
   const w = new BrowserWindow({ show: false, webPreferences: { offscreen: true, javascript: false } });
@@ -387,6 +397,7 @@ function initAgent() {
     timer: (s) => setTimer(s),
     clicker: (cmd) => clicker(cmd),
     onActivity: (a) => send(settings, 'app:activity', a),
+    screenshot: captureScreen,
     sound: (kind) => send(settings, 'app:sound', kind),
   });
 }
@@ -445,7 +456,7 @@ function startSession(source, typed) {
   if (!ears) startEars();
   // A follow-up only waits a few seconds for you to start talking; silence closes Nebula.
   if (!String(source).startsWith('followup')) session.voice = source !== 'typed';
-  const wait = source === 'followup-asked' ? { waitSeconds: 8 } : source === 'followup' ? { waitSeconds: 5 } : {};
+  const wait = source === 'followup-asked' ? { waitSeconds: 8 } : source === 'followup' ? { waitSeconds: 5 } : source === 'typed' ? {} : { ignoreMs: 1200 };
   ears.postMessage({ type: 'listen', token: session.token, opts: wait });
   ears.postMessage({ type: 'levels', on: true });
   updateEar();
@@ -753,6 +764,7 @@ function wireIpc() {
   ipcMain.on('island:spoken', (_e, token) => finishTurn(token));
   ipcMain.on('island:close', () => endSession());
   ipcMain.on('island:clicker', (_e, cmd) => clicker(cmd));
+  ipcMain.on('island:crosshair', () => showCrosshair(!(cross && !cross.isDestroyed())));
   ipcMain.on('island:cancel-timer', () => setTimer(0));
   ipcMain.on('island:focus', () => { if (island) island.focus(); });
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
@@ -817,6 +829,19 @@ function wireIpc() {
     const clips = [];
     try { await brain.speak(line, (buf) => { clips.push(buf.toString('base64')); }); return { clips, text: line }; }
     catch (e) { voiceProblem = e.spoken || e.message; return { clips: [], text: line, problem: voiceProblem }; }
+  });
+  // ---- name coach
+  ipcMain.handle('settings:name-take', async (_e, wav) => {
+    try { return { text: (await brain.transcribe(Buffer.from(wav), { prompt: '', mime: 'audio/webm', file: 'name.webm' })).replace(/^my name is\s+/i, '').replace(/[.!?,]+$/g, '').trim() }; }
+    catch (e) { return { error: e.spoken || e.message }; }
+  });
+  ipcMain.handle('settings:name-suggest', async (_e, { name, heard }) => {
+    try { const list = await brain.nameSpellings(name, heard); return list.length ? list : [name]; } catch { return [name]; }
+  });
+  ipcMain.handle('settings:say', async (_e, text) => {
+    if (configData.voiceEngine !== 'groq' || !getKey()) return { clips: [], text };
+    const clips = [];
+    try { await brain.speak(text, (buf) => { clips.push(buf.toString('base64')); }); return { clips, text }; } catch (e) { return { clips: [], text, problem: e.spoken || e.message }; }
   });
   ipcMain.handle('settings:foreground', async () => (process.platform === 'win32' ? helper.foreground() : { exe: '', fullscreen: false }));
   ipcMain.on('settings:preview', () => {
