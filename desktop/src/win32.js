@@ -26,13 +26,20 @@ public static class NebulaWin {
     IntPtr h = GetForegroundWindow();
     if (h == IntPtr.Zero || h == GetShellWindow()) return "|0";
     uint pid; GetWindowThreadProcessId(h, out pid);
-    string exe = "";
-    try { exe = Process.GetProcessById((int)pid).ProcessName; } catch {}
+    string exe = ""; string path = "";
+    try { var pr = Process.GetProcessById((int)pid); exe = pr.ProcessName; try { path = pr.MainModule.FileName; } catch {} } catch {}
     RECT r; GetWindowRect(h, out r);
     MONITORINFO mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
     GetMonitorInfo(MonitorFromWindow(h, 2), ref mi);
     bool full = r.L <= mi.rcMonitor.L && r.T <= mi.rcMonitor.T && r.R >= mi.rcMonitor.R && r.B >= mi.rcMonitor.B;
-    return exe + "|" + (full ? "1" : "0");
+    return exe + "|" + (full ? "1" : "0") + "|" + path.Replace("|", "");
+  }
+
+  /** R3cket: give the game more CPU time (High priority). Returns how many processes were boosted. */
+  public static int Boost(string exe) {
+    int n = 0;
+    foreach (var p in Process.GetProcessesByName(exe)) { try { p.PriorityClass = ProcessPriorityClass.High; n++; } catch {} }
+    return n;
   }
 
   static volatile bool running; static volatile int interval = 100; public static long Clicks;
@@ -74,6 +81,7 @@ while ($true) {
       'start' { [NebulaWin]::Start([int]$p[1]); $out = 'ok' }
       'stop'  { [NebulaWin]::Stop(); $out = 'ok' }
       'count' { $out = "$([NebulaWin]::Clicks)|$([int][NebulaWin]::Running())" }
+      'boost' { $out = "$([NebulaWin]::Boost($p[1]))" }
       default { $out = 'unknown' }
     }
   } catch { $out = 'error ' + $_.Exception.Message.Replace([char]10, ' ') }
@@ -136,9 +144,10 @@ class WinHelper {
   /** {exe, fullscreen} of the app in front. */
   async foreground() {
     const r = await this.cmd('fg');
-    const [exe, full] = r.split('|');
-    return { exe: (exe || '').toLowerCase(), fullscreen: full === '1' };
+    const [exe, full, file] = r.split('|');
+    return { exe: (exe || '').toLowerCase(), fullscreen: full === '1', path: (file || '').toLowerCase() };
   }
+  async boost(exe) { return +(await this.cmd(`boost ${String(exe).replace(/\s/g, '')}`)) || 0; }
   startClicking(ms) { return this.cmd(`start ${Math.round(ms)}`); }
   stopClicking() { return this.cmd('stop'); }
   async clicks() { const [n, on] = (await this.cmd('count')).split('|'); return { clicks: +n || 0, running: on === '1' }; }
@@ -151,4 +160,10 @@ const NOT_GAMES = new Set(['explorer', 'electron', 'nebula', 'chrome', 'msedge',
   'powerpnt', 'winword', 'excel', 'teams', 'ms-teams', 'zoom', 'applicationframehost', 'searchhost', 'startmenuexperiencehost',
   'lockapp', 'shellexperiencehost', 'textinputhost', 'code', 'devenv', 'obs64', 'discord', 'spotify', 'netflix', 'acrobat']);
 
-module.exports = { WinHelper, NOT_GAMES, SCRIPT };
+// Where games live: anything launched from these folders is a game, even in a window.
+const GAME_DIRS = ['\\steamapps\\', '\\epic games\\', '\\riot games\\', '\\xboxgames\\', '\\windowsapps\\microsoft.minecraft',
+  '\\roblox\\', '\\ubisoft game launcher\\', '\\ea games\\', '\\origin games\\', '\\gog galaxy\\games\\', '\\battle.net\\',
+  '\\blizzard\\', '\\rockstar games\\', '\\games\\', '\\minecraft', '\\genshin impact', '\\hoyoplay\\', '\\wargaming'];
+const isGamePath = (p) => !!p && GAME_DIRS.some((d) => p.includes(d));
+
+module.exports = { WinHelper, NOT_GAMES, SCRIPT, isGamePath };

@@ -11,7 +11,10 @@ const fs = require('fs');
 const path = require('path');
 const { Brain, cleanKey } = require('./brain');
 const { wakeThreshold } = require('./voice');
-const { WinHelper, NOT_GAMES } = require('./win32');
+const { WinHelper, NOT_GAMES, isGamePath } = require('./win32');
+const os = require('os');
+const net = require('net');
+const { execFile } = require('child_process');
 const { Store } = require('./store');
 const { Agent } = require('./agent');
 
@@ -58,6 +61,11 @@ const DEFAULTS = {
   clickInterval: 100,    // ms between auto-clicks
   clickHotkey: 'Ctrl+Alt+K',
   games: [],             // extra .exe names that count as games
+  r3cketHud: true,       // game time, ping, CPU and RAM in the island while you play
+  r3cketPower: true,     // High performance power plan + game priority while playing
+  crosshairHotkey: 'Ctrl+Alt+X',
+  userName: '', nameSayAs: '', nameHeardAs: [],
+  screenShare: false,
   groqExtraEnc: [],      // backup Groq keys (encrypted), used when the main one runs out for the day
   activeKey: 0,
   theme: 'system',       // 'system' | 'light' | 'dark'
@@ -170,6 +178,36 @@ function createGlow() {
   glow.loadFile(asset('glow.html'));
 }
 
+/**
+ * Lite mode (automatic on battery, or chosen in Settings): no full-screen glow window at all —
+ * the island's own rim does the job. Much lighter on laptops.
+ */
+function liteMode() {
+  const p = configData.performance || 'auto';
+  return p === 'lite' || (p === 'auto' && powerMonitor.isOnBatteryPower());
+}
+let glowKill = null;
+/** The glow window only exists while it's needed (frees the graphics chip the rest of the time). */
+function showGlow(msg) {
+  if (liteMode()) return;
+  clearTimeout(glowKill);
+  if (!glow || glow.isDestroyed()) {
+    createGlow();
+    glow.webContents.once('did-finish-load', () => { pushIslandState(); if (msg) send(glow, msg); if (glow && !glow.isDestroyed()) glow.showInactive(); });
+    return;
+  }
+  if (msg) send(glow, msg);
+  glow.showInactive();
+}
+function dropGlow(afterMs) {
+  clearTimeout(glowKill);
+  glowKill = setTimeout(() => {
+    if (session.active) return;
+    if (glow && !glow.isDestroyed()) glow.destroy();
+    glow = null;
+  }, afterMs);
+}
+
 function createEar() {
   ear = new BrowserWindow({ show: false, width: 200, height: 200, webPreferences: baseWebPrefs });
   ear.loadFile(asset('ear.html'));
@@ -200,7 +238,7 @@ const openSettings = () => openApp('settings');
 function repositionWindows() {
   const b = primaryBounds();
   if (island) { island.setBounds(islandBounds()); island.webContents.setZoomFactor(clamp(configData.islandScale || 1, 0.7, 1.5)); }
-  if (glow) glow.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+  if (glow && !glow.isDestroyed()) glow.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
 }
 
 function send(win, channel, data) {
@@ -247,6 +285,7 @@ function registerHotkeys() {
   if (!registeredHotkey && wanted !== 'Ctrl+Alt+N') {
     try { if (globalShortcut.register('Ctrl+Alt+N', () => toggleSession('hotkey'))) registeredHotkey = 'Ctrl+Alt+N'; } catch { /* */ }
   }
+  try { if (configData.crosshairHotkey) globalShortcut.register(configData.crosshairHotkey, () => showCrosshair(!(cross && !cross.isDestroyed()))); } catch { /* invalid */ }
   // R3cket auto-clicker on/off.
   try { if (configData.clickHotkey) globalShortcut.register(configData.clickHotkey, () => clicker(clickerState.running ? 'stop' : 'start')); } catch { /* invalid */ }
   // The Copilot key on newer keyboards sends Win+Shift+F23.
@@ -256,7 +295,7 @@ function registerHotkeys() {
 
 function applyIslandMode() {
   if (!island) return;
-  const quiet = r3.gaming && configData.r3cketQuiet && !clickerState.running;
+  const quiet = r3.gaming && configData.r3cketQuiet && !clickerState.running && !configData.r3cketHud;
   if (session.active || (configData.islandMode === 'always' && !quiet) || clickerState.running) island.showInactive();
   else island.hide();
 }
@@ -363,6 +402,8 @@ function pushIslandState() {
     sources: session.sources, timerEndsAt: timer.endsAt, intensity: configData.intensity,
     hasKey: !!getKey(), hotkey: registeredHotkey || configData.hotkey, wakeEnabled: configData.wakeEnabled && !!wake,
     gaming: r3.gaming, game: r3.exe, clicker: clickerState, clickHotkey: configData.clickHotkey,
+    hud: r3.gaming && configData.r3cketHud ? { ...r3.hud, since: r3.since, boosts: r3.boosts, crosshair: !!r3.crosshair } : null,
+    followup: !!session.followup, screenShare: !!configData.screenShare,
   });
   send(glow, 'vibrance:state', { active: session.active && !session.gaming, phase: session.phase, intensity: configData.intensity });
 }
@@ -385,9 +426,12 @@ function startSession(source, typed) {
   clearTimeout(session.endTimer);
   if (Date.now() - session.lastEnd > 90_000) brain.resetConversation(); // follow-ups within 90 s keep context
   session.token += 1;
-  Object.assign(session, { active: true, transcript: '', reply: '', sources: [], error: '', gaming: r3.gaming });
+  const follow = String(source).startsWith('followup');
+  // A follow-up keeps Nebula's last answer on screen while it listens.
+  Object.assign(session, { active: true, transcript: '', error: '', gaming: r3.gaming }, follow ? {} : { reply: '', sources: [] });
+  if (!follow && source !== 'typed' && source !== 'preview') send(island, 'island:sound', 'wake');
   island.showInactive();
-  if (!session.gaming) glow.showInactive(); // R3cket: no full-screen effects over a game
+  if (!session.gaming) showGlow(); // R3cket: no full-screen effects over a game
   send(island, 'island:speak-stop');
   if (typed) {
     session.voice = false;
@@ -429,6 +473,8 @@ async function onUtterance(wav, token) {
 
 async function think(text, token) {
   setPhase('thinking');
+  send(island, 'island:sound', 'thinking');
+  text = fixHeard(text);
   // Voice requests run through the same task engine as the app, so they show up in Chat and Tasks.
   const fresh = voiceConv && store.conversation(voiceConv) && Date.now() - store.conversation(voiceConv).updatedAt < 10 * 60_000;
   if (!fresh) voiceConv = store.newConversation().id;
@@ -469,6 +515,7 @@ function finishTurn(token) {
 }
 
 function fail(message) {
+  send(island, 'island:sound', 'failure');
   setPhase('error', { reply: message });
   session.endTimer = setTimeout(endSession, 4_500);
 }
@@ -485,7 +532,7 @@ function endSession() {
   send(island, 'island:speak-stop');
   setTimeout(() => {
     if (!session.active) {
-      if (glow && !glow.isDestroyed()) glow.hide();
+      dropGlow(700); // after the light has drawn back into the island
       applyIslandMode();
     }
   }, 900); // let the glow fade and the island settle first
@@ -500,12 +547,34 @@ function setTimer(seconds) {
     timer.endsAt = 0;
     pushIslandState();
     send(island, 'island:timer-done');
-    send(glow, 'vibrance:pulse');
-    glow.showInactive();
-    setTimeout(() => { if (!session.active) glow.hide(); }, 4000);
+    showGlow('vibrance:pulse');
+    dropGlow(4000);
     if (Notification.isSupported()) new Notification({ title: 'Nebula', body: "Time's up!", icon: iconPath() }).show();
   }, seconds * 1000);
   pushIslandState();
+}
+
+// ------------------------------------------------------------------ name coach
+
+const COMMON_WORDS = new Set('the a an and or but if then this that these those there their they them is are was were be been am i you he she it we me my your his her our its to of in on at for with from by as so not no yes do does did have has had can could will would should may might just like what when where who why how all any some one two three hi hey hello okay ok please thanks thank good great nice well now here see say said tell ask make made get got go going come want need know think look time day today night play open call text send'.split(' '));
+/** Mis-hearings of your name (learned by the name coach) become your name again. */
+function fixHeard(text) {
+  const name = configData.userName;
+  if (!name) return text;
+  let out = text;
+  for (const h of configData.nameHeardAs || []) {
+    if (!h || h.length < 3 || h.toLowerCase() === name.toLowerCase() || COMMON_WORDS.has(h.toLowerCase())) continue;
+    // Only a capitalised word mid-sentence (how Whisper writes a name), never the start of a sentence.
+    const cap = h.charAt(0).toUpperCase() + h.slice(1);
+    out = out.replace(new RegExp(`(?<![.!?]\\s|^)\\b${cap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), name);
+  }
+  return out;
+}
+/** Your name spelled the way it should be *said*, before the voice reads it. */
+function forSpeech(text) {
+  const name = configData.userName; const say = configData.nameSayAs;
+  if (!name || !say || say.toLowerCase() === name.toLowerCase()) return text;
+  return text.replace(new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), say);
 }
 
 // ------------------------------------------------------------------ natural voice
@@ -513,6 +582,7 @@ function setTimer(seconds) {
 let voiceProblem = '';
 /** Speaks with Groq Orpheus (streamed sentence by sentence to the island); falls back to the Windows voice. */
 async function speakOut(text, token) {
+  text = forSpeech(text);
   if (configData.voiceEngine === 'groq' && getKey()) {
     let sent = 0;
     try {
@@ -545,15 +615,77 @@ async function pollForeground() {
   const fg = await helper.foreground();
   if (!fg.exe || fg.exe === 'nebula' || fg.exe === 'electron' || fg.exe === 'powershell') return; // our own windows
   const games = (configData.games || []).map((g) => String(g).toLowerCase().replace(/\.exe$/, ''));
-  const gaming = games.includes(fg.exe) || (fg.fullscreen && !NOT_GAMES.has(fg.exe));
+  const gaming = games.includes(fg.exe) || isGamePath(fg.path) || (fg.fullscreen && !NOT_GAMES.has(fg.exe));
   if (gaming !== r3.gaming || (gaming && fg.exe !== r3.exe)) setGaming(gaming, fg.exe);
 }
 
 function setGaming(on, exe) {
+  const was = r3.gaming;
   r3.gaming = on; r3.exe = on ? exe : '';
   if (!on && clickerState.running) clicker('stop');
+  if (on) enterGame(exe); else if (was) exitGame();
   applyIslandMode();
   pushIslandState();
+}
+
+// ---- R3cket boosts (Windows)
+const run = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true, timeout: 8000 }, (e, out) => res(e ? '' : String(out))));
+async function enterGame(exe) {
+  r3.since = Date.now(); r3.hud = { cpu: null, ram: null, ping: null };
+  r3.boosts = [];
+  if (configData.r3cketPower) {
+    const n = await helper.boost(exe).catch(() => 0);
+    if (n) r3.boosts.push('priority');
+    const cur = /([0-9a-f]{8}-[0-9a-f-]{27})/i.exec(await run('powercfg', ['/getactivescheme']));
+    if (cur && !/8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c/i.test(cur[1])) {
+      r3.prevScheme = cur[1];
+      await run('powercfg', ['/setactive', 'SCHEME_MIN']); // Windows' "High performance" plan
+      if (/8c5e7fda/i.test(await run('powercfg', ['/getactivescheme']))) r3.boosts.push('power');
+    }
+  }
+  if (configData.r3cketHud) startHud();
+  log('R3cket on', exe, r3.boosts.join(','));
+  pushIslandState();
+}
+async function exitGame() {
+  stopHud(); showCrosshair(false);
+  if (r3.prevScheme) { await run('powercfg', ['/setactive', r3.prevScheme]); r3.prevScheme = null; }
+  r3.boosts = [];
+}
+let hudTimer = null; let lastCpu = null;
+function cpuSample() { return os.cpus().reduce((a, c) => { const t = Object.values(c.times).reduce((x, y) => x + y, 0); return { idle: a.idle + c.times.idle, total: a.total + t }; }, { idle: 0, total: 0 }); }
+function pingOnce() {
+  return new Promise((res) => {
+    const t = Date.now(); const s = net.connect({ host: '1.1.1.1', port: 443 });
+    const done = (v) => { s.destroy(); res(v); };
+    s.setTimeout(1500, () => done(null)); s.once('connect', () => done(Date.now() - t)); s.once('error', () => done(null));
+  });
+}
+function startHud() {
+  stopHud(); lastCpu = cpuSample();
+  const tick = async () => {
+    const c = cpuSample(); const di = c.idle - lastCpu.idle; const dt = c.total - lastCpu.total; lastCpu = c;
+    r3.hud = { cpu: dt > 0 ? Math.round(100 * (1 - di / dt)) : null, ram: Math.round(100 * (1 - os.freemem() / os.totalmem())), ping: await pingOnce() };
+    pushIslandState();
+  };
+  tick(); hudTimer = setInterval(tick, 3000);
+}
+function stopHud() { clearInterval(hudTimer); hudTimer = null; }
+
+// Crosshair: a tiny click-through window in the middle of the screen.
+let cross = null;
+function showCrosshair(on) {
+  if (!on) { if (cross && !cross.isDestroyed()) cross.destroy(); cross = null; r3.crosshair = false; pushIslandState(); return; }
+  if (cross && !cross.isDestroyed()) return;
+  const b = primaryBounds(); const S = 44;
+  cross = new BrowserWindow({ x: Math.round(b.x + b.width / 2 - S / 2), y: Math.round(b.y + b.height / 2 - S / 2), width: S, height: S,
+    transparent: true, frame: false, resizable: false, movable: false, focusable: false, skipTaskbar: true, hasShadow: false,
+    alwaysOnTop: true, show: false, backgroundColor: '#00000000', webPreferences: { javascript: false } });
+  cross.setAlwaysOnTop(true, 'screen-saver'); cross.setIgnoreMouseEvents(true);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><g stroke-linecap="round"><g stroke="#000" stroke-opacity=".6" stroke-width="4"><path d="M22 6v10M22 28v10M6 22h10M28 22h10"/></g><g stroke="#B8FF3D" stroke-width="2"><path d="M22 6v10M22 28v10M6 22h10M28 22h10"/></g></g><circle cx="22" cy="22" r="1.8" fill="#B8FF3D"/></svg>`;
+  cross.loadURL('data:text/html,' + encodeURIComponent(`<body style="margin:0;background:transparent">${svg}</body>`));
+  cross.once('ready-to-show', () => cross && cross.showInactive());
+  r3.crosshair = true; pushIslandState();
 }
 
 /** start | stop | faster | slower → a sentence for Nebula to say. */
@@ -706,8 +838,7 @@ app.whenReady().then(() => {
   initAgent();
   wireIpc();
   nativeTheme.on('updated', () => broadcastSettings());
-  createGlow();
-  createIsland();
+  createIsland(); // the glow window is created only when Nebula wakes
   createEar();
   createTray();
   registerHotkeys();

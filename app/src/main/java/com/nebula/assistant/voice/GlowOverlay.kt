@@ -54,7 +54,7 @@ fun GlowOverlay() {
         if (s.active) {
             val start = withFrameNanos { it }
             launch { presence.animateTo(1f, tween(200)) }
-            launch { pour.snapTo(0f); pour.animateTo(1f, tween(620, easing = FastOutSlowInEasing)) }
+            launch { pour.snapTo(0f); pour.animateTo(1f, tween(760, easing = FastOutSlowInEasing)) }
             while (true) withFrameNanos { t = (it - start) / 1e9f }
         } else if (presence.value > 0f) {
             val start = withFrameNanos { it } - (t * 1e9f).toLong()
@@ -109,7 +109,7 @@ fun GlowOverlay() {
         measure.getSegment(0f, half, seg, true)
         measure.getSegment(total - half, total, seg, true)
         val pulse = 1f + 0.9f * lv
-        listOf(30.dp to 0.06f, 16.dp to 0.13f, 8.dp to 0.28f, 3.5.dp to 0.65f).forEach { (w, al) ->
+        listOf(44.dp to 0.05f, 24.dp to 0.11f, 11.dp to 0.24f, 5.dp to 0.5f, 2.dp to 0.8f).forEach { (w, al) ->
             drawPath(seg, sweep, alpha = al * a, style = Stroke(w.toPx() * pulse, cap = StrokeCap.Round))
         }
         drawPath(seg, Color.White.copy(alpha = 0.55f * a), style = Stroke(1.2.dp.toPx(), cap = StrokeCap.Round))

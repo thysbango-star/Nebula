@@ -11,157 +11,140 @@
 <body>
 <canvas id="c"></canvas>
 <script>
-// Nebula's wake light (same design as the phone):
-//  1. a soft wave sweeps up across the whole screen and frosts it,
-//  2. a halftone particle field ripples along the bottom,
-//  3. green / yellow / blue / pink light blooms from the bottom edge and corners,
-//  framed by a frosted white edge glow. Reacts to your voice; never catches the mouse.
+// Nebula's wake light (same design as the phone) — Siri's edge glow + Gemini's bloom, born from the island:
+//  1. two streams of light pour out of the island and run down both edges of the screen,
+//  2. they meet at the bottom and the whole edge becomes a flowing, voice-reactive rim,
+//  3. a soft colour bloom rises from the bottom, with a halo under the island.
+// When Nebula closes, the light draws back into the island.
+// Built to be light: half-resolution canvas (the light is soft anyway), 30 fps, no particles,
+// and the window itself is destroyed whenever Nebula isn't awake.
 const api = window.nebula || { on() {} };
 const canvas = document.getElementById('c');
-const g = canvas.getContext('2d');
-const MINT = [92, 240, 176], SUN = [255, 212, 94], SKY = [110, 155, 255], ROSE = [255, 114, 184];
+const g = canvas.getContext('2d', { alpha: true, desynchronized: true });
+const RIM = [[77, 141, 255], [165, 92, 255], [255, 95, 168], [255, 180, 67], [79, 227, 255], [77, 141, 255]];
+const BLOOM = [[77, 141, 255, 0.22, 1.04, 0.55], [165, 92, 255, 0.5, 1.09, 0.5], [255, 95, 168, 0.8, 1.04, 0.5], [255, 180, 67, 0.55, 1.12, 0.42]];
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, Math.min(1, a))})`;
-
-const S = { active: false, phase: 'idle', intensity: 0.75, level: 0, levelTarget: 0, presence: 0, t: 0, pulse: 0 };
-let W = 0, H = 0, dpr = 1, running = false, last = 0;
+const S = { active: false, phase: 'idle', intensity: 0.75, level: 0, target: 0, presence: 0, pour: 0, t: 0, pulse: 0 };
+const SCALE = 0.5;
+let W = 0, H = 0, running = false, last = 0, lastDraw = 0;
 
 function resize() {
-  dpr = 1; // soft light doesn't need full resolution — much lighter on laptops
   W = innerWidth; H = innerHeight;
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  canvas.width = Math.max(1, Math.round(W * SCALE)); canvas.height = Math.max(1, Math.round(H * SCALE));
 }
 addEventListener('resize', resize); resize();
 
-const ease = (x) => { const c = Math.min(1, Math.max(0, x)); return 1 - (1 - c) ** 3; };
-const ramp = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
+const ease = (x) => { const c = Math.min(1, Math.max(0, x)); return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2; };
 
-function frost(t, a) {
-  const peak = ramp(t, 0, 0.5) * (1 - 0.45 * ramp(t, 0.6, 1.4));
-  g.fillStyle = `rgba(255,255,255,${0.11 * peak * a})`; g.fillRect(0, 0, W, H);
+/** Edge path as a list of points from the top centre, clockwise, with cumulative lengths. */
+let edge = null;
+function buildEdge() {
+  const r = 18, inset = 1.5, pts = [];
+  const l = inset, t = inset, rt = W - inset, b = H - inset;
+  const push = (x, y) => pts.push([x, y]);
+  const arc = (cx, cy, a0, a1) => { for (let i = 0; i <= 8; i++) { const a = a0 + (a1 - a0) * i / 8; push(cx + r * Math.cos(a), cy + r * Math.sin(a)); } };
+  push(W / 2, t); push(rt - r, t); arc(rt - r, t + r, -Math.PI / 2, 0); push(rt, b - r); arc(rt - r, b - r, 0, Math.PI / 2);
+  push(l + r, b); arc(l + r, b - r, Math.PI / 2, Math.PI); push(l, t + r); arc(l + r, t + r, Math.PI, Math.PI * 1.5); push(W / 2, t);
+  const len = [0];
+  for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  edge = { pts, len, total: len[len.length - 1], w: W, h: H };
 }
-
-function sweep(t, a) {
-  const dur = 0.95;
-  if (t > dur + 0.35) return;
-  const p = ease(t / dur);
-  const crest = H * (1.05 - 1.25 * p);
-  const fade = (1 - ramp(t, dur - 0.1, dur + 0.35)) * a;
-  const amp = H * 0.025 * (1 - p * 0.5);
-  g.beginPath(); g.moveTo(0, H);
-  const step = W / 64;
-  for (let x = 0; x <= W + step; x += step) {
-    const y = crest + amp * Math.sin(x / W * Math.PI * 2 * 1.3 + t * 9) + amp * 0.5 * Math.sin(x / W * 7 - t * 5);
-    g.lineTo(x, y);
-  }
-  g.lineTo(W, H); g.closePath();
-  const gr = g.createLinearGradient(0, crest - amp, 0, crest - amp + H * 0.6);
-  gr.addColorStop(0, `rgba(255,255,255,${0.55 * fade})`);
-  gr.addColorStop(0.06, rgba(SKY, 0.22 * fade));
-  gr.addColorStop(0.18, rgba(ROSE, 0.10 * fade));
-  gr.addColorStop(0.4, 'rgba(0,0,0,0)');
-  g.fillStyle = gr; g.fill();
+function at(d) {
+  const { pts, len } = edge;
+  let i = 1; while (i < len.length - 1 && len[i] < d) i++;
+  const f = (d - len[i - 1]) / Math.max(1e-6, len[i] - len[i - 1]);
+  return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
 }
-
-function blooms(t, a, lv, k0) {
-  const k = ease(ramp(t, 0.55, 1.35)) * a * k0;
-  if (k <= 0) return;
-  const grow = 1 + 0.18 * lv;
-  const bloom = (c, cx, cy, r, alpha) => {
-    const rr = r * grow;
-    const gr = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
-    gr.addColorStop(0, rgba(c, alpha * k)); gr.addColorStop(0.5, rgba(c, alpha * k * 0.35)); gr.addColorStop(1, rgba(c, 0));
-    g.fillStyle = gr; g.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
-  };
-  const d1 = Math.sin(t * 0.7) * W * 0.05, d2 = Math.sin(t * 0.53 + 2) * W * 0.05;
-  g.globalCompositeOperation = 'lighter';
-  bloom(MINT, -W * 0.03 + d1, H, W * 0.55, 0.5);
-  bloom(ROSE, W * 1.03 + d2, H * 0.98, W * 0.55, 0.5);
-  bloom(SUN, W * 0.5 - d2, H * 1.1, W * 0.45, 0.55);
-  bloom(SKY, W * 0.28 + d2, H * 1.05, W * 0.36, 0.42);
-  bloom(SKY, W * 0.76 - d1, H * 1.06, W * 0.32, 0.32);
-  bloom(MINT, W, -H * 0.02, W * 0.28, 0.16);
-  bloom(ROSE, 0, -H * 0.02, W * 0.28, 0.16);
-  g.globalCompositeOperation = 'source-over';
-}
-
-function halftone(tw, appear, a, lv) {
-  const k = ease(ramp(appear, 0.45, 1.15)) * a;
-  if (k <= 0) return;
-  const gap = 10, maxR = gap * 0.40, buckets = 7;
-  const paths = Array.from({ length: buckets }, () => new Path2D());
-  const counts = new Array(buckets).fill(0);
-  const top = H * 0.55, band = H * (0.075 + 0.035 * lv);
-  let row = 0;
-  for (let y = H - gap * 0.5; y > top; y -= gap * 0.87, row++) {
-    for (let x = row % 2 ? gap / 2 : 0; x < W; x += gap) {
-      const centre = H * 0.8 + H * 0.045 * Math.sin(x / W * Math.PI * 2 * 1.15 + tw * 1.6) + H * 0.02 * Math.sin(x / W * 9 - tw * 2.3);
-      const d = (y - centre) / band;
-      const v = d > 0 ? 0.12 + 0.88 * Math.exp(-d * d * 0.7) : Math.exp(-d * d * 1.3);
-      const edge = Math.min(1, (H - y) / (gap * 2)) * Math.min(1, (y - top) / (H * 0.12));
-      const r = maxR * v * edge * (0.75 + 0.25 * lv);
-      if (r < 0.5) continue;
-      const b = Math.min(buckets - 1, Math.floor(r / maxR * buckets));
-      const rr = maxR * (b + 0.7) / buckets;
-      paths[b].moveTo(x + rr, y); paths[b].arc(x, y, rr, 0, Math.PI * 2);
-      counts[b]++;
-    }
-  }
-  for (let b = 0; b < buckets; b++) {
-    if (!counts[b]) continue;
-    g.fillStyle = `rgba(255,255,255,${(0.18 + 0.42 * b / buckets) * k})`;
-    g.fill(paths[b]);
-  }
-}
-
-function edges(a, lv) {
-  const corner = 14, glow = 0.75 + 0.25 * lv;
-  for (const [wd, al] of [[30, 0.035], [15, 0.07], [7, 0.14], [3, 0.3], [1.2, 0.55]]) {
-    g.strokeStyle = `rgba(255,255,255,${al * a * glow})`; g.lineWidth = wd;
-    g.beginPath(); g.roundRect(wd / 2, wd / 2, W - wd, H - wd, Math.max(0, corner - wd / 2)); g.stroke();
-  }
+function strokeRange(d0, d1) {
+  const { pts, len } = edge;
+  g.beginPath();
+  const p0 = at(d0); g.moveTo(p0[0], p0[1]);
+  for (let i = 0; i < pts.length; i++) if (len[i] > d0 && len[i] < d1) g.lineTo(pts[i][0], pts[i][1]);
+  const p1 = at(d1); g.lineTo(p1[0], p1[1]);
 }
 
 function frame(now) {
-  const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016; last = now;
-  S.t += dt;
-  S.presence += ((S.active ? 1 : 0) - S.presence) * (1 - Math.exp(-dt * (S.active ? 9 : 4.5)));
-  S.pulse = Math.max(0, S.pulse - dt * 0.35);
-  const target = S.phase === 'listening' ? S.levelTarget
-    : S.phase === 'speaking' ? 0.35 + 0.25 * ((Math.sin(S.t * 7.3) + Math.sin(S.t * 3.1)) / 2)
-    : S.phase === 'thinking' ? 0.25 : 0.1;
-  S.level += (target - S.level) * (1 - Math.exp(-dt * 10));
-
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, W, H);
-  const a = Math.max(S.presence, S.pulse);
-  const k = 0.55 + 0.6 * S.intensity;
-  if (a > 0.01) {
-    const speed = S.phase === 'thinking' ? 2.6 : 1.4;
-    frost(S.t, a * k);
-    blooms(S.t, a, S.level, k);
-    halftone(S.t * speed, S.t, a * Math.min(1, k), S.level);
-    sweep(S.t, a);
-    edges(a * k, S.level);
-  }
-  if (!S.active && S.presence < 0.01 && S.pulse <= 0) { running = false; g.clearRect(0, 0, W, H); return; }
+  if (!running) return;
   requestAnimationFrame(frame);
+  if (now - lastDraw < 32) return; // ~30 fps is plenty for soft light
+  lastDraw = now;
+  const dt = last ? Math.min(0.1, (now - last) / 1000) : 0.033; last = now;
+  S.t += dt;
+  const k = 1 - Math.exp(-dt * (S.active ? 10 : 5));
+  S.presence += ((S.active ? 1 : 0) - S.presence) * k;
+  // The pour runs on a clock: ~0.75 s from the island round to the bottom, ~0.45 s back in.
+  S.pour = S.active ? Math.min(1, S.pour + dt / 0.75) : Math.max(0, S.pour - dt / 0.45);
+  S.pulse = Math.max(0, S.pulse - dt * 0.35);
+  const tgt = S.phase === 'listening' ? S.target : S.phase === 'speaking' ? 0.35 + 0.25 * ((Math.sin(S.t * 7.3) + Math.sin(S.t * 3.1)) / 2)
+    : S.phase === 'thinking' ? 0.3 + 0.1 * Math.sin(S.t * 5) : 0.12;
+  S.level += (tgt - S.level) * (1 - Math.exp(-dt * 10));
+  const a = Math.max(S.presence, S.pulse) * (0.6 + 0.5 * S.intensity);
+  const pour = Math.max(S.pour, S.pulse > 0 ? 1 : 0);
+
+  g.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (a < 0.01) {
+    if (!S.active && S.pulse <= 0) { running = false; return; }
+    return;
+  }
+  if (!edge || edge.w !== W || edge.h !== H) buildEdge();
+  const lv = S.level;
+
+  // Gemini bloom, arriving as the streams meet at the bottom.
+  const bk = a * Math.min(1, Math.max(0, pour * 1.4 - 0.4));
+  if (bk > 0.01) {
+    const grow = 1 + 0.22 * lv; const m = Math.min(W, H);
+    const d = Math.sin(S.t * 0.8) * W * 0.06;
+    for (const [r, gg, b, x, y, al] of BLOOM) {
+      const cx = W * x + d * (x < 0.5 ? 1 : -1), cy = H * y, rr = m * 0.6 * grow;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      gr.addColorStop(0, rgba([r, gg, b], al * bk)); gr.addColorStop(0.55, rgba([r, gg, b], al * bk * 0.3)); gr.addColorStop(1, rgba([r, gg, b], 0));
+      g.fillStyle = gr; g.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+    }
+  }
+  // Halo under the island, where the light comes from.
+  const hx = W / 2, hy = 14, hr = 170 * (0.8 + 0.3 * lv);
+  const hg = g.createRadialGradient(hx, hy, 0, hx, hy, hr);
+  hg.addColorStop(0, `rgba(255,255,255,${0.26 * a})`); hg.addColorStop(0.4, `rgba(255,180,67,${0.14 * a})`); hg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = hg; g.fillRect(hx - hr, 0, hr * 2, hr + hy);
+
+  // Siri rim: two streams from the island; once round, the colours flow along the whole edge.
+  const half = edge.total / 2 * ease(pour);
+  const cg = g.createConicGradient(((S.t * (S.phase === 'thinking' ? 2.6 : 0.9)) % (Math.PI * 2)), W / 2, H / 2);
+  RIM.forEach((c, i) => cg.addColorStop(i / (RIM.length - 1), rgba(c, 1)));
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const pulse = 1 + 0.9 * lv;
+  for (const [w, al] of [[64, 0.05], [34, 0.11], [16, 0.24], [7, 0.5], [3, 0.8]]) {
+    g.strokeStyle = cg; g.globalAlpha = al * a; g.lineWidth = w * pulse;
+    strokeRange(0, half); g.stroke();
+    strokeRange(edge.total - half, edge.total); g.stroke();
+  }
+  g.globalAlpha = 0.55 * a; g.strokeStyle = '#fff'; g.lineWidth = 1.2;
+  strokeRange(0, half); g.stroke(); strokeRange(edge.total - half, edge.total); g.stroke();
+  g.globalAlpha = 1;
+  // Bright heads while the streams travel.
+  if (pour > 0.02 && pour < 0.97) {
+    for (const d of [half, edge.total - half]) {
+      const [x, y] = at(d); const r = 46;
+      const hg2 = g.createRadialGradient(x, y, 0, x, y, r);
+      hg2.addColorStop(0, `rgba(255,255,255,${0.9 * a})`); hg2.addColorStop(0.4, `rgba(79,227,255,${0.35 * a})`); hg2.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = hg2; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
 }
 
 function wake(restart) {
-  if (restart) S.t = 0; // replay the wave from the start
-  if (!running) { running = true; last = 0; requestAnimationFrame(frame); }
+  if (restart) { S.t = 0; S.pour = 0; }
+  if (!running) { running = true; last = 0; lastDraw = 0; requestAnimationFrame(frame); }
 }
-
 api.on('vibrance:state', (s) => {
   const starting = s.active && !S.active;
   Object.assign(S, { active: !!s.active, phase: s.phase, intensity: s.intensity ?? S.intensity });
   if (s.active || S.presence > 0.01) wake(starting);
 });
-api.on('vibrance:level', (l) => { S.levelTarget = l; });
-api.on('vibrance:pulse', () => { S.pulse = 1; S.phase = 'done'; wake(true); });
-
-// Preview: glow.html?demo=1
-if (new URLSearchParams(location.search).has('demo')) { S.active = true; S.phase = 'listening'; S.levelTarget = 0.4; wake(true); }
+api.on('vibrance:level', (l) => { S.target = l; });
+api.on('vibrance:pulse', () => { S.pulse = 1; S.phase = 'done'; wake(true); S.pour = 1; });
+if (new URLSearchParams(location.search).has('demo')) { S.active = true; S.phase = 'listening'; S.target = 0.4; wake(true); }
 </script>
 </body>
 </html>

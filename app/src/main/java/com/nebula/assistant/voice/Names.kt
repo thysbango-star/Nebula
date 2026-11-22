@@ -20,6 +20,8 @@ import kotlin.coroutines.coroutineContext
  *  - [fixHeard] turns the ways speech-to-text mishears your name back into your name.
  */
 object Names {
+    private val COMMON = "the a an and or but if then this that these those there their they them is are was were be been am i you he she it we me my your his her our its to of in on at for with from by as so not no yes do does did have has had can could will would should may might just like what when where who why how all any some one two three hi hey hello okay ok please thanks thank good great nice well now here see say said tell ask make made get got go going come want need know think look time day today night play open call text send".split(' ').toSet()
+
     fun forSpeech(prefs: NebulaPrefs, text: String): String {
         val name = prefs.userName; val say = prefs.nameSayAs
         if (name.isBlank() || say.isBlank() || say.equals(name, true)) return text
@@ -30,8 +32,12 @@ object Names {
         val name = prefs.userName
         if (name.isBlank()) return text
         var out = text
-        for (h in prefs.nameHeardAs) if (h.length >= 2 && !h.equals(name, true))
-            out = out.replace(Regex("\\b${Regex.escape(h)}\\b", RegexOption.IGNORE_CASE), name)
+        for (h in prefs.nameHeardAs) {
+            if (h.length < 3 || h.equals(name, true) || h.lowercase() in COMMON) continue
+            // Only a capitalised word mid-sentence (how Whisper writes a name), never a sentence start.
+            val cap = h.replaceFirstChar { it.uppercase() }
+            out = out.replace(Regex("(?<![.!?]\\s|^)\\b${Regex.escape(cap)}\\b"), name)
+        }
         return out
     }
 
