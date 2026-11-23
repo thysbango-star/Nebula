@@ -100,6 +100,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -213,7 +214,7 @@ fun NotchUi(c: NotchController) {
         val g = goal ?: return@LaunchedEffect
         if (!prefs.sportsGoals || g.label.isEmpty()) { Sports.clearGoal(); return@LaunchedEffect }
         goalBuzz(ctx)
-        delay(6800)
+        delay(if (g.chant.isNotEmpty()) 7600 else 6800)
         if (Sports.goal.value?.at == g.at) Sports.clearGoal()
     }
     val liveGame = if (prefs.sportsOn) games.getOrNull(if (games.isEmpty()) 0 else sportsIdx % games.size) else null
@@ -500,63 +501,69 @@ private fun Badge(s: Sports.Side, size: Dp) {
     val c = Color(s.color)
     Box(Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(listOf(c, c.copy(red = c.red * 0.6f, green = c.green * 0.6f, blue = c.blue * 0.6f)))),
         contentAlignment = Alignment.Center) {
-        Text(s.abbr.take(3), color = Color.White, maxLines = 1,
-            style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.3f).sp, letterSpacing = 0.2.sp))
+        Text(s.abbr.take(4), color = Color.White, maxLines = 1,
+            style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = (size.value * (if (s.abbr.length > 3) 0.24f else 0.3f)).sp, letterSpacing = 0.2.sp))
     }
 }
 
-/** Score that rolls up when it changes (old number slides out the top, new one rises in). */
+/** Score that rolls up when it changes (old number slides out the top, new one rises in). Text, so "161/5" works too. */
 @Composable
-private fun ScoreNum(value: Int, size: Int, color: Color = Color.White, from: Int? = null, rollAfterMs: Long = 0, key: Any? = null) {
+private fun ScoreNum(value: String, size: Int, color: Color = Color.White, from: String? = null, rollAfterMs: Long = 0, key: Any? = null) {
     var shownValue by remember(key) { mutableStateOf(from ?: value) }
     LaunchedEffect(value, key) { if (shownValue != value) { delay(rollAfterMs); shownValue = value } }
     AnimatedContent(shownValue, transitionSpec = {
         (slideInVertically(spring(dampingRatio = 0.62f, stiffness = 300f)) { it } + fadeIn(tween(200))) togetherWith
             (slideOutVertically(tween(260)) { -it } + fadeOut(tween(200)))
     }, label = "score") { n ->
-        Text("$n", color = color, maxLines = 1,
+        Text(n, color = color, maxLines = 1,
             style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = size.sp, lineHeight = (size * 1.05f).sp))
     }
 }
 
 @Composable
-private fun SportsCompact(g: Sports.Game, h: Dp) = Compact({
-    Badge(g.home, h - 12.dp); Spacer(Modifier.width(7.dp)); ScoreNum(g.home.score, 17)
-}, {
-    Text(if (g.live) g.clock.take(6) else "", color = Dim, style = label().copy(fontSize = 10.sp), modifier = Modifier.padding(end = 7.dp))
-    ScoreNum(g.away.score, 17); Spacer(Modifier.width(7.dp)); Badge(g.away, h - 12.dp)
-})
+private fun SportsCompact(g: Sports.Game, h: Dp) {
+    val cricket = g.league.kind == Sports.Kind.CRICKET
+    Compact({
+        Badge(g.home, h - 12.dp); Spacer(Modifier.width(7.dp)); ScoreNum(g.home.text, if (cricket) 15 else 17)
+    }, {
+        if (!cricket) Text(if (g.live) g.clock.take(6) else "", color = Dim, style = label().copy(fontSize = 10.sp), modifier = Modifier.padding(end = 7.dp))
+        ScoreNum(g.away.text, if (cricket) 15 else 17); Spacer(Modifier.width(7.dp)); Badge(g.away, h - 12.dp)
+    })
+}
 
-/** The open card. During a goal it starts from [roll]'s old score and rolls the scorer's number up. */
+/** The open card. During a moment it starts from [roll]'s old score and rolls the scorer's number up. */
 @Composable
 private fun ScoreCard(g: Sports.Game, roll: Sports.Score? = null, rollAfterMs: Long = 0, more: Int = 0, index: Int = 0) {
     val hc = Color(g.home.color); val ac = Color(g.away.color)
     val done = g.state == "post"
+    val cricket = g.league.kind == Sports.Kind.CRICKET
+    val big = if (cricket) 30 else 40
     Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to hc.copy(alpha = 0.9f), 0.5f to Color(0xFF0D0D10), 1f to ac.copy(alpha = 0.9f)))) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x59000000), Color.Transparent, Color(0x8C000000)))))
         // Content starts below the camera hole; the league name sits in the middle column above the clock.
         Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 30.dp, bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TeamCol(g.home)
-                Spacer(Modifier.width(12.dp))
-                ScoreNum(g.home.score, 40, if (done && g.home.score < g.away.score) Dim else Color.White,
+                Spacer(Modifier.width(if (cricket) 8.dp else 12.dp))
+                ScoreNum(g.home.text, big, if (done && g.home.score < g.away.score && !cricket) Dim else Color.White,
                     from = roll?.takeIf { it.home }?.before, rollAfterMs = rollAfterMs, key = roll?.at)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(g.league.name, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 10.sp),
                         modifier = Modifier.padding(bottom = 3.dp))
-                    Text(g.clock, color = Color.White, maxLines = 1, style = label().copy(fontFamily = Display, fontSize = 16.sp))
-                    if (g.state == "pre") Text("Kick-off", color = Faint, style = label().copy(fontSize = 10.sp))
+                    Text(g.clock, color = Color.White, maxLines = 1, style = label().copy(fontFamily = Display, fontSize = if (cricket) 14.sp else 16.sp))
+                    if (g.state == "pre") Text(if (g.league.kind == Sports.Kind.SOCCER || g.league.kind == Sports.Kind.RUGBY) "Kick-off" else "Start", color = Faint, style = label().copy(fontSize = 10.sp))
                     else if (g.live) LiveDot()
                 }
-                ScoreNum(g.away.score, 40, if (done && g.away.score < g.home.score) Dim else Color.White,
+                ScoreNum(g.away.text, big, if (done && g.away.score < g.home.score && !cricket) Dim else Color.White,
                     from = roll?.takeIf { !it.home }?.before, rollAfterMs = rollAfterMs, key = roll?.at)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(if (cricket) 8.dp else 12.dp))
                 TeamCol(g.away)
             }
             if (g.lastPlay.isNotBlank()) Row(Modifier.padding(top = 10.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(2.5.dp).fillMaxHeight().clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
                 Spacer(Modifier.width(9.dp))
-                Text((if (g.league.kind == Sports.Kind.SOCCER) "⚽  " else "") + g.lastPlay, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                Text((when (g.league.kind) { Sports.Kind.SOCCER -> "⚽  "; Sports.Kind.RUGBY -> "🏉  "; Sports.Kind.CRICKET -> "🏏  "; else -> "" }) + g.lastPlay,
+                    color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp))
             }
             if (more > 1) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
@@ -570,6 +577,7 @@ private fun ScoreCard(g: Sports.Game, roll: Sports.Score? = null, rollAfterMs: L
 private fun TeamCol(s: Sports.Side) = Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(56.dp)) {
     Badge(s, 40.dp)
     Text(s.name, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 11.sp), modifier = Modifier.padding(top = 4.dp))
+    if (s.sub.isNotBlank()) Text(s.sub, color = Faint, maxLines = 1, style = label().copy(fontSize = 9.sp))
 }
 
 @Composable
@@ -584,63 +592,142 @@ private fun LiveDot() {
 }
 
 /**
- * The goal moment (~6.5 s):
- *  1. the scoring team's colour floods in from their side of the card, with a white flash,
- *  2. "GOAL" (or TOUCHDOWN, HOME RUN…) drops in letter by letter on a bouncy spring, scorer underneath,
- *  3. the word lifts away, the score card rises back and the scorer's number rolls up.
+ * The score moment, built like a Premier League broadcast graphic (~7 s), for every sport:
+ *  1. a neon glitch flicker over the board,
+ *  2. the scorer's colour wipes across from their side with a jagged edge, carrying halftone dots and speed streaks,
+ *  3. their badge slams in with a shockwave ring,
+ *  4. a supporters' word flies through first when the team has one (BOKKE, COYS…),
+ *  5. the big word (GOAL / TRY / SIX / WICKET…) rises letter by letter with echo outlines, scorer underneath,
+ *  6. the colour wipes off the far side, the card is back and the score rolls up.
  */
 @Composable
 private fun GoalView(s: Sports.Score) {
     val side = if (s.home) s.game.home else s.game.away
     val tc = Color(side.color)
-    val flood = remember(s.at) { Animatable(0f) }
-    val flash = remember(s.at) { Animatable(0f) }
-    val leave = remember(s.at) { Animatable(0f) }
-    val board = remember(s.at) { Animatable(0f) }
+    val light = androidx.compose.ui.graphics.lerp(tc, Color.White, 0.4f)
+    val deep = androidx.compose.ui.graphics.lerp(tc, Color.Black, 0.5f)
+    val glitch = remember(s.at) { Animatable(0f) }
+    val wipe = remember(s.at) { Animatable(0f) }
+    val badge = remember(s.at) { Animatable(0f) }
+    val ring = remember(s.at) { Animatable(0f) }
+    val chant = remember(s.at) { Animatable(0f) }
     val letters = remember(s.at) { List(s.label.length) { Animatable(0f) } }
     val sub = remember(s.at) { Animatable(0f) }
+    val out = remember(s.at) { Animatable(0f) }
+    val hasChant = s.chant.isNotEmpty()
+    val wordAt = if (hasChant) 1500L else 640L
     LaunchedEffect(s.at) {
-        launch { flood.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
-        launch { delay(140); flash.snapTo(0.6f); flash.animateTo(0f, tween(520)) }
-        letters.forEachIndexed { i, a -> launch { delay(160L + i * 55L); a.animateTo(1f, spring(dampingRatio = 0.48f, stiffness = 300f)) } }
-        launch { delay(520); sub.animateTo(1f, tween(380)) }
-        delay(2300)
-        launch { leave.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
-        delay(120)
-        board.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+        launch { glitch.animateTo(1f, tween(260, easing = LinearEasing)) }
+        launch { delay(120); wipe.animateTo(1f, tween(460, easing = FastOutSlowInEasing)) }
+        launch { delay(320); badge.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f)) }
+        launch { delay(360); ring.animateTo(1f, tween(760, easing = FastOutSlowInEasing)) }
+        if (hasChant) launch { delay(560); chant.animateTo(1f, tween(300, easing = FastOutSlowInEasing)); delay(560); chant.animateTo(2f, tween(260)) }
+        letters.forEachIndexed { i, a -> launch { delay(wordAt + i * 55L); a.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 320f)) } }
+        launch { delay(wordAt + 320); sub.animateTo(1f, tween(360)) }
+        delay(wordAt + 2100)
+        out.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
     }
+    val inf = rememberInfiniteTransition(label = "pan")
+    val pan by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "pan")
+    val dir = if (s.home) 1f else -1f // the colour travels away from the scorer's side
+
     Box(Modifier.fillMaxSize()) {
-        // The score card underneath (rolls the score once it's back).
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = board.value; translationY = (1f - board.value) * 18.dp.toPx() }) {
-            ScoreCard(s.game, roll = s, rollAfterMs = 2700)
-        }
-        // Team-colour flood from the scorer's side.
-        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - board.value }) {
-            val o = Offset(if (s.home) 0f else size.width, size.height * 0.55f)
-            val r = (size.width * 1.35f * flood.value).coerceAtLeast(1f)
-            drawRect(Color(0xFF0D0D10))
-            drawCircle(Brush.radialGradient(0f to tc, 0.6f to tc.copy(alpha = 0.8f), 1f to tc.copy(alpha = 0f), center = o, radius = r), r, o)
-            // Light sweeping across with the flood.
-            val x = size.width * (if (s.home) flood.value else 1f - flood.value)
-            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.22f * (1f - flood.value)), Color.Transparent), x - 60f, x + 60f))
-            drawRect(Color.White.copy(alpha = flash.value))
-        }
-        // The word.
-        Column(Modifier.align(Alignment.Center).graphicsLayer {
-            alpha = 1f - leave.value; translationY = -leave.value * 34.dp.toPx(); val k = 1f + leave.value * 0.12f; scaleX = k; scaleY = k
-        }, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(side.name.uppercase(), color = Color.White.copy(alpha = 0.85f * sub.value), style = label().copy(fontSize = 11.sp, letterSpacing = 2.sp))
-            Row {
-                s.label.forEachIndexed { i, ch ->
-                    val v = letters.getOrNull(i)?.value ?: 1f
-                    Text(ch.toString(), color = Color.White, modifier = Modifier.graphicsLayer {
-                        alpha = v.coerceIn(0f, 1f); translationY = (1f - v) * 28.dp.toPx(); val k = 0.4f + 0.6f * v; scaleX = k; scaleY = k
-                    }, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
-                        fontSize = (if (s.label.length > 6) 40 else 56).sp, lineHeight = 60.sp))
+        // The card underneath; the score rolls once the colour has gone.
+        ScoreCard(s.game, roll = s, rollAfterMs = wordAt + 2500)
+
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height
+            val zig = 16.dp.toPx(); val teeth = 7
+            val span = w + zig * 2
+            val lead = wipe.value * span - zig        // leading edge, measured from the scorer's side
+            val tail = out.value * span - zig         // trailing edge (the colour leaves the far side)
+            if (lead > tail) {
+                fun x(v: Float) = if (dir > 0) v else w - v
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(x(tail), 0f)
+                    for (i in 0..teeth) lineTo(x(tail + if (i % 2 == 1) zig else 0f), h * i / teeth)
+                    for (i in teeth downTo 0) lineTo(x(lead + if (i % 2 == 1) zig else 0f), h * i / teeth)
+                    close()
+                }
+                clipPath(path) {
+                    drawRect(Brush.linearGradient(listOf(deep, tc, light), Offset(x(0f), h), Offset(x(w), 0f)))
+                    // Halftone dots, bigger toward the leading edge, drifting.
+                    val step = 13.dp.toPx(); val off = pan * step
+                    var yy = -step
+                    var row = 0
+                    while (yy < h + step) {
+                        var xx = -step + off + if (row % 2 == 0) 0f else step / 2
+                        while (xx < w + step) {
+                            val k = ((if (dir > 0) xx else w - xx) / w).coerceIn(0f, 1f)
+                            drawCircle(light.copy(alpha = 0.28f), (0.8f + 3.2f * k).dp.toPx(), Offset(xx, yy))
+                            xx += step
+                        }
+                        yy += step * 0.86f; row++
+                    }
+                    // Speed streaks.
+                    for (i in 0 until 4) {
+                        val sy = h * (0.18f + i * 0.21f)
+                        val sx = ((pan + i * 0.27f) % 1f) * (w + 160f) - 80f
+                        val px = x(sx)
+                        drawLine(Color.White.copy(alpha = 0.18f), Offset(px - 70f * dir, sy), Offset(px + 70f * dir, sy), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    }
                 }
             }
-            if (s.who.isNotBlank()) Text(s.who, color = Color.White.copy(alpha = sub.value), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = label().copy(fontSize = 13.sp), modifier = Modifier.padding(horizontal = 24.dp).graphicsLayer { translationY = (1f - sub.value) * 8.dp.toPx() })
+            // Neon glitch flicker at the start.
+            if (glitch.value < 1f) {
+                val f = (glitch.value * 9).toInt()
+                val rnd = java.util.Random(f * 7919L + s.at)
+                repeat(7) {
+                    val y = rnd.nextFloat() * h; val sh = (4 + rnd.nextInt(14)).dp.toPx()
+                    val dx = (rnd.nextFloat() - 0.5f) * 60.dp.toPx()
+                    drawRect(if (rnd.nextBoolean()) Color(0xFF38FFE1) else Color(0xFFB8FF3D), Offset(dx, y), Size(w, sh), alpha = 0.55f * (1f - glitch.value))
+                }
+            }
+            // Shockwave around the badge.
+            if (ring.value in 0.01f..0.99f) {
+                val c = Offset(w * (if (s.home) 0.2f else 0.8f), h * 0.55f)
+                drawCircle(Color.White.copy(alpha = 0.7f * (1f - ring.value)), (26 + 110 * ring.value).dp.toPx(), c, style = Stroke((3f * (1f - ring.value) + 0.5f).dp.toPx()))
+            }
+        }
+
+        // Badge + words, riding the colour (they leave with it).
+        val leave = out.value
+        Box(Modifier.fillMaxSize().padding(top = 26.dp).graphicsLayer { alpha = 1f - leave; translationX = dir * leave * 80.dp.toPx() }) {
+            Box(Modifier.align(if (s.home) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 30.dp).graphicsLayer {
+                val b = badge.value; alpha = b.coerceIn(0f, 1f); val k = 1f + (1f - b) * 1.4f; scaleX = k; scaleY = k; rotationZ = (1f - b) * -12f * dir
+            }) { Badge(side, 52.dp) }
+            Column(Modifier.align(Alignment.Center).padding(start = if (s.home) 70.dp else 0.dp, end = if (s.home) 0.dp else 70.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(side.name.uppercase(), color = Color.White.copy(alpha = 0.9f * sub.value), maxLines = 1, style = label().copy(fontSize = 10.sp, letterSpacing = 2.4.sp))
+                Box(contentAlignment = Alignment.Center) {
+                    // Supporters' word flies through first.
+                    if (hasChant && chant.value in 0.001f..1.999f) {
+                        val c = chant.value
+                        val x = if (c < 1f) (1f - c) * -1f else (c - 1f)
+                        Text(s.chant, color = Color.White, maxLines = 1, modifier = Modifier.graphicsLayer {
+                            translationX = x * dir * 220.dp.toPx(); alpha = 1f - kotlin.math.abs(x) * 0.8f; scaleX = 1f + kotlin.math.abs(x) * 0.25f
+                        }, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            fontSize = (if (s.chant.length > 8) 34 else 48).sp, letterSpacing = 3.sp))
+                    }
+                    Row {
+                        s.label.forEachIndexed { i, ch ->
+                            val v = letters.getOrNull(i)?.value ?: 1f
+                            val fs = (when { s.label.length > 9 -> 30; s.label.length > 6 -> 38; else -> 54 }).sp
+                            Box(Modifier.clip(androidx.compose.ui.graphics.RectangleShape)) {
+                                // echo outline trailing behind each letter as it lands
+                                Text(ch.toString(), color = light.copy(alpha = 0.6f * (1f - v).coerceIn(0f, 1f)), modifier = Modifier.graphicsLayer {
+                                    translationY = (1f - v) * 40.dp.toPx() + 6.dp.toPx() * (1f - v)
+                                }, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = fs, letterSpacing = 1.sp))
+                                Text(ch.toString(), color = Color.White, modifier = Modifier.graphicsLayer {
+                                    alpha = v.coerceIn(0f, 1f); translationY = (1f - v) * 30.dp.toPx(); val k = 0.6f + 0.4f * v; scaleX = k; scaleY = k
+                                }, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = fs, letterSpacing = 1.sp))
+                            }
+                        }
+                    }
+                }
+                if (s.who.isNotBlank()) Text(s.who, color = Color.White.copy(alpha = sub.value), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = label().copy(fontSize = 12.sp), modifier = Modifier.padding(horizontal = 10.dp).graphicsLayer { translationY = (1f - sub.value) * 8.dp.toPx() })
+            }
         }
     }
 }

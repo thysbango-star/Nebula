@@ -403,20 +403,26 @@ private fun SportsGroup(prefs: NebulaPrefs) {
     val p = Pal
     var tick by remember { mutableStateOf(0) }
     var following by remember { mutableStateOf(prefs.sportsTeams.mapNotNull(com.nebula.assistant.sports.Sports.Team::decode)) }
+    var sport by remember { mutableStateOf<String?>(null) }
+    var country by remember { mutableStateOf<String?>(null) }
     var league by remember { mutableStateOf<com.nebula.assistant.sports.Sports.League?>(null) }
     var query by remember { mutableStateOf("") }
     fun save(list: List<com.nebula.assistant.sports.Sports.Team>) { following = list; prefs.sportsTeams = list.map { it.encode() }.toSet() }
     Group("Sports", if (following.isEmpty()) null else "${following.size} team${if (following.size == 1) "" else "s"}", p.ok) {
-        Text("Follow your teams and their live score sits around the camera while they play. Tap it for the full card. When they score, the notch plays the goal moment.",
+        Text("Football, rugby and cricket (plus US sports). Follow your teams and their live score sits around the camera while they play; tap it for the full card. Goals, tries, sixes and wickets get their own moment.",
             style = MaterialTheme.typography.bodySmall, color = p.dim)
         Keyed(tick) {
             Toggle("Live scores in the notch", "Only while one of your teams is playing.", prefs.sportsOn) { prefs.sportsOn = it; tick++ }
             Toggle("Goal moments", "The goal animation, a buzz and a cheer when your team scores.", prefs.sportsGoals) { prefs.sportsGoals = it; tick++ }
         }
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Btn("Preview a goal", primary = true) { com.nebula.assistant.sports.Sports.startDemo() }
-            Text("  Watch the top of your screen", style = MaterialTheme.typography.bodySmall, color = p.faint)
+        Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            Btn("Preview a goal", primary = true) { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.SOCCER) }
+            Spacer(Modifier.size(8.dp))
+            Btn("A try") { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.RUGBY) }
+            Spacer(Modifier.size(8.dp))
+            Btn("A six") { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.CRICKET) }
         }
+        Text("Watch the top of your screen.", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 4.dp))
         if (following.isNotEmpty()) {
             Text("Following", style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
             following.forEach { t ->
@@ -424,20 +430,30 @@ private fun SportsGroup(prefs: NebulaPrefs) {
                     TeamDot(t)
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
                         Text(t.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(com.nebula.assistant.sports.Sports.league(t.league)?.name ?: "", style = MaterialTheme.typography.bodySmall, color = p.faint)
+                        val lg = com.nebula.assistant.sports.Sports.league(t.league)
+                        Text(listOfNotNull(lg?.sport, lg?.name).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = p.faint)
                     }
                     Icon(Icons.Rounded.Close, "Unfollow", tint = p.faint, modifier = Modifier.size(22.dp).pressable(onClick = { save(following - t) }))
                 }
             }
         }
+        // Pick: sport → country → league → team.
         Text("Add a team", style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
-            com.nebula.assistant.sports.Sports.LEAGUES.forEach { lg ->
-                val on = league == lg
-                Box(Modifier.padding(end = 6.dp).clip(CircleShape).background(if (on) p.text else p.surface2)
-                    .pressable(onClick = { league = if (on) null else lg; query = "" }).padding(horizontal = 12.dp, vertical = 7.dp)) {
-                    Text(lg.name, style = MaterialTheme.typography.labelLarge, color = if (on) p.bg else p.text)
-                }
+        val all = com.nebula.assistant.sports.Sports.LEAGUES
+        ChipRow(com.nebula.assistant.sports.Sports.SPORTS, sport) { sport = if (sport == it) null else it; country = null; league = null; query = "" }
+        sport?.let { sp ->
+            val countries = all.filter { it.sport == sp }.map { it.country }.distinct()
+            Text("Country", style = MaterialTheme.typography.labelMedium, color = p.faint, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+            ChipRow(countries, country) { c ->
+                country = if (country == c) null else c; query = ""
+                league = all.filter { it.sport == sp && it.country == c }.singleOrNull()
+            }
+            country?.let { c ->
+                val leagues = all.filter { it.sport == sp && it.country == c }
+                if (leagues.size > 1) {
+                    Text("League", style = MaterialTheme.typography.labelMedium, color = p.faint, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+                    ChipRow(leagues.map { it.name }, league?.name) { n -> league = leagues.firstOrNull { it.name == n }; query = "" }
+                } else Text(leagues.firstOrNull()?.name ?: "", style = MaterialTheme.typography.bodySmall, color = p.dim, modifier = Modifier.padding(top = 8.dp))
             }
         }
         league?.let { lg ->
@@ -463,6 +479,20 @@ private fun SportsGroup(prefs: NebulaPrefs) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChipRow(items: List<String>, selected: String?, onPick: (String) -> Unit) {
+    val p = Pal
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        items.forEach { item ->
+            val on = item == selected
+            Box(Modifier.padding(end = 6.dp).clip(CircleShape).background(if (on) p.text else p.surface2)
+                .pressable(onClick = { onPick(item) }).padding(horizontal = 12.dp, vertical = 7.dp)) {
+                Text(item, style = MaterialTheme.typography.labelLarge, color = if (on) p.bg else p.text)
             }
         }
     }
