@@ -621,6 +621,12 @@ function renderSettings() {
     <div class="slider">Games list<small>${d.gaming ? `Playing now: ${esc(d.game)}` : ''}</small></div><input class="field" id="sGames" placeholder="e.g. RobloxPlayerBeta, Minecraft" value="${esc((d.games || []).join(', '))}" spellcheck="false">
     <p class="sub" style="margin-top:10px">Some online games ban auto-clickers and can suspend accounts. Use it where it's allowed.</p></div>
 
+  <div class="group"><h3>Desktop widgets</h3>
+    <p class="sub">Glass cards for your desktop — drag them anywhere and they stay put. Pick the ones you want:</p>
+    <div class="chiprow">${[['daily', 'Daily'], ['music', 'Music'], ['sports', 'Sports'], ['tasks', 'Tasks'], ['ask', 'Ask Nebula'], ['voice', 'Voice']].map(([v, l]) => `<button class="chip press ${(d.widgets || []).includes(v) ? 'on' : ''}" data-widget="${v}">${l}</button>`).join('')}</div>
+    ${toggle('sWOnTop', 'Keep widgets on top', 'Off: they sit on the desktop behind your windows, like normal windows.', !!d.widgetsOnTop)}
+    <div class="row"><button class="pill press" id="sWReset">Put them back in a column</button></div></div>
+
   <div class="group"><h3>Now playing</h3>
     ${toggle('sMusic', 'Music in the island', "What's playing in Spotify, YouTube or any app, dressed in its album art's colours. Hover it for the controls.", d.islandMusic !== false)}</div>
 
@@ -698,6 +704,14 @@ function renderSettings() {
   coach.render();
   on('sSports', 'onchange', (e) => setS({ sportsOn: e.target.checked }));
   on('sMusic', 'onchange', (e) => setS({ islandMusic: e.target.checked }));
+  B.querySelectorAll('[data-widget]').forEach((b) => (b.onclick = () => {
+    const cur = new Set(S.widgets || []); const k = b.dataset.widget;
+    if (cur.has(k)) cur.delete(k); else cur.add(k);
+    b.classList.toggle('on', cur.has(k));
+    setS({ widgets: [...cur] });
+  }));
+  on('sWOnTop', 'onchange', (e) => setS({ widgetsOnTop: e.target.checked }));
+  on('sWReset', 'onclick', () => api.send('settings:widgets-reset'));
   on('reportBtn', 'onclick', () => api.send('support:report', {}));
   on('sGoals', 'onchange', (e) => setS({ sportsGoals: e.target.checked }));
   on('sEvents', 'onchange', (e) => setS({ sportsEvents: e.target.checked }));

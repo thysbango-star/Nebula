@@ -2,7 +2,7 @@
 // A small, safe bridge between Nebula's pages and the main process.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED = /^(ear|island|vibrance|settings|open|app|sports|support):/;
+const ALLOWED = /^(ear|island|vibrance|settings|open|app|sports|support|widget):/;
 
 // The mic window gets a direct pipe to the listening process; hand it to the page.
 ipcRenderer.on('ear:port', (e) => { window.postMessage({ type: 'nebula-ear-port' }, '*', e.ports); });

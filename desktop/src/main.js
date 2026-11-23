@@ -12,6 +12,7 @@ const path = require('path');
 const { Brain, cleanKey } = require('./brain');
 const { wakeThreshold } = require('./voice');
 const interrupt = require('./interrupt');
+const { Widgets } = require('./widgets');
 const { WinHelper, NOT_GAMES, isGamePath } = require('./win32');
 const os = require('os');
 const net = require('net');
@@ -47,6 +48,9 @@ const DEFAULTS = {
   hotkey: 'Alt+Space',
   speak: true,
   followUps: true,       // keep listening briefly after Nebula answers
+  widgets: [],           // desktop widgets switched on: voice, music, ask, tasks, sports, daily
+  widgetPos: {},         // where you left each one
+  widgetsOnTop: false,   // keep widgets above other windows (off: they sit on the desktop like any window)
   interruptOn: true,     // Voice Interrupt: talk over Nebula and it stops and listens
   interruptSens: 0.5,    // 0 = only clear, loud speech; 1 = picks up softer voices (more false stops on speakers)
   interruptAck: true,    // answer an interruption with a short natural "Got you —"
@@ -491,7 +495,26 @@ const sports = new Sports({
   log: (...a) => log(...a),
 });
 
+// ------------------------------------------------------------------ desktop widgets
+let widgets = null;
+let widgetTimer = null;
+function widgetState() {
+  const tasks = store.snapshot().tasks.slice(0, 8).map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress, summary: String(t.summary || '').slice(0, 120), updatedAt: t.updatedAt }));
+  return {
+    session: { active: session.active, phase: session.phase },
+    media: configData.islandMusic !== false ? nowPlaying : null,
+    games: configData.sportsOn ? sportsGames : [], fixtures: configData.sportsOn ? (sports.fixtures || []) : [],
+    following: (configData.sportsTeams || []).length, tasks, userName: configData.userName || '',
+  };
+}
+/** Coalesced: many changes in a burst become one update a moment later. */
+function pushWidgets() {
+  if (!widgets || !widgets.wins.size || widgetTimer) return;
+  widgetTimer = setTimeout(() => { widgetTimer = null; widgets.push(widgetState()); }, 250);
+}
+
 function pushIslandState() {
+  pushWidgets();
   send(island, 'island:state', {
     active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
     sources: session.sources, timerEndsAt: timer.endsAt, intensity: configData.intensity,
@@ -940,6 +963,17 @@ function wireIpc() {
   ipcMain.on('island:close', () => endSession());
   ipcMain.on('island:clicker', (_e, cmd) => clicker(cmd));
   ipcMain.on('island:crosshair', () => showCrosshair(!(cross && !cross.isDestroyed())));
+  ipcMain.on('settings:widgets-reset', () => { if (widgets) widgets.resetPositions(); });
+  ipcMain.on('widget:act', async (_e, m) => {
+    m = m || {};
+    if (m.do === 'voice') { if (session.active) endSession(); else startSession('widget'); }
+    else if (m.do === 'ask' && typeof m.text === 'string' && m.text.trim()) startSession('typed', m.text.trim().slice(0, 2000));
+    else if (m.do === 'media' && ['toggle', 'next', 'prev'].includes(m.what) && mediaSource()) {
+      await mediaSource().mediaControl(m.what);
+      if (m.what !== 'toggle') await mediaSource().mediaReset();
+      setTimeout(pollMedia, 350);
+    } else if (m.do === 'open' && ['chat', 'tasks', 'settings'].includes(m.view)) openApp(m.view);
+  });
   ipcMain.on('island:media', async (_e, what) => {
     if (!['toggle', 'next', 'prev'].includes(what)) return;
     if (!mediaSource()) return;
@@ -998,6 +1032,7 @@ function wireIpc() {
     if (before.clickInterval !== configData.clickInterval && clickerState.running) clicker('speed');
     if (before.startWithWindows !== configData.startWithWindows) applyLoginItem();
     if (before.islandMode !== configData.islandMode) applyIslandMode();
+    if (widgets && (JSON.stringify(before.widgets) !== JSON.stringify(configData.widgets) || before.widgetsOnTop !== configData.widgetsOnTop)) { widgets.sync(); pushWidgets(); }
     if (before.islandMusic !== configData.islandMusic) { if (configData.islandMusic === false) nowPlaying = null; pollMedia(); pushIslandState(); applyIslandMode(); }
     if (JSON.stringify(before.sportsTeams) !== JSON.stringify(configData.sportsTeams) || before.sportsOn !== configData.sportsOn) sports.refresh();
     refreshTrayMenu();
@@ -1065,6 +1100,9 @@ app.whenReady().then(() => {
   wireIpc();
   nativeTheme.on('updated', () => broadcastSettings());
   createIsland(); // the glow window is created only when Nebula wakes
+  widgets = new Widgets({ asset, webPrefs: baseWebPrefs, config: () => configData, save: (patch) => { Object.assign(configData, patch); saveConfig(); } });
+  widgets.sync();
+  setInterval(pushWidgets, 3000); // tasks finishing, the clock rolling over — sent only when something changed
   createEar();
   createTray();
   registerHotkeys();

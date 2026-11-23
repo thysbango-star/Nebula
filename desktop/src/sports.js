@@ -541,6 +541,8 @@ class Sports {
       }
     }
     for (const g of found) { g.cards = this.liveCards(g, now); g.stats = this.stats.get(g.id) || []; }
+    // Upcoming games of your teams that are in the feed (for the desktop Sports and Daily widgets).
+    this.fixtures = found.filter((g) => g.state === 'pre' && g.start > now).sort((a, b) => a.start - b.start).slice(0, 4);
     const show = found.filter((g) => g.live || (g.state === 'post' && now - (this.finishedAt.get(g.id) || 0) < 15 * 60000) ||
       (g.state === 'pre' && g.start - now >= 0 && g.start - now < 15 * 60000));
     show.sort((a, b) => (a.live ? 0 : a.state === 'pre' ? 1 : 2) - (b.live ? 0 : b.state === 'pre' ? 1 : 2));
