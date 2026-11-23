@@ -92,6 +92,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.border
 import androidx.compose.animation.scaleIn
@@ -156,7 +157,7 @@ private val Display = FontFamily(Font(R.font.space_grotesk, FontWeight.Medium), 
 private val Condensed = FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)))
 private val Body = FontFamily(Font(R.font.manrope, FontWeight.Medium), Font(R.font.manrope, FontWeight.SemiBold), Font(R.font.manrope, FontWeight.Bold))
 
-private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL }
+private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL, LIVE, LIVE_OPEN }
 
 /** Exact size and corner of the island for a view. Fixed sizes = no measuring, no jitter. */
 private data class Geo(val w: Dp, val h: Dp, val r: Dp)
@@ -186,6 +187,7 @@ fun NotchUi(c: NotchController) {
     val panel by R3cket.panel.collectAsState()
     val device by NotchBus.device.collectAsState()
     val games by Sports.games.collectAsState()
+    val lives by NotchBus.live.collectAsState()
     val goal by Sports.goal.collectAsState()
     val L = c.layout
     val base = LocalDensity.current
@@ -233,6 +235,9 @@ fun NotchUi(c: NotchController) {
         } + if (g.motif in FANCY) 1100L else 0L)
         if (Sports.goal.value?.at == g.at) Sports.clearGoal()
     }
+    var liveOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(liveOpen) { if (liveOpen) { delay(8000); liveOpen = false } }
+    val liveAct = if (prefs.notchLive) lives.firstOrNull() else null
     val liveGame = if (prefs.sportsOn) games.getOrNull(if (games.isEmpty()) 0 else sportsIdx % games.size) else null
 
     val quiet = gaming && prefs.r3cketQuiet
@@ -250,7 +255,9 @@ fun NotchUi(c: NotchController) {
         sportsOpen && liveGame != null -> Mode.SPORTS_OPEN
         !quiet && message != null && shownMessage == message?.key && prefs.notchMessages -> Mode.MESSAGE
         task != null && !quiet -> Mode.TASK
+        liveOpen && liveAct != null -> Mode.LIVE_OPEN
         liveGame != null && !quiet -> Mode.SPORTS
+        liveAct != null && !quiet -> Mode.LIVE
         media != null && media?.playing == true && prefs.notchMusic && !quiet -> if (musicOpen) Mode.MUSIC_OPEN else Mode.MUSIC
         gaming && game != null && prefs.r3cketHud -> Mode.GAME
         else -> Mode.NONE
@@ -319,7 +326,7 @@ fun NotchUi(c: NotchController) {
                         }
                     }
                     .combinedClickable(
-                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL),
+                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL, Mode.LIVE, Mode.LIVE_OPEN),
                         onLongClick = { c.talk() }, // hold the island to talk to Nebula
                     ) {
                         when (shown) {
@@ -329,6 +336,8 @@ fun NotchUi(c: NotchController) {
                             Mode.SPORTS -> sportsOpen = true
                             Mode.SPORTS_OPEN -> if (games.size > 1) sportsIdx++ else sportsOpen = false
                             Mode.GOAL -> Sports.clearGoal()
+                            Mode.LIVE -> liveOpen = true
+                            Mode.LIVE_OPEN -> { runCatching { liveAct?.open?.send() }; liveOpen = false }
                             else -> {}
                         }
                     },
@@ -363,6 +372,8 @@ fun NotchUi(c: NotchController) {
                         Mode.MUSIC_OPEN -> media?.let { MusicOpen(it) }
                         Mode.GAME -> GameHud(pillH)
                         Mode.SPORTS -> liveGame?.let { SportsCompact(it, pillH) }
+                        Mode.LIVE -> liveAct?.let { LiveCompact(it, pillH) }
+                        Mode.LIVE_OPEN -> liveAct?.let { LiveCard(it) }
                         Mode.SPORTS_OPEN -> liveGame?.let { ScoreCard(it, more = games.size, index = sportsIdx % games.size.coerceAtLeast(1)) }
                         Mode.GOAL -> goal?.let { when (it.kind) { "yellow", "red", "red20" -> CardMoment(it); "sub" -> SubBoard(it); "added" -> AddedTime(it)
                             "check", "decision" -> Review(it); "lineup" -> LineupReel(it); else -> GoalView(it) } }
@@ -386,6 +397,8 @@ private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolea
         Mode.MUSIC -> Geo(232.dp, pillH, pillH / 2)
         Mode.GAME -> Geo(276.dp, pillH, pillH / 2)
         Mode.SPORTS -> Geo(252.dp, pillH, pillH / 2)
+        Mode.LIVE -> Geo(236.dp, pillH, pillH / 2)
+        Mode.LIVE_OPEN -> Geo(full, 150.dp, card)
         Mode.SPORTS_OPEN -> Geo(full, (if (sport?.lastPlay.isNullOrBlank()) 152.dp else 190.dp) + (if (sport?.note.isNullOrBlank()) 0.dp else 18.dp) +
             (if (sport?.cards.isNullOrEmpty()) 0.dp else 26.dp) + (if (sport?.stats.isNullOrEmpty()) 0.dp else (24 + 17 * sport!!.stats.size.coerceAtMost(4)).dp), card)
         Mode.GOAL -> Geo(full, 190.dp, card)
@@ -1000,6 +1013,94 @@ private fun SubBoard(s: Sports.Score) {
     }
 }
 
+// ---- Live Activities (rides, deliveries, directions, timers, downloads — from any app's ongoing notification)
+
+private fun liveColor(l: NotchBus.Live): Color = when {
+    l.color != 0 && l.color != android.graphics.Color.BLACK -> Color(l.color).let { if (it.luminance() < 0.08f) Flame else it }
+    l.kind == "ride" -> Color(0xFF34C3FF); l.kind == "food" -> Color(0xFFB45CFF); l.kind == "nav" -> Color(0xFF4CD964)
+    l.kind == "timer" || l.kind == "stopwatch" -> Color(0xFFFF9F0A)
+    else -> Flame
+}
+
+/** The live number: a timer counting down, a stopwatch counting up, an ETA, or a percentage. */
+@Composable
+private fun liveValue(l: NotchBus.Live): String {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(l.chrono) { if (l.chrono > 0) while (true) { delay(250); now = System.currentTimeMillis() } }
+    return when {
+        l.chrono > 0 -> { val ms = if (l.countDown) l.chrono - now else now - l.chrono; clock(ms.coerceAtLeast(0)) }
+        l.eta.isNotEmpty() -> l.eta
+        l.progress != null -> "${(l.progress * 100).toInt()}%"
+        else -> ""
+    }
+}
+
+@Composable
+private fun LiveIcon(l: NotchBus.Live, size: Dp) {
+    val bmp = remember(l.icon) { l.icon?.asImageBitmap() }
+    if (bmp != null) Image(bmp, l.app, modifier = Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)))
+    else Box(Modifier.size(size).clip(CircleShape).background(liveColor(l)))
+}
+
+@Composable
+private fun LiveCompact(l: NotchBus.Live, h: Dp) {
+    val c = liveColor(l)
+    val v = liveValue(l)
+    Compact({ LiveIcon(l, h - 12.dp) }, {
+        if (l.progress != null && l.chrono == 0L && l.eta.isEmpty()) {
+            val p by animateFloatAsState(l.progress, tween(500), label = "lp")
+            Canvas(Modifier.size(h - 14.dp)) {
+                drawCircle(c.copy(alpha = 0.25f), style = Stroke(3.dp.toPx()))
+                drawArc(c, -90f, 360f * p, false, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+            }
+        } else Text(v, color = c, maxLines = 1, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp))
+    })
+}
+
+/**
+ * The open Live Activity, like the ride / delivery cards: app icon and what's happening, a track with a marker
+ * riding along it (or a shimmer when there's no progress), and the big number on the right. Tap to open the app.
+ */
+@Composable
+private fun LiveCard(l: NotchBus.Live) {
+    val c = liveColor(l)
+    val v = liveValue(l)
+    val inf = rememberInfiniteTransition(label = "live")
+    val sweep by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing)), label = "s")
+    val p by animateFloatAsState(l.progress ?: 0f, tween(600), label = "lp")
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF111114), Color(0xFF0A0A0C))))) {
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(c.copy(alpha = 0.22f), Color.Transparent), radius = 600f)))
+        Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LiveIcon(l, 26.dp); Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(l.title.ifBlank { l.app }, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 15.sp))
+                    if (l.text.isNotBlank()) Text(l.text, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 12.sp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(v, color = c, maxLines = 1, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 30.sp))
+            }
+            Spacer(Modifier.weight(1f))
+            // the track
+            Canvas(Modifier.fillMaxWidth().height(22.dp)) {
+                val y = size.height / 2; val r = 4.dp.toPx(); val w = size.width
+                drawRoundRect(Color.White.copy(alpha = 0.12f), Offset(0f, y - r), Size(w, r * 2), CornerRadius(r))
+                if (l.progress != null) {
+                    drawRoundRect(Brush.horizontalGradient(listOf(c.copy(alpha = 0.6f), c)), Offset(0f, y - r), Size(w * p, r * 2), CornerRadius(r))
+                    val x = (w * p).coerceIn(10.dp.toPx(), w - 10.dp.toPx())
+                    drawCircle(c.copy(alpha = 0.35f), 11.dp.toPx(), Offset(x, y)); drawCircle(Color.White, 7.dp.toPx(), Offset(x, y)); drawCircle(c, 4.dp.toPx(), Offset(x, y))
+                } else { // no progress from the app: a travelling shimmer
+                    val x = sweep * (w + 200f) - 100f
+                    drawRoundRect(Brush.horizontalGradient(listOf(Color.Transparent, c, Color.Transparent), x - 100f, x + 100f), Offset(0f, y - r), Size(w, r * 2), CornerRadius(r))
+                }
+                // destination marker at the end
+                drawCircle(Color.White.copy(alpha = 0.85f), 5.dp.toPx(), Offset(w - 5.dp.toPx(), y), style = Stroke(2.dp.toPx()))
+            }
+            Text("Tap to open ${l.app}", color = Faint, style = label().copy(fontSize = 10.sp), modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
 // ---- competition logos, stats, added time, VAR/TMO, lineups
 
 @Composable
@@ -1419,7 +1520,7 @@ private fun MusicOpen(m: NotchBus.Media) {
 
     Box(Modifier.fillMaxSize()) {
         // 1. the light behind the glass: the cover itself, blurred and drifting
-        androidx.compose.animation.Crossfade(art, tween(900), label = "backlight") { img ->
+        androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "backlight") { img ->
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(th.bg1, th.bg2)))) {
                 if (img != null) Image(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer {
                     val k = 1.35f + 0.05f * sin(drift * 6.283f); scaleX = k; scaleY = k; translationX = 18.dp.toPx() * cos(drift * 6.283f); alpha = 0.9f
@@ -1474,7 +1575,7 @@ private fun MusicOpen(m: NotchBus.Media) {
                     // play/pause on a frosted glass disc, the icon morphing between states
                     Box(Modifier.size(40.dp).clip(CircleShape).background(ink.copy(alpha = 0.14f))
                         .border(1.dp, Brush.verticalGradient(listOf(ink.copy(alpha = 0.45f), ink.copy(alpha = 0.06f))), CircleShape)
-                        .pressable(onClick = { if (m.playing) tc?.pause() else tc?.play() }), contentAlignment = Alignment.Center) {
+                        .clickable { if (m.playing) tc?.pause() else tc?.play() }, contentAlignment = Alignment.Center) {
                         AnimatedContent(m.playing, transitionSpec = { (scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f), 0.4f) + fadeIn()) togetherWith (scaleOut(tween(120), 0.4f) + fadeOut(tween(120))) },
                             label = "pp") { playing ->
                             Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = ink, modifier = Modifier.size(24.dp))

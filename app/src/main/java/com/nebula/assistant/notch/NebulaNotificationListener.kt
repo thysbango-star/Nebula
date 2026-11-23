@@ -101,6 +101,7 @@ class NebulaNotificationListener : NotificationListenerService() {
                     ringing = ringing, icon = largeIcon(n), answer = answer?.actionIntent, decline = decline?.actionIntent, key = sbn.key,
                 ))
             }
+            isLive(sbn) -> live(sbn)
             isMessage(sbn) -> {
                 if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
                 val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
@@ -118,6 +119,49 @@ class NebulaNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         NotchBus.clearCall(sbn.key)
         NotchBus.clearMessage(sbn.key)
+        NotchBus.clearLive(sbn.key)
+    }
+
+    // ------------------------------------------------------------------ Live Activities
+
+    private val RIDES = listOf("com.ubercab", "ee.mtakso.client", "com.taxify", "com.didiglobal", "com.indriver")
+    private val FOOD = listOf("com.ubercab.eats", "com.mrd.food", "co.za.mrdfood", "com.takealot.mrd", "com.checkers.sixty60", "za.co.checkers", "com.dominos", "com.kfc", "com.bolt.food")
+    private val NAV = listOf("com.google.android.apps.maps", "com.waze", "com.here.app.maps")
+    private val CLOCK = listOf("com.google.android.deskclock", "com.sec.android.app.clockpackage", "com.android.deskclock")
+
+    /** An ongoing notification worth a Live Activity: rides, food, directions, timers, progress (downloads, uploads). */
+    private fun isLive(sbn: StatusBarNotification): Boolean {
+        val n = sbn.notification; val pkg = sbn.packageName
+        if (!sbn.isOngoing || isDialer(pkg)) return false
+        if (n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)) return false // music has its own view
+        val known = (RIDES + FOOD + NAV + CLOCK).any { pkg.startsWith(it) }
+        val hasProgress = n.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 || n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE)
+        val chrono = n.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)
+        val cat = n.category.orEmpty()
+        return known || chrono || (hasProgress && cat != Notification.CATEGORY_SERVICE && cat != Notification.CATEGORY_SYSTEM) ||
+            cat == Notification.CATEGORY_NAVIGATION || cat == "stopwatch" || cat == Notification.CATEGORY_PROGRESS
+    }
+
+    private fun live(sbn: StatusBarNotification) {
+        val n = sbn.notification; val e = n.extras; val pkg = sbn.packageName
+        val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        if (title.isBlank() && text.isBlank()) return
+        val max = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0)
+        val progress = if (max > 0) (e.getInt(Notification.EXTRA_PROGRESS, 0).toFloat() / max).coerceIn(0f, 1f) else null
+        val chronoOn = e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)
+        val countDown = chronoOn && android.os.Build.VERSION.SDK_INT >= 24 && e.getBoolean(Notification.EXTRA_CHRONOMETER_COUNT_DOWN)
+        val kind = when {
+            RIDES.any { pkg.startsWith(it) } && FOOD.none { pkg.startsWith(it) } -> "ride"
+            FOOD.any { pkg.startsWith(it) } -> "food"
+            NAV.any { pkg.startsWith(it) } || n.category == Notification.CATEGORY_NAVIGATION -> "nav"
+            CLOCK.any { pkg.startsWith(it) } || chronoOn -> if (countDown) "timer" else "stopwatch"
+            else -> "progress"
+        }
+        val eta = Regex("(\\d{1,3})\\s*(min|mins|minutes|m)\\b", RegexOption.IGNORE_CASE).find("$title $text")?.let { "${it.groupValues[1]} min" }
+            ?: Regex("\\b(\\d{1,2}:\\d{2})\\b").find("$title $text")?.value.orEmpty()
+        NotchBus.putLive(NotchBus.Live(sbn.key, pkg, appLabel(pkg), kind, title, text, appIcon(pkg), n.color, progress,
+            if (chronoOn) n.`when` else 0L, countDown, eta, n.contentIntent))
     }
 
     /**

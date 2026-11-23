@@ -124,6 +124,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
                 Toggle("Music", "What's playing, with controls.", prefs.notchMusic) { prefs.notchMusic = it; tick++ }
                 Toggle("Incoming calls", "Answer or decline from the island.", prefs.notchCalls) { prefs.notchCalls = it; tick++ }
                 Toggle("Messages", "New message previews with reply.", prefs.notchMessages) { prefs.notchMessages = it; tick++ }
+                Toggle("Live Activities", "Rides, deliveries, directions, timers and downloads from your apps, live in the notch.", prefs.notchLive) { prefs.notchLive = it; tick++ }
                 Toggle("Volume", "Animated level when you press the volume keys.", prefs.notchVolume) { prefs.notchVolume = it; tick++ }
                 Toggle("Earbuds & headphones", "Shows when AirPods, Buds or headphones connect.", prefs.notchDevices) { prefs.notchDevices = it; tick++ }
                 Toggle("Unlock animation", "Scan ring → tick when your phone unlocks.", prefs.notchUnlock) { prefs.notchUnlock = it; tick++ }

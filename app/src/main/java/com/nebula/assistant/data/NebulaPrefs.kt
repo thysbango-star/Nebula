@@ -115,6 +115,7 @@ class NebulaPrefs(context: Context) {
     var notchMusic: Boolean get() = bool("notch_music", true); set(v) = setBool("notch_music", v)
     var notchCalls: Boolean get() = bool("notch_calls", true); set(v) = setBool("notch_calls", v)
     var notchMessages: Boolean get() = bool("notch_messages", true); set(v) = setBool("notch_messages", v)
+    var notchLive: Boolean get() = bool("notch_live", true); set(v) = setBool("notch_live", v)
     var notchVolume: Boolean get() = bool("notch_volume", true); set(v) = setBool("notch_volume", v)
     var notchUnlock: Boolean get() = bool("notch_unlock", true); set(v) = setBool("notch_unlock", v)
     var notchTasks: Boolean get() = bool("notch_tasks", true); set(v) = setBool("notch_tasks", v)
