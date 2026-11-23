@@ -92,6 +92,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.border
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -302,6 +306,18 @@ fun NotchUi(c: NotchController) {
                     .graphicsLayer { alpha = shapeAlpha.value }
                     .clip(RoundedCornerShape(r.value.coerceAtMost(h.value / 2).dp))
                     .background(Color.Black)
+                    // Liquid glass, once it opens up: a bright top edge, a bevelled rim and a little depth at the bottom,
+                    // drawn over the content so every card reads as one piece of glass.
+                    .drawWithContent {
+                        drawContent()
+                        if (glowAlpha > 0.01f) {
+                            val rr = r.value.coerceAtMost(h.value / 2).dp.toPx(); val a = glowAlpha
+                            drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.10f * a), 0.18f to Color.Transparent, 0.82f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.22f * a)))
+                            val sw = 1.dp.toPx()
+                            drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.42f * a), Color.White.copy(alpha = 0.06f * a), Color.White.copy(alpha = 0.16f * a))),
+                                Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), CornerRadius(rr), style = Stroke(sw))
+                        }
+                    }
                     .combinedClickable(
                         enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL),
                         onLongClick = { c.talk() }, // hold the island to talk to Nebula
@@ -1369,24 +1385,25 @@ private fun MessageView(m: NotchBus.Message, dismiss: () -> Unit) {
 }
 
 /**
- * The open music card, themed by the song's album art (see [MusicTheme]): a lighter slab holding the cover on
- * the left, a big title and the artist on the right, a play button and a hairline progress track with diamond ends.
- * Each theme has its own living background, the bars along the bottom move with the real audio, and a new track
- * flips its cover in while the colours melt across.
+ * The open music card — liquid glass. The song's own cover, blurred, is the light behind the glass; the card has
+ * a bright top edge, a soft bevel and a sheen that drifts across, so it reads as a lens rather than a flat panel.
+ * The cover floats on its own glass tile, the title glides on a track that fades at its edges, and a fine
+ * waveform (the real audio on Android) breathes behind the controls. A new song melts in: the light cross-fades,
+ * the cover blooms in from a blur, and play/pause morphs.
  */
 @Composable
 private fun MusicOpen(m: NotchBus.Media) {
     val tc = m.controller?.transportControls
     val th = MusicTheme.of(m.art)
-    val spec = tween<Color>(900)
-    val bg1 by animateColorAsState(th.bg1, spec, label = "bg1"); val bg2 by animateColorAsState(th.bg2, spec, label = "bg2")
-    val text by animateColorAsState(th.text, spec, label = "tx"); val sub by animateColorAsState(th.sub, spec, label = "sub")
-    val accent by animateColorAsState(th.accent, spec, label = "ac")
-    val flip = remember(m.title) { Animatable(0f) }
-    LaunchedEffect(m.title) { flip.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 220f)) }
-    val inf = rememberInfiniteTransition(label = "music")
-    val drift by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(12000, easing = LinearEasing)), label = "d")
-    val beat by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "b")
+    val light = th.style == "mono" && th.text != Color.White // silver theme: dark type
+    val ink by animateColorAsState(if (light) Color(0xFF111114) else Color.White, tween(700), label = "ink")
+    val inkSub = ink.copy(alpha = 0.66f)
+    val accent by animateColorAsState(th.accent, tween(900), label = "ac")
+    val bloom = remember(m.title) { Animatable(0f) }
+    LaunchedEffect(m.title) { bloom.animateTo(1f, tween(650, easing = FastOutSlowInEasing)) }
+    val inf = rememberInfiniteTransition(label = "glass")
+    val drift by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "d")
+    val float by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "f")
     DisposableEffect(m.playing) {
         val on = m.playing && MusicTheme.startBars()
         onDispose { if (on) MusicTheme.stopBars() }
@@ -1395,86 +1412,103 @@ private fun MusicOpen(m: NotchBus.Media) {
     val smooth = remember { FloatArray(16) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(250); now = System.currentTimeMillis() } }
-    val pos = if (m.playing) m.position + (now - m.updatedAt) else m.position
-    val frac = if (m.duration > 0) (pos.toFloat() / m.duration).coerceIn(0f, 1f) else 0f
+    val pos = (if (m.playing) m.position + (now - m.updatedAt).coerceAtLeast(0) else m.position).let { if (m.duration > 0) it.coerceIn(0, m.duration) else it.coerceAtLeast(0) }
+    val frac = if (m.duration > 0) pos.toFloat() / m.duration else 0f
+    val fracA by animateFloatAsState(frac, tween(260, easing = LinearEasing), label = "p")
+    val art = remember(m.art) { m.art?.asImageBitmap() }
 
     Box(Modifier.fillMaxSize()) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width; val h = size.height
-            drawRect(Brush.linearGradient(listOf(bg1, bg2), Offset(0f, 0f), Offset(w, h)))
-            val a = (drift * 2 * Math.PI).toFloat()
-            when (th.style) {
-                "mono" -> { // brushed silver: a spotlight sliding across and a little film grain
-                    val sx = ((drift * 2) % 1f) * (w + 300f) - 150f
-                    drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent), Offset(sx - 120f, 0f), Offset(sx + 120f, h)))
-                    val rnd = java.util.Random((beat * 30).toLong() + (drift * 1000).toLong())
-                    repeat(90) { drawCircle((if (th.text == Color.White) Color.White else Color.Black).copy(alpha = 0.05f), 0.8f, Offset(rnd.nextFloat() * w, rnd.nextFloat() * h)) }
-                }
-                "vivid" -> th.blobs.forEachIndexed { i, c -> // the cover's colours drifting like lava
-                    val o = Offset(w * (0.3f + 0.45f * sin(a + i * 2.1f).let { (it + 1) / 2 }), h * (0.5f + 0.35f * cos(a * 1.3f + i)))
-                    val r = w * (0.38f + 0.05f * i) * (1f + if (m.playing) 0.06f * sin(beat * 6.283f) else 0f)
-                    drawCircle(Brush.radialGradient(listOf(c.copy(alpha = 0.45f), Color.Transparent), o, r), r, o)
-                }
-                else -> { // night: a glow behind the cover and specks of light rising
-                    val o = Offset(w * 0.17f, h * 0.55f); val r = h * (0.9f + if (m.playing) 0.08f * sin(beat * 6.283f) else 0f)
-                    drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.45f), Color.Transparent), o, r), r, o)
-                    for (i in 0 until 18) {
-                        val p = ((drift * 3 + i * 0.137f) % 1f)
-                        drawCircle(accent.copy(alpha = 0.35f * (1f - p)), (1 + (i % 3)).dp.toPx(), Offset(w * ((i * 0.618f) % 1f), h * (1f - p)))
-                    }
-                }
-            }
-            // live audio bars along the bottom
-            val n = 16; val x0 = w * 0.34f; val step = (w * 0.63f) / n; val bw = step * 0.55f
-            for (i in 0 until n) {
-                smooth[i] += ((if (m.playing) bands[i] else 0f) - smooth[i]) * 0.35f
-                val bh = 3.dp.toPx() + smooth[i] * h * 0.22f
-                drawRoundRect(accent.copy(alpha = 0.28f), Offset(x0 + i * step, h - bh), Size(bw, bh), CornerRadius(bw / 2))
+        // 1. the light behind the glass: the cover itself, blurred and drifting
+        androidx.compose.animation.Crossfade(art, tween(900), label = "backlight") { img ->
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(th.bg1, th.bg2)))) {
+                if (img != null) Image(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val k = 1.35f + 0.05f * sin(drift * 6.283f); scaleX = k; scaleY = k; translationX = 18.dp.toPx() * cos(drift * 6.283f); alpha = 0.9f
+                }.then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(38.dp) else Modifier))
             }
         }
-        Row(Modifier.fillMaxSize()) {
-            // the slab with the cover
-            Box(Modifier.width(126.dp).fillMaxHeight().clip(RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp)).background(th.slab), contentAlignment = Alignment.Center) {
-                Box(Modifier.padding(top = 18.dp).graphicsLayer {
-                    val f = flip.value; rotationY = (1f - f) * -80f; cameraDistance = 12f * density; val k = 0.7f + 0.3f * f; scaleX = k; scaleY = k; alpha = f.coerceIn(0f, 1f)
-                    val pulse = if (m.playing) 1f + 0.015f * sin(beat * 6.283f) else 1f; scaleX *= pulse; scaleY *= pulse
-                }.shadowLite()) { Art(m, 96.dp, 22.dp) }
+        // 2. the glass: a tint for legibility, a bright top edge, bevel and a drifting sheen
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height
+            drawRect(if (light) Color.White.copy(alpha = 0.42f) else Color.Black.copy(alpha = 0.38f))
+            drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.22f), 0.22f to Color.White.copy(alpha = 0.04f), 0.75f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.18f)))
+            val sx = drift * (w + 400f) - 200f
+            drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.12f), Color.Transparent), Offset(sx - 140f, 0f), Offset(sx + 60f, h)))
+            // fine waveform behind the controls
+            val n = 16; val path = androidx.compose.ui.graphics.Path(); val base = h * 0.86f
+            for (i in 0 until n) smooth[i] += ((if (m.playing) bands[i] else 0f) - smooth[i]) * 0.3f
+            for (k in 0..64) {
+                val x = w * 0.30f + (w * 0.66f) * k / 64f
+                val bi = (k / 64f * (n - 1)); val i0 = bi.toInt().coerceAtMost(n - 2); val f = bi - i0
+                val amp = (smooth[i0] * (1 - f) + smooth[i0 + 1] * f) * h * 0.11f + 1.2f
+                val y = base + sin(k * 0.55f + drift * 40f) * amp
+                if (k == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = 16.dp, end = 18.dp, top = 30.dp, bottom = 14.dp), verticalArrangement = Arrangement.Center) {
-                AnimatedContent(m.title, transitionSpec = { (slideInVertically(tween(380)) { it / 2 } + fadeIn(tween(300))) togetherWith (slideOutVertically(tween(240)) { -it / 2 } + fadeOut(tween(200))) },
-                    label = "title") { t ->
-                    Text(t, color = text, maxLines = 1, modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                        style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp))
+            drawPath(path, accent.copy(alpha = if (m.playing) 0.55f else 0.2f), style = Stroke(1.6.dp.toPx(), cap = StrokeCap.Round))
+        }
+        Row(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 3. the cover on its own floating glass tile
+            Box(Modifier.size(100.dp).graphicsLayer {
+                val b = bloom.value; val k = 0.86f + 0.14f * b; scaleX = k; scaleY = k; alpha = b
+                rotationY = 6f * sin(float * 6.283f); rotationX = 4f * cos(float * 6.283f); cameraDistance = 16f * density
+                translationY = -2.dp.toPx() * sin(float * 6.283f)
+                shadowElevation = 18.dp.toPx(); shape = RoundedCornerShape(24.dp); clip = true
+            }.border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))), RoundedCornerShape(24.dp))) {
+                if (art != null) Image(art, m.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                    .then(if (Build.VERSION.SDK_INT >= 31 && bloom.value < 0.99f) Modifier.blur((14 * (1f - bloom.value)).dp) else Modifier))
+                else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(th.bg1, th.bg2))))
+                Canvas(Modifier.fillMaxSize()) { // glare on the tile
+                    drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.28f), Color.Transparent), Offset.Zero, Offset(size.width * 0.6f, size.height * 0.6f)))
                 }
-                Text(m.artist, color = sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp))
-                Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconTap(Icons.Rounded.SkipPrevious, 22.dp, text) { tc?.skipToPrevious() }
-                    IconTap(if (m.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 34.dp, text) { if (m.playing) tc?.pause() else tc?.play() }
-                    IconTap(Icons.Rounded.SkipNext, 22.dp, text) { tc?.skipToNext() }
-                    Spacer(Modifier.width(8.dp))
-                    // hairline track with diamond ends and a knob riding along
-                    Canvas(Modifier.weight(1f).height(16.dp)) {
-                        val y = size.height / 2; val d = 3.5.dp.toPx(); val x0 = d; val x1 = size.width - d
-                        drawLine(text.copy(alpha = 0.35f), Offset(x0, y), Offset(x1, y), 1.5.dp.toPx())
-                        drawLine(text, Offset(x0, y), Offset(x0 + (x1 - x0) * frac, y), 1.5.dp.toPx())
-                        for (x in listOf(x0, x1)) {
-                            val dia = androidx.compose.ui.graphics.Path().apply { moveTo(x, y - d); lineTo(x + d, y); lineTo(x, y + d); lineTo(x - d, y); close() }
-                            drawPath(dia, text, style = Stroke(1.3.dp.toPx()))
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                AnimatedContent(m.title, transitionSpec = { (fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 3 }) togetherWith fadeOut(tween(200)) }, label = "title") { t ->
+                    Text(t, color = ink, maxLines = 1, modifier = Modifier.fadeEdges().basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2200, repeatDelayMillis = 2500,
+                        spacing = androidx.compose.foundation.MarqueeSpacing(40.dp), velocity = 28.dp),
+                        style = TextStyle(fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 21.sp, lineHeight = 25.sp, letterSpacing = (-0.2).sp))
+                }
+                Text(m.artist, color = inkSub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 13.sp))
+                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTap(Icons.Rounded.SkipPrevious, 24.dp, ink) { tc?.skipToPrevious() }
+                    Spacer(Modifier.width(10.dp))
+                    // play/pause on a frosted glass disc, the icon morphing between states
+                    Box(Modifier.size(40.dp).clip(CircleShape).background(ink.copy(alpha = 0.14f))
+                        .border(1.dp, Brush.verticalGradient(listOf(ink.copy(alpha = 0.45f), ink.copy(alpha = 0.06f))), CircleShape)
+                        .pressable(onClick = { if (m.playing) tc?.pause() else tc?.play() }), contentAlignment = Alignment.Center) {
+                        AnimatedContent(m.playing, transitionSpec = { (scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f), 0.4f) + fadeIn()) togetherWith (scaleOut(tween(120), 0.4f) + fadeOut(tween(120))) },
+                            label = "pp") { playing ->
+                            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = ink, modifier = Modifier.size(24.dp))
                         }
-                        drawCircle(text, 4.dp.toPx(), Offset(x0 + (x1 - x0) * frac, y))
                     }
+                    Spacer(Modifier.width(10.dp))
+                    IconTap(Icons.Rounded.SkipNext, 24.dp, ink) { tc?.skipToNext() }
                 }
-                Row(Modifier.fillMaxWidth().padding(start = 86.dp)) {
-                    Text(clock(pos), color = sub, style = label().copy(fontSize = 9.sp))
+                // a slim glass track with a glowing knob
+                Canvas(Modifier.fillMaxWidth().padding(top = 10.dp).height(10.dp)) {
+                    val y = size.height / 2; val r = 2.dp.toPx(); val x1 = size.width
+                    drawRoundRect(ink.copy(alpha = 0.18f), Offset(0f, y - r), Size(x1, r * 2), CornerRadius(r))
+                    drawRoundRect(Brush.horizontalGradient(listOf(ink.copy(alpha = 0.7f), ink)), Offset(0f, y - r), Size(x1 * fracA, r * 2), CornerRadius(r))
+                    val kx = x1 * fracA
+                    drawCircle(accent.copy(alpha = 0.35f), 8.dp.toPx(), Offset(kx, y))
+                    drawCircle(ink, 4.5.dp.toPx(), Offset(kx, y))
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                    Text(clock(pos), color = inkSub, style = label().copy(fontSize = 10.sp))
                     Spacer(Modifier.weight(1f))
-                    Text("-" + clock((m.duration - pos).coerceAtLeast(0)), color = sub, style = label().copy(fontSize = 9.sp))
+                    if (m.duration > 0) Text("-" + clock(m.duration - pos), color = inkSub, style = label().copy(fontSize = 10.sp))
                 }
             }
         }
     }
 }
 
-private fun Modifier.shadowLite() = this.graphicsLayer { shadowElevation = 14.dp.toPx(); shape = RoundedCornerShape(22.dp); clip = false }
+/** Fades a scrolling line out at both ends instead of chopping letters. */
+private fun Modifier.fadeEdges() = this.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithContent {
+    drawContent()
+    val f = 18.dp.toPx() / size.width
+    drawRect(Brush.horizontalGradient(0f to Color.Transparent, f to Color.Black, 1f - f to Color.Black, 1f to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+}
+
 
 @Composable
 private fun DeviceView(d: NotchBus.Device, h: Dp) {

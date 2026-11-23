@@ -75,7 +75,8 @@ class NebulaNotificationListener : NotificationListenerService() {
             art = art?.let { scale(it) },
             playing = st?.state == PlaybackState.STATE_PLAYING,
             position = st?.position ?: 0, duration = md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0,
-            updatedAt = st?.lastPositionUpdateTime ?: System.currentTimeMillis(), pkg = c.packageName, controller = c,
+            // Android stamps positions on the uptime clock; convert to wall-clock time so the card can count on from it.
+            updatedAt = st?.lastPositionUpdateTime?.takeIf { it > 0 }?.let { System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - it) } ?: System.currentTimeMillis(), pkg = c.packageName, controller = c,
         ))
     }
 
