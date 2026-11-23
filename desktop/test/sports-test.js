@@ -52,5 +52,20 @@ global.fetch = async (url) => ({ ok: true, json: async () => (/cricket/.test(url
   moments.length = 0; rg.home = 21; rg.play = 'Libbok drop goal'; ck.state = 'post'; ck.summary = 'South Africa won by 4 wickets';
   await s.poll();
   assert.ok(by('DROP GOAL')); assert.ok(by('WIN') && by('WIN').home === true);
-  console.log('Sports watcher OK:', ['GOAL', 'TRY', 'SIX', 'PENALTY', 'WICKET', 'DROP GOAL', 'WIN'].join(', '));
+  // Conversions: try → "conversion to come" → +2 = CONVERTED; a try then another score = missed.
+  moments.length = 0; rg.home = 26; rg.play = 'Am try';
+  await s.poll();
+  assert.ok(by('TRY')); assert.match(games.find((g) => g.id === 'r1').note, /conversion to come/);
+  moments.length = 0; rg.home = 28; rg.play = 'Pollard conversion';
+  await s.poll();
+  assert.ok(by('CONVERTED') && by('CONVERTED').chant === '', 'conversion after a try');
+  assert.strictEqual(games.find((g) => g.id === 'r1').note, undefined);
+  moments.length = 0; rg.home = 33; rg.play = 'Arendse try'; await s.poll();
+  moments.length = 0; rg.home = 36; rg.play = 'Pollard penalty'; await s.poll();
+  assert.ok(by('PENALTY')); assert.match(games.find((g) => g.id === 'r1').note, /conversion missed/);
+  moments.length = 0; rg.home = 43; rg.play = 'Penalty try'; await s.poll();
+  assert.ok(by('PENALTY TRY') && /no kick/.test(by('PENALTY TRY').who));
+  moments.length = 0; rg.home = 50; rg.play = 'Etzebeth try'; await s.poll();
+  assert.ok(by('TRY') && /Converted/.test(by('TRY').who), '+7 in one go = converted try');
+  console.log('Sports watcher OK:', ['GOAL', 'TRY', 'SIX', 'PENALTY', 'WICKET', 'DROP GOAL', 'WIN', 'CONVERTED', 'conversion missed', 'PENALTY TRY'].join(', '));
 })().catch((e) => { console.error(e); process.exit(1); });

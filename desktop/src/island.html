@@ -138,6 +138,8 @@
   #island.card, #island.goal { width: 600px; height: 176px; border-radius: 0 0 32px 32px; }
   body.m-score #shL { left: calc(50% - 150px - 16px); } body.m-score #shR { left: calc(50% + 150px); }
   body.m-card #shL, body.m-goal #shL { left: calc(50% - 300px - 16px); } body.m-card #shR, body.m-goal #shR { left: calc(50% + 300px); }
+  .logo { flex: none; display: grid; place-items: center; } .logo img { object-fit: contain; display: block; }
+  .logo.ring { border-radius: 50%; background: rgba(255,255,255,.94); box-shadow: 0 0 0 3px rgba(255,255,255,.9), 0 8px 24px rgba(0,0,0,.35); }
   .badge { flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 9px/1 "Segoe UI", sans-serif; letter-spacing: .2px; }
   #score { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 7px; cursor: pointer; }
   #score .num { font-size: 19px; line-height: 1; }
@@ -351,7 +353,7 @@ function render() {
       island.style.height = `${Math.max(150, h)}px`;
     });
   } else {
-    island.style.height = m === 'card' && !(liveGame() || {}).lastPlay ? '158px' : '';
+    island.style.height = m === 'card' ? ((liveGame() || {}).lastPlay ? ((liveGame() || {}).note ? '196px' : '') : '158px') : '';
   }
 
   const hints = $('hints');
@@ -386,7 +388,11 @@ let goal = null; let goalTimer = null; let askMode = false; let gameIdx = 0;
 const esc = (x) => String(x == null ? '' : x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function liveGame() { const g = state.sports || []; return g.length ? g[gameIdx % g.length] : null; }
 function darker(hex, k) { const n = parseInt((hex || '#555555').slice(1), 16); const f = (v) => Math.round(v * k); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
-const badge = (side, px) => `<div class="badge" style="width:${px}px;height:${px}px;font-size:${Math.round(px * .3)}px;background:linear-gradient(135deg,${side.color},${darker(side.color, .6)})">${esc((side.abbr || '').slice(0, 3))}</div>`;
+// The official logo from ESPN; the colour badge shows while it loads or if it fails.
+const badgeColour = (side, px) => `<div class="badge" style="width:${px}px;height:${px}px;font-size:${Math.round(px * ((side.abbr || '').length > 3 ? .24 : .3))}px;background:linear-gradient(135deg,${side.color},${darker(side.color, .6)})">${esc((side.abbr || '').slice(0, 4))}</div>`;
+const badge = (side, px, ring) => !side.logo ? badgeColour(side, px)
+  : `<div class="logo${ring ? ' ring' : ''}" style="width:${px}px;height:${px}px"><img src="${esc(side.logo)}" alt="" style="width:${ring ? 72 : 100}%;height:${ring ? 72 : 100}%"
+      onerror="this.parentNode.outerHTML=decodeURIComponent('${encodeURIComponent(badgeColour(side, px))}')"></div>`;
 // A number that can roll from `from` to its value.
 const num = (v, from, cls = '') => from != null && from !== v
   ? `<span class="num rollbox ${cls}"><span><b>${from}</b><b>${v}</b></span></span>` : `<span class="num ${cls}">${v}</span>`;
@@ -420,6 +426,7 @@ function boardHTML(g, roll, count = 0, idx = 0) {
         ${num(txt(g.away), from(false), lose(g.away.score, g.home.score) + bigc)}
         <div class="team">${badge(g.away, 44)}<span>${esc(g.away.name)}</span>${g.away.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.away.sub)}</small>` : ''}</div>
       </div>
+      ${g.note ? `<div style="text-align:center;margin-top:8px;font:700 10.5px/1 'Segoe UI',sans-serif;letter-spacing:1.3px;color:${/missed$/.test(g.note) ? 'var(--dim)' : 'var(--amber)'}">${esc(g.note.toUpperCase())}</div>` : ''}
       ${g.lastPlay ? `<div class="play">${({ soccer: '⚽&nbsp;', rugby: '🏉&nbsp;', cricket: '🏏&nbsp;' })[g.league.kind] || ''}${esc(g.lastPlay)}</div>` : ''}
       ${count > 1 ? `<div class="dots">${Array.from({ length: Math.min(6, count) }, (_, i) => `<u class="${i === idx ? 'on' : ''}"></u>`).join('')}</div>` : ''}
     </div></div>`;
@@ -427,7 +434,7 @@ function boardHTML(g, roll, count = 0, idx = 0) {
 function renderCard() {
   const g = liveGame(); if (!g) return;
   const n = (state.sports || []).length;
-  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${g.lastPlay}|${n}`;
+  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${g.lastPlay}|${g.note || ''}|${n}`;
   if ($('card').dataset.k === key) return; $('card').dataset.k = key;
   $('card').innerHTML = boardHTML(g, null, n, gameIdx % Math.max(1, n)) +
     `<div class="chip link" id="askChip" style="position:absolute;right:14px;top:10px">Ask Nebula</div>`;
@@ -454,7 +461,7 @@ function playGoal(s) {
   el.style.setProperty('--dir', dir); el.style.setProperty('--light', light);
   el.innerHTML = `${boardHTML(s.game, s)}<canvas class="fx"></canvas>
     <div class="ride" style="animation: rideOut .52s cubic-bezier(.4,0,.2,1) ${outAt}s forwards">
-      <div class="gbadge" style="${s.home ? 'left:38px' : 'right:38px'}">${badge(side, 60)}</div>
+      <div class="gbadge" style="${s.home ? 'left:38px' : 'right:38px'}">${badge(side, 60, true)}</div>
       <div class="words" style="${s.home ? 'padding-left:90px' : 'padding-right:90px'}">
         <div class="who-team" style="animation: fadeUp .4s ease ${wordAt + .3}s forwards">${esc(side.name.toUpperCase())}</div>
         ${chant ? `<div class="chant num" style="font-size:${chant.length > 8 ? 46 : 64}px;animation: chantFly .9s cubic-bezier(.2,.8,.2,1) .56s forwards">${esc(chant)}</div>` : ''}

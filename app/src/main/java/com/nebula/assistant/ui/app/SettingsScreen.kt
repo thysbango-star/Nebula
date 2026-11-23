@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.nebula.assistant.data.NebulaPrefs
@@ -501,6 +502,14 @@ private fun ChipRow(items: List<String>, selected: String?, onPick: (String) -> 
 
 @Composable
 private fun TeamDot(t: com.nebula.assistant.sports.Sports.Team) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val logo by androidx.compose.runtime.produceState(com.nebula.assistant.sports.Logos.cached(t.logo), t.logo) {
+        if (value == null && t.logo.isNotBlank()) value = com.nebula.assistant.sports.Logos.get(ctx, t.logo)
+    }
+    logo?.let { b ->
+        androidx.compose.foundation.Image(b.asImageBitmap(), t.name, modifier = Modifier.size(30.dp))
+        return
+    }
     Box(Modifier.size(30.dp).clip(CircleShape).background(Color(t.color)), contentAlignment = Alignment.Center) {
         Text(t.abbr.take(3), style = MaterialTheme.typography.labelSmall, color = Color.White)
     }

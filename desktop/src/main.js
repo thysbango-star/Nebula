@@ -416,6 +416,7 @@ const { Sports, LEAGUES, teams: sportsTeamList } = require('./sports');
 let sportsGames = [];
 const sports = new Sports({
   getTeams: () => configData.sportsTeams,
+  onLearn: (list) => { config.set('sportsTeams', list); broadcastSettings(); },
   enabled: () => !!configData.sportsOn,
   onChange: (games) => { sportsGames = games; pushIslandState(); applyIslandMode(); },
   onGoal: (score) => {

@@ -357,7 +357,7 @@ private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolea
         Mode.MUSIC -> Geo(232.dp, pillH, pillH / 2)
         Mode.GAME -> Geo(276.dp, pillH, pillH / 2)
         Mode.SPORTS -> Geo(252.dp, pillH, pillH / 2)
-        Mode.SPORTS_OPEN -> Geo(full, if (sport?.lastPlay.isNullOrBlank()) 152.dp else 190.dp, card)
+        Mode.SPORTS_OPEN -> Geo(full, (if (sport?.lastPlay.isNullOrBlank()) 152.dp else 190.dp) + (if (sport?.note.isNullOrBlank()) 0.dp else 18.dp), card)
         Mode.GOAL -> Geo(full, 190.dp, card)
         Mode.DEVICE -> Geo(312.dp, pillH + 18.dp, (pillH + 18.dp) / 2)
         Mode.CALL -> Geo(full, 158.dp, card)
@@ -495,9 +495,20 @@ private fun clock(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); retu
 // ============================================================================ Sports
 // Apple Sports-style: team colours meet in the middle of a dark card, big scores, the clock between them.
 
-/** A team's badge: its colour, its short name. */
+/** A team's badge: the official logo from ESPN, or (while it loads, or if there isn't one) its colour and short name. */
 @Composable
-private fun Badge(s: Sports.Side, size: Dp) {
+private fun Badge(s: Sports.Side, size: Dp, ring: Boolean = false) {
+    val ctx = LocalContext.current
+    val logo by androidx.compose.runtime.produceState(com.nebula.assistant.sports.Logos.cached(s.logo), s.logo) {
+        if (value == null && s.logo.isNotBlank()) value = com.nebula.assistant.sports.Logos.get(ctx, s.logo)
+    }
+    val bmp = logo
+    if (bmp != null) {
+        Box(Modifier.size(size).then(if (ring) Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.92f)) else Modifier), contentAlignment = Alignment.Center) {
+            Image(bmp.asImageBitmap(), s.name, contentScale = ContentScale.Fit, modifier = Modifier.size(if (ring) size * 0.72f else size))
+        }
+        return
+    }
     val c = Color(s.color)
     Box(Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(listOf(c, c.copy(red = c.red * 0.6f, green = c.green * 0.6f, blue = c.blue * 0.6f)))),
         contentAlignment = Alignment.Center) {
@@ -559,6 +570,8 @@ private fun ScoreCard(g: Sports.Game, roll: Sports.Score? = null, rollAfterMs: L
                 Spacer(Modifier.width(if (cricket) 8.dp else 12.dp))
                 TeamCol(g.away)
             }
+            if (g.note.isNotBlank()) Text(g.note.uppercase(), color = if (g.note.endsWith("missed")) Dim else Ember, maxLines = 1,
+                style = label().copy(fontSize = 10.sp, letterSpacing = 1.2.sp), modifier = Modifier.padding(top = 8.dp).align(Alignment.CenterHorizontally))
             if (g.lastPlay.isNotBlank()) Row(Modifier.padding(top = 10.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(2.5.dp).fillMaxHeight().clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
                 Spacer(Modifier.width(9.dp))
@@ -695,7 +708,7 @@ private fun GoalView(s: Sports.Score) {
         Box(Modifier.fillMaxSize().padding(top = 26.dp).graphicsLayer { alpha = 1f - leave; translationX = dir * leave * 80.dp.toPx() }) {
             Box(Modifier.align(if (s.home) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 30.dp).graphicsLayer {
                 val b = badge.value; alpha = b.coerceIn(0f, 1f); val k = 1f + (1f - b) * 1.4f; scaleX = k; scaleY = k; rotationZ = (1f - b) * -12f * dir
-            }) { Badge(side, 52.dp) }
+            }) { Badge(side, 56.dp, ring = true) }
             Column(Modifier.align(Alignment.Center).padding(start = if (s.home) 70.dp else 0.dp, end = if (s.home) 0.dp else 70.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(side.name.uppercase(), color = Color.White.copy(alpha = 0.9f * sub.value), maxLines = 1, style = label().copy(fontSize = 10.sp, letterSpacing = 2.4.sp))

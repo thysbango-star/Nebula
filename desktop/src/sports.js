@@ -5,6 +5,11 @@
 
 // How points work (so the moment says the right thing):
 //  - Rugby union (World Rugby Law 8): try 5, penalty try 7, conversion 2, penalty goal 3, drop goal 3.
+//    After a try the scoring team may kick a conversion (place or drop kick, in line with where the try was
+//    grounded, within 60 s of playing time — sevens and 10s: drop kick within 30 s). A penalty try is 7 straight
+//    away with no kick. So: +5 = TRY ("conversion to come"), +2 soon after = CONVERTED, no +2 in the window (or
+//    another score first) = conversion missed, +7 at once = converted try.
+const KICK_WINDOW = 150000; // 60 s of playing time + walking back + the feed catching up
 //  - Cricket: runs (4 for a boundary, 6 over the rope on the full) and wickets; a score reads runs/wickets.
 const CRICKET_FEED = 'cricket/scorepanel';
 const RUGBY_TESTS = 'rugby/tests';
@@ -74,6 +79,13 @@ async function get(url) {
   return r.json();
 }
 
+/** The team's official logo from ESPN — the dark-background version when there is one (our cards are dark). */
+function logoOf(t) {
+  const ls = (t && t.logos) || [];
+  const dark = ls.find((l) => l && l.href && (l.rel || []).includes('dark'));
+  return (dark && dark.href) || (ls[0] && ls[0].href) || (t && t.logo) || '';
+}
+
 function lastPlay(comp, h, a) {
   const lp = comp.situation && comp.situation.lastPlay && comp.situation.lastPlay.text;
   if (lp) return lp;
@@ -100,7 +112,7 @@ function parse(lg, e) {
     const s = {
       id: String(t.id || ''), abbr: t.abbreviation || (t.shortDisplayName || '').slice(0, 3).toUpperCase(),
       name: t.shortDisplayName || t.displayName || '', score: Math.trunc(parseFloat(c.score)) || 0,
-      color: readable(color, alt, t.abbreviation || t.id), record: (c.records && c.records[0] && c.records[0].summary) || '',
+      color: readable(color, alt, t.abbreviation || t.id), record: (c.records && c.records[0] && c.records[0].summary) || '', logo: logoOf(t),
     };
     if (c.homeAway === 'home') { home = s; homeAlt = alt; } else { away = s; awayAlt = alt; }
   }
@@ -138,7 +150,7 @@ function parseCricket(lg, e) {
     const t = c.team || {}; const inn = innings(c.score);
     const known = CRICKET_TEAMS.find((k) => norm(k.name) === norm(t.displayName));
     return { id: String(t.id || ''), abbr: t.abbreviation || (known && known.abbr) || String(t.displayName || '').slice(0, 3).toUpperCase(),
-      name: t.displayName || t.name || '', score: inn.runs, text: inn.text, wickets: inn.wickets, sub: inn.overs,
+      name: t.displayName || t.name || '', score: inn.runs, text: inn.text, wickets: inn.wickets, sub: inn.overs, logo: logoOf(t),
       color: (known && known.color) || readable(hex(t.color), hex(t.alternateColor), t.abbreviation || t.id) };
   });
   const [home, away] = sides;
@@ -172,7 +184,7 @@ async function teams(path) {
   const list = (((j.sports || [])[0] || {}).leagues || [])[0];
   return ((list && list.teams) || []).map((x) => x.team).filter(Boolean).map((t) => ({
     league: lg.path, id: String(t.id), abbr: t.abbreviation || '', name: t.displayName || '',
-    color: readable(hex(t.color), hex(t.alternateColor), t.abbreviation || t.id),
+    color: readable(hex(t.color), hex(t.alternateColor), t.abbreviation || t.id), logo: logoOf(t),
   })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -191,9 +203,34 @@ function chant(kind, side, label) {
   return '';
 }
 
+const kickKey = (g, home) => `${g.id}|${home ? 'home' : 'away'}`;
+function rugbyMoment(prev, g, now, kicks) {
+  for (const home of [true, false]) {
+    const s = home ? g.home : g.away, w = home ? prev.home : prev.away;
+    if (s.score <= w.score) continue;
+    const delta = s.score - w.score, play = g.lastPlay || '', k = kickKey(g, home);
+    const waiting = kicks.awaiting.has(k); kicks.awaiting.delete(k); kicks.missed.delete(k);
+    const other = kickKey(g, !home); if (kicks.awaiting.delete(other)) kicks.missed.set(other, now);
+    const join = (...a) => a.filter(Boolean).join(' · ');
+    let label, who = play;
+    if (/penalty try/i.test(play)) { label = 'PENALTY TRY'; who = join(play, '7 points · no kick needed'); }
+    else if (delta === 2 && (waiting || /conver/i.test(play))) { label = 'CONVERTED'; who = join(play, '+2'); }
+    else if (delta === 2) label = 'CONVERSION';
+    else if (delta === 7) { label = 'TRY'; who = join(play, 'Converted'); }
+    else if (delta === 5 || delta === 6) { label = 'TRY'; kicks.awaiting.set(k, now); }
+    else if (delta === 3) label = /drop/i.test(play) ? 'DROP GOAL' : 'PENALTY';
+    else if (delta === 8) label = 'TRY + PENALTY';
+    else label = 'POINTS';
+    if (waiting && delta !== 2) kicks.missed.set(k, now);
+    return { game: g, home, before: w.text, label, who, chant: /CONVER/.test(label) ? '' : chant('rugby', s, label), at: now };
+  }
+  return null;
+}
+
 /** What just happened between two looks at the same game, if it deserves the big moment. */
-function moment(prev, g, now = Date.now()) {
+function moment(prev, g, now = Date.now(), kicks = { awaiting: new Map(), missed: new Map() }) {
   const kind = g.league.kind;
+  if (kind === 'rugby') return g.live ? rugbyMoment(prev, g, now, kicks) : null;
   if (kind === 'cricket') {
     for (const home of [true, false]) {
       const s = home ? g.home : g.away, w = home ? prev.home : prev.away, other = home ? g.away : g.home;
@@ -233,9 +270,10 @@ function moment(prev, g, now = Date.now()) {
 // ---------------------------------------------------------------- watcher
 class Sports {
   /** onChange({games}) whenever the list changes; onGoal(score) when one of your teams scores. */
-  constructor({ getTeams, enabled, onChange, onGoal, log = () => {} }) {
-    Object.assign(this, { getTeams, enabled, onChange, onGoal, log });
+  constructor({ getTeams, enabled, onChange, onGoal, onLearn, log = () => {} }) {
+    Object.assign(this, { getTeams, enabled, onChange, onGoal, onLearn, log });
     this.games = []; this.last = new Map(); this.finishedAt = new Map(); this.timer = null; this.demoUntil = 0;
+    this.kicks = { awaiting: new Map(), missed: new Map() };
   }
   start() { this.stop(); this.timer = setTimeout(() => this.tick(), 4000); }
   stop() { clearTimeout(this.timer); this.timer = null; }
@@ -265,11 +303,32 @@ class Sports {
         if (mine.some((t) => t.league === lg.path && (matches(t, g.home) || matches(t, g.away)))) { seen.add(g.id); found.push(g); }
       }
     }
+    // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
+    if (this.onLearn) {
+      const sides = found.flatMap((g) => [g.home, g.away]);
+      let changed = false;
+      const learned = (this.getTeams() || []).map((t) => {
+        if (t.logo) return t;
+        const s = sides.find((x) => matches(t, x) && x.logo);
+        if (!s) return t; changed = true; return { ...t, logo: s.logo };
+      });
+      if (changed) this.onLearn(learned);
+    }
     for (const g of found) {
       const prev = this.last.get(g.id);
-      if (prev) { const m = moment(prev, g, now); if (m) this.onGoal(m); }
+      if (prev) { const m = moment(prev, g, now, this.kicks); if (m) this.onGoal(m); }
       if (prev && prev.state === 'in' && g.state === 'post') this.finishedAt.set(g.id, now);
       this.last.set(g.id, g);
+    }
+    // Rugby conversions: no kick by the end of the window means it was missed (or not taken).
+    for (const [k, at] of this.kicks.awaiting) if (now - at > KICK_WINDOW) { this.kicks.awaiting.delete(k); this.kicks.missed.set(k, now); }
+    for (const g of found) {
+      if (g.league.kind !== 'rugby') continue;
+      for (const home of [true, false]) {
+        const k = kickKey(g, home), name = (home ? g.home : g.away).name;
+        if (this.kicks.awaiting.has(k)) g.note = `${name} · conversion to come`;
+        else if (now - (this.kicks.missed.get(k) || 0) < 60000) g.note = `${name} · conversion missed`;
+      }
     }
     const show = found.filter((g) => g.live || (g.state === 'post' && now - (this.finishedAt.get(g.id) || 0) < 15 * 60000) ||
       (g.state === 'pre' && g.start - now >= 0 && g.start - now < 15 * 60000));

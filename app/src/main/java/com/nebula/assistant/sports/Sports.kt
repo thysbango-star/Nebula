@@ -22,6 +22,10 @@ import java.util.TimeZone
  *
  * How points work (so the moment says the right thing):
  *  - Rugby union (World Rugby Law 8): try 5, penalty try 7, conversion 2, penalty goal 3, drop goal 3.
+ *    After a try the scoring team may kick a conversion (place or drop kick, in line with where the try was
+ *    grounded, within 60 s of playing time — sevens and 10s: drop kick within 30 s). A penalty try is worth 7
+ *    straight away, with no conversion kick. So: +5 = TRY (then "conversion to come"), +2 soon after = CONVERTED,
+ *    no +2 within the window (or the next score isn't the kick) = conversion missed, +7 at once = converted try.
  *  - Cricket: runs (a boundary is 4, over the rope on the full is 6) and wickets; a score reads runs/wickets.
  */
 object Sports {
@@ -63,22 +67,25 @@ object Sports {
     fun league(path: String) = LEAGUES.firstOrNull { it.path == path }
 
     /** A team you follow. Stored as "league|id|abbr|name|color". An empty id means "match by name". */
-    data class Team(val league: String, val id: String, val abbr: String, val name: String, val color: Long) {
-        fun encode() = listOf(league, id, abbr, name.replace("|", " "), color.toString()).joinToString("|")
+    data class Team(val league: String, val id: String, val abbr: String, val name: String, val color: Long, val logo: String = "") {
+        fun encode() = listOf(league, id, abbr, name.replace("|", " "), color.toString(), logo.replace("|", "")).joinToString("|")
         companion object {
-            fun decode(s: String): Team? = s.split('|').takeIf { it.size >= 5 }?.let { Team(it[0], it[1], it[2], it[3], it[4].toLongOrNull() ?: 0xFF555555) }
+            fun decode(s: String): Team? = s.split('|').takeIf { it.size >= 5 }?.let {
+                Team(it[0], it[1], it[2], it[3], it[4].toLongOrNull() ?: 0xFF555555, it.getOrNull(5).orEmpty())
+            }
         }
     }
 
     /** One side of a game. [text] is what the board shows ("2", "24", "161/5"); [sub] is extra (cricket overs). */
     data class Side(val id: String, val abbr: String, val name: String, val score: Int, val color: Long,
-                    val text: String = score.toString(), val wickets: Int = 0, val sub: String = "")
+                    val text: String = score.toString(), val wickets: Int = 0, val sub: String = "", val logo: String = "")
     data class Game(
         val id: String, val league: League, val home: Side, val away: Side,
         val state: String,          // "pre", "in" or "post"
         val clock: String,          // "67'", "HT", "52'", "18.2 ov", "Full time", or the start time
         val lastPlay: String,
         val start: Long,
+        val note: String = "",      // e.g. rugby: "Conversion to come" / "Conversion missed"
     ) {
         val live get() = state == "in"
     }
@@ -93,6 +100,10 @@ object Sports {
     fun clearGoal() { _goal.value = null }
 
     private val last = HashMap<String, Game>()
+    /** Rugby: tries waiting for their conversion kick, by "gameId|home"/"gameId|away" → when we saw the try. */
+    private val awaitingKick = HashMap<String, Long>()
+    private val missedAt = HashMap<String, Long>()
+    private const val KICK_WINDOW = 150_000L // 60 s of playing time + walking back + the feed catching up
     private val finishedAt = HashMap<String, Long>()
     @Volatile private var demoUntil = 0L
 
@@ -119,13 +130,27 @@ object Sports {
                 .filter { g -> teams.any { t -> t.league == lg.path && (matches(t, g.home) || matches(t, g.away)) } }
         }.distinctBy { it.id }
 
+        // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
+        val sides = found.flatMap { listOf(it.home, it.away) }
+        val learned = teams.map { t -> if (t.logo.isNotEmpty()) t else sides.firstOrNull { matches(t, it) && it.logo.isNotEmpty() }?.let { t.copy(logo = it.logo) } ?: t }
+        if (learned != teams) prefs.sportsTeams = learned.map { it.encode() }.toSet()
+
         for (g in found) {
             val prev = last[g.id]
-            if (prev != null) moment(prev, g)?.let { _goal.value = it }
+            if (prev != null) moment(prev, g, now)?.let { _goal.value = it }
             if (prev?.state == "in" && g.state == "post") finishedAt[g.id] = now
             last[g.id] = g
         }
-        _games.value = found.filter { g ->
+        // Rugby conversions: a try with no kick by the end of the window means it was missed (or not taken).
+        for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
+        val annotated = found.map { g ->
+            if (g.league.kind != Sports.Kind.RUGBY) return@map g
+            val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
+                ?: return@map g
+            val name = if (side) g.home.name else g.away.name
+            g.copy(note = if (awaitingKick.containsKey(key(g, side))) "$name · conversion to come" else "$name · conversion missed")
+        }
+        _games.value = annotated.filter { g ->
             g.live || (g.state == "post" && now - (finishedAt[g.id] ?: 0L) < 15 * 60_000L) ||
                 (g.state == "pre" && g.start - now in 0..15 * 60_000L)
         }.sortedBy { if (it.live) 0 else if (it.state == "pre") 1 else 2 }
@@ -140,9 +165,12 @@ object Sports {
     // ------------------------------------------------------------------ moments
 
     /** What just happened between two looks at the same game, if it deserves the big moment. */
-    private fun moment(prev: Game, g: Game): Score? {
+    private fun key(g: Game, home: Boolean) = g.id + if (home) "|home" else "|away"
+
+    private fun moment(prev: Game, g: Game, now: Long = System.currentTimeMillis()): Score? {
         if (g.league.kind == Kind.CRICKET) return cricketMoment(prev, g)
         if (!g.live) return null
+        if (g.league.kind == Kind.RUGBY) return rugbyMoment(prev, g, now)
         for (home in listOf(true, false)) {
             val now = if (home) g.home else g.away
             val was = if (home) prev.home else prev.away
@@ -165,6 +193,34 @@ object Sports {
             }
             val who = if (g.league.kind == Kind.RUGBY && label == "TRY" && delta >= 7) listOf(play, "Converted").filter { it.isNotBlank() }.joinToString(" · ") else play
             return Score(g, home, was.text, label, who, chant(g.league.kind, now, label))
+        }
+        return null
+    }
+
+    private fun rugbyMoment(prev: Game, g: Game, now: Long): Score? {
+        for (home in listOf(true, false)) {
+            val s = if (home) g.home else g.away; val w = if (home) prev.home else prev.away
+            if (s.score <= w.score) continue
+            val delta = s.score - w.score
+            val play = g.lastPlay
+            val k = key(g, home)
+            val waiting = awaitingKick.remove(k)
+            missedAt.remove(k)
+            // Any other score while a kick was pending means that conversion didn't happen.
+            listOf(true, false).forEach { h -> if (h != home && awaitingKick.remove(key(g, h)) != null) missedAt[key(g, h)] = now }
+            val (label, who) = when {
+                play.contains("penalty try", true) -> "PENALTY TRY" to listOf(play, "7 points · no kick needed").filter { it.isNotBlank() }.joinToString(" · ")
+                delta == 2 && (waiting != null || play.contains("conver", true)) -> "CONVERTED" to listOf(play, "+2").filter { it.isNotBlank() }.joinToString(" · ")
+                delta == 2 -> "CONVERSION" to play
+                delta == 7 -> "TRY" to listOf(play, "Converted").filter { it.isNotBlank() }.joinToString(" · ")
+                delta == 5 || delta == 6 -> { awaitingKick[k] = now; "TRY" to play }
+                delta == 3 && play.contains("drop", true) -> "DROP GOAL" to play
+                delta == 3 -> "PENALTY" to play
+                delta == 8 -> "TRY + PENALTY" to play
+                else -> "POINTS" to play
+            }
+            if (waiting != null && delta != 2) missedAt[k] = now // they scored again instead of converting
+            return Score(g, home, w.text, label, who, if (label == "CONVERTED" || label == "CONVERSION") "" else chant(Kind.RUGBY, s, label))
         }
         return null
     }
@@ -246,7 +302,7 @@ object Sports {
             val color = hex(t.optString("color")); val alt = hex(t.optString("alternateColor"))
             val s = Side(t.optString("id"), t.optString("abbreviation").ifBlank { t.optString("shortDisplayName").take(3).uppercase() },
                 t.optString("shortDisplayName").ifBlank { t.optString("displayName") }, c.optString("score").toDoubleOrNull()?.toInt() ?: 0,
-                readable(color, alt, t.optString("abbreviation")))
+                readable(color, alt, t.optString("abbreviation")), logo = logoOf(t))
             if (c.optString("homeAway") == "home" || (home == null && i == 0 && c.optString("homeAway").isEmpty())) { home = s; homeAlt = alt } else { away = s; awayAlt = alt }
         }
         var h = home ?: return null; var a = away ?: return null
@@ -282,6 +338,22 @@ object Sports {
         return ""
     }
 
+    /** The team's official logo from ESPN — the dark-background version when there is one (our cards are dark). */
+    private fun logoOf(t: JSONObject): String {
+        val arr = t.optJSONArray("logos")
+        if (arr != null) {
+            var first = ""
+            for (i in 0 until arr.length()) {
+                val l = arr.optJSONObject(i) ?: continue
+                val href = l.optString("href"); if (href.isBlank()) continue
+                if (first.isEmpty()) first = href
+                if (l.optJSONArray("rel")?.toString()?.contains("dark") == true) return href
+            }
+            if (first.isNotEmpty()) return first
+        }
+        return t.optString("logo")
+    }
+
     // ---- cricket: "161/5 (18/20 ov, target 156)", "245 & 120/3 (35 ov)", or "" before batting
     data class Innings(val runs: Int, val wickets: Int, val text: String, val overs: String)
     fun innings(score: String): Innings {
@@ -306,7 +378,7 @@ object Sports {
             Side(t.optString("id"), t.optString("abbreviation").ifBlank { known?.abbr ?: t.optString("displayName").take(3).uppercase() },
                 t.optString("displayName").ifBlank { t.optString("name") }, inn.runs,
                 known?.color ?: readable(hex(t.optString("color")), hex(t.optString("alternateColor")), t.optString("abbreviation")),
-                inn.text, inn.wickets, inn.overs)
+                inn.text, inn.wickets, inn.overs, logoOf(t))
         }
         val h = sides[0]; var a = sides[1]
         if (close(h.color, a.color)) a = a.copy(color = readable(0, 0, a.abbr + "x"))
@@ -335,7 +407,7 @@ object Sports {
         return (0 until arr.length()).mapNotNull { i ->
             val t = arr.optJSONObject(i)?.optJSONObject("team") ?: return@mapNotNull null
             Team(lg.path, t.optString("id"), t.optString("abbreviation"), t.optString("displayName"),
-                readable(hex(t.optString("color")), hex(t.optString("alternateColor")), t.optString("abbreviation")))
+                readable(hex(t.optString("color")), hex(t.optString("alternateColor")), t.optString("abbreviation")), logoOf(t))
         }.sortedBy { it.name }
     }
 
