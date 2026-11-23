@@ -44,6 +44,9 @@ jobs:
       - name: Test the background listening process (wake word + question recording)
         run: node test/ears-test.js
 
+      - name: Test the sports watcher (live scores + goal detection)
+        run: node test/sports-test.js
+
       - name: Test the document writers (docx, xlsx, pptx, csv, md, txt, html)
         run: node test/docs-test.js
 

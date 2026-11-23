@@ -167,6 +167,8 @@ class NotchController(private val service: AccessibilityService) {
             }
         }
 
+        // Live scores for the teams you follow.
+        scope.launch { com.nebula.assistant.sports.Sports.run(prefs) }
         // Full-screen glow while Nebula is listening (not in games).
         scope.launch {
             VoiceState.session.collect { s -> if (s.active && !s.gaming) showGlow() else if (!s.active) hideGlowSoon() }

@@ -22,6 +22,7 @@ enum class NebulaSound(val res: Int, val cue: Boolean) {
     FAILURE(R.raw.nebula_failure, false),
     SOFT(R.raw.nebula_soft, false),
     NOTIFICATION(R.raw.nebula_notification, false),
+    GOAL(R.raw.nebula_goal, false),
 }
 
 object Sounds {

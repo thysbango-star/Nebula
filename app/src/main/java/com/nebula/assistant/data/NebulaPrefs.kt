@@ -103,6 +103,10 @@ class NebulaPrefs(context: Context) {
     var r3cketCrosshair: Boolean get() = bool("r3cket_crosshair", false); set(v) = setBool("r3cket_crosshair", v)
     var r3cketHud: Boolean get() = bool("r3cket_hud", true); set(v) = setBool("r3cket_hud", v)
     var notGames: Set<String> get() = sp.getStringSet("not_games", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("not_games", v).apply()
+    // Sports notch
+    var sportsOn: Boolean get() = bool("sports_on", true); set(v) = setBool("sports_on", v)
+    var sportsGoals: Boolean get() = bool("sports_goals", true); set(v) = setBool("sports_goals", v)
+    var sportsTeams: Set<String> get() = sp.getStringSet("sports_teams", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("sports_teams", v).apply()
     var gamePackages: Set<String> get() = sp.getStringSet("game_pkgs", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("game_pkgs", v).apply()
 
     // Nebula Notch

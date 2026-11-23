@@ -70,6 +70,9 @@ const DEFAULTS = {
   activeKey: 0,
   theme: 'system',       // 'system' | 'light' | 'dark'
   currency: '',
+  sportsOn: true,        // live scores in the island while your teams play
+  sportsGoals: true,     // the goal animation + cheer
+  sportsTeams: [],       // [{league, id, abbr, name, color}]
 };
 let configData = { ...DEFAULTS };
 const config = {
@@ -295,6 +298,7 @@ function registerHotkeys() {
 
 function applyIslandMode() {
   if (!island) return;
+  if (configData.sportsOn && sportsGames.length && !(r3.gaming && configData.r3cketQuiet)) { island.showInactive(); return; }
   const quiet = r3.gaming && configData.r3cketQuiet && !clickerState.running && !configData.r3cketHud;
   if (session.active || (configData.islandMode === 'always' && !quiet) || clickerState.running) island.showInactive();
   else island.hide();
@@ -407,6 +411,22 @@ const session = {
 };
 const timer = { endsAt: 0, label: '', handle: null };
 
+// ------------------------------------------------------------------ sports
+const { Sports, LEAGUES, teams: sportsTeamList } = require('./sports');
+let sportsGames = [];
+const sports = new Sports({
+  getTeams: () => configData.sportsTeams,
+  enabled: () => !!configData.sportsOn,
+  onChange: (games) => { sportsGames = games; pushIslandState(); applyIslandMode(); },
+  onGoal: (score) => {
+    if (!configData.sportsGoals || !score.label || !island) return;
+    if (r3.gaming && configData.r3cketQuiet) return;
+    island.showInactive();
+    send(island, 'island:goal', score);
+  },
+  log: (...a) => log(...a),
+});
+
 function pushIslandState() {
   send(island, 'island:state', {
     active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
@@ -415,6 +435,7 @@ function pushIslandState() {
     gaming: r3.gaming, game: r3.exe, clicker: clickerState, clickHotkey: configData.clickHotkey,
     hud: r3.gaming && configData.r3cketHud ? { ...r3.hud, since: r3.since, boosts: r3.boosts, crosshair: !!r3.crosshair } : null,
     followup: !!session.followup, screenShare: !!configData.screenShare,
+    sports: configData.sportsOn ? sportsGames : [],
   });
   send(glow, 'vibrance:state', { active: session.active && !session.gaming, phase: session.phase, intensity: configData.intensity });
 }
@@ -816,6 +837,7 @@ function wireIpc() {
     if (before.clickInterval !== configData.clickInterval && clickerState.running) clicker('speed');
     if (before.startWithWindows !== configData.startWithWindows) applyLoginItem();
     if (before.islandMode !== configData.islandMode) applyIslandMode();
+    if (JSON.stringify(before.sportsTeams) !== JSON.stringify(configData.sportsTeams) || before.sportsOn !== configData.sportsOn) sports.refresh();
     refreshTrayMenu();
     broadcastSettings();
     return settingsPayload();
@@ -844,6 +866,9 @@ function wireIpc() {
     try { await brain.speak(text, (buf) => { clips.push(buf.toString('base64')); }); return { clips, text }; } catch (e) { return { clips: [], text, problem: e.spoken || e.message }; }
   });
   ipcMain.handle('settings:foreground', async () => (process.platform === 'win32' ? helper.foreground() : { exe: '', fullscreen: false }));
+  ipcMain.handle('sports:leagues', () => LEAGUES);
+  ipcMain.handle('sports:teams', async (_e, path) => { try { return await sportsTeamList(path); } catch (e) { return { error: e.message }; } });
+  ipcMain.on('sports:demo', () => sports.demo());
   ipcMain.on('settings:preview', () => {
     startSession('preview');
   });
@@ -869,6 +894,7 @@ app.whenReady().then(() => {
   registerHotkeys();
   applyLoginItem();
   initWake();
+  sports.start();
   ear.webContents.on('did-finish-load', () => { earRunning = false; connectEarPort(); updateEar(); });
 
   screen.on('display-metrics-changed', repositionWindows);

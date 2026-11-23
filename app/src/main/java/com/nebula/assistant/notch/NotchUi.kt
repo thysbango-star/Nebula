@@ -2,7 +2,13 @@ package com.nebula.assistant.notch
 
 import android.os.Build
 import android.telecom.TelecomManager
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -28,6 +34,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,6 +120,7 @@ import com.nebula.assistant.data.NebulaTask
 import com.nebula.assistant.data.Store
 import com.nebula.assistant.data.TaskStatus
 import com.nebula.assistant.game.R3cket
+import com.nebula.assistant.sports.Sports
 import com.nebula.assistant.voice.VoiceState
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -136,9 +144,11 @@ private val Faint = Color(0x59FFFFFF)
 private val Glass = Color(0x24FFFFFF)
 private val NotchGradient = Brush.linearGradient(listOf(Ember, Flame, Ruby))
 private val Display = FontFamily(Font(R.font.space_grotesk, FontWeight.Medium), Font(R.font.space_grotesk, FontWeight.SemiBold))
+/** Scoreboard digits: the phone's own condensed face (Roboto Condensed), bold — like a stadium board. */
+private val Condensed = FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)))
 private val Body = FontFamily(Font(R.font.manrope, FontWeight.Medium), Font(R.font.manrope, FontWeight.SemiBold), Font(R.font.manrope, FontWeight.Bold))
 
-private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME }
+private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL }
 
 /** Exact size and corner of the island for a view. Fixed sizes = no measuring, no jitter. */
 private data class Geo(val w: Dp, val h: Dp, val r: Dp)
@@ -167,6 +177,8 @@ fun NotchUi(c: NotchController) {
     val game by R3cket.session.collectAsState()
     val panel by R3cket.panel.collectAsState()
     val device by NotchBus.device.collectAsState()
+    val games by Sports.games.collectAsState()
+    val goal by Sports.goal.collectAsState()
     val L = c.layout
     val base = LocalDensity.current
 
@@ -192,6 +204,20 @@ fun NotchUi(c: NotchController) {
         snapshotFlow { R3cket.session.value?.boosting }.collectLatest { b -> if (b == false) { delay(3200); boostCard = false } }
     }
 
+    // Sports: tap the score to open the card (tap again for your next game); a goal plays its moment, then settles.
+    var sportsOpen by remember { mutableStateOf(false) }
+    var sportsIdx by remember { mutableStateOf(0) }
+    LaunchedEffect(sportsOpen, sportsIdx) { if (sportsOpen) { delay(8000); sportsOpen = false } }
+    val ctx = LocalContext.current
+    LaunchedEffect(goal?.at) {
+        val g = goal ?: return@LaunchedEffect
+        if (!prefs.sportsGoals || g.label.isEmpty()) { Sports.clearGoal(); return@LaunchedEffect }
+        goalBuzz(ctx)
+        delay(6800)
+        if (Sports.goal.value?.at == g.at) Sports.clearGoal()
+    }
+    val liveGame = if (prefs.sportsOn) games.getOrNull(if (games.isEmpty()) 0 else sportsIdx % games.size) else null
+
     val quiet = gaming && prefs.r3cketQuiet
     val task = if (prefs.notchTasks) active ?: recent else null
     val mode = when {
@@ -203,8 +229,11 @@ fun NotchUi(c: NotchController) {
         c.volume != null -> Mode.VOLUME
         device != null -> Mode.DEVICE
         clicker.editing || panel || (boostCard && game != null) -> Mode.R3CKET
+        goal != null && goal?.label?.isNotEmpty() == true && prefs.sportsGoals && !quiet -> Mode.GOAL
+        sportsOpen && liveGame != null -> Mode.SPORTS_OPEN
         !quiet && message != null && shownMessage == message?.key && prefs.notchMessages -> Mode.MESSAGE
         task != null && !quiet -> Mode.TASK
+        liveGame != null && !quiet -> Mode.SPORTS
         media != null && media?.playing == true && prefs.notchMusic && !quiet -> if (musicOpen) Mode.MUSIC_OPEN else Mode.MUSIC
         gaming && game != null && prefs.r3cketHud -> Mode.GAME
         else -> Mode.NONE
@@ -215,7 +244,7 @@ fun NotchUi(c: NotchController) {
     CompositionLocalProvider(LocalDensity provides Density(base.density * L.scale, base.fontScale)) {
         val d = LocalDensity.current
         val pillH = pillDp.dp
-        val target = geoFor(mode, pillH, voice, clicker.editing)
+        val target = geoFor(mode, pillH, voice, clicker.editing, liveGame)
 
         // ---- one spring for the whole shape
         val w = remember { Animatable(target.w.value) }
@@ -261,13 +290,16 @@ fun NotchUi(c: NotchController) {
                     .clip(RoundedCornerShape(r.value.coerceAtMost(h.value / 2).dp))
                     .background(Color.Black)
                     .combinedClickable(
-                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME),
+                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL),
                         onLongClick = { c.talk() }, // hold the island to talk to Nebula
                     ) {
                         when (shown) {
                             Mode.MUSIC -> musicOpen = true
                             Mode.TASK -> c.openApp("tasks", task?.id)
                             Mode.GAME -> R3cket.panel.value = true
+                            Mode.SPORTS -> sportsOpen = true
+                            Mode.SPORTS_OPEN -> if (games.size > 1) sportsIdx++ else sportsOpen = false
+                            Mode.GOAL -> Sports.clearGoal()
                             else -> {}
                         }
                     },
@@ -276,7 +308,7 @@ fun NotchUi(c: NotchController) {
                 if (glowAlpha > 0.01f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = glowAlpha }.background(
                     Brush.verticalGradient(0.45f to Color.Transparent, 0.82f to accent.copy(alpha = 0.16f), 1f to accent.copy(alpha = 0.55f))))
                 // Content is laid out at its final size, so it never reflows while the shape morphs.
-                val g = geoFor(shown, pillH, voice, clicker.editing)
+                val g = geoFor(shown, pillH, voice, clicker.editing, liveGame)
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -301,6 +333,9 @@ fun NotchUi(c: NotchController) {
                         Mode.MUSIC -> media?.let { MusicCompact(it, pillH) }
                         Mode.MUSIC_OPEN -> media?.let { MusicOpen(it) }
                         Mode.GAME -> GameHud(pillH)
+                        Mode.SPORTS -> liveGame?.let { SportsCompact(it, pillH) }
+                        Mode.SPORTS_OPEN -> liveGame?.let { ScoreCard(it, more = games.size, index = sportsIdx % games.size.coerceAtLeast(1)) }
+                        Mode.GOAL -> goal?.let { GoalView(it) }
                         Mode.NONE -> {}
                     }
                 }
@@ -309,7 +344,7 @@ fun NotchUi(c: NotchController) {
     }
 }
 
-private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolean): Geo {
+private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolean, sport: Sports.Game? = null): Geo {
     val card = 30.dp
     val full = 372.dp
     return when (mode) {
@@ -320,6 +355,9 @@ private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolea
         Mode.TASK -> Geo(268.dp, pillH, pillH / 2)
         Mode.MUSIC -> Geo(232.dp, pillH, pillH / 2)
         Mode.GAME -> Geo(276.dp, pillH, pillH / 2)
+        Mode.SPORTS -> Geo(252.dp, pillH, pillH / 2)
+        Mode.SPORTS_OPEN -> Geo(full, if (sport?.lastPlay.isNullOrBlank()) 152.dp else 190.dp, card)
+        Mode.GOAL -> Geo(full, 190.dp, card)
         Mode.DEVICE -> Geo(312.dp, pillH + 18.dp, (pillH + 18.dp) / 2)
         Mode.CALL -> Geo(full, 158.dp, card)
         Mode.MESSAGE -> Geo(full, 172.dp, card)
@@ -340,6 +378,7 @@ private fun accentFor(mode: Mode, v: VoiceState.Session, t: NebulaTask?, call: N
     Mode.MESSAGE -> Sky
     Mode.MUSIC_OPEN -> Violet
     Mode.R3CKET, Mode.GAME -> Lime
+    Mode.SPORTS_OPEN, Mode.GOAL -> Color.Transparent // the score card brings its own team colours
     Mode.TASK -> when (t?.status) { TaskStatus.COMPLETED -> Mint; TaskStatus.FAILED -> Red; else -> Ember }
     else -> Flame
 }
@@ -451,6 +490,170 @@ private fun GameHud(h: Dp) {
 
 private fun pingColor(p: Int?) = when { p == null -> Dim; p < 60 -> Mint; p < 120 -> Ember; else -> Red }
 private fun clock(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
+
+// ============================================================================ Sports
+// Apple Sports-style: team colours meet in the middle of a dark card, big scores, the clock between them.
+
+/** A team's badge: its colour, its short name. */
+@Composable
+private fun Badge(s: Sports.Side, size: Dp) {
+    val c = Color(s.color)
+    Box(Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(listOf(c, c.copy(red = c.red * 0.6f, green = c.green * 0.6f, blue = c.blue * 0.6f)))),
+        contentAlignment = Alignment.Center) {
+        Text(s.abbr.take(3), color = Color.White, maxLines = 1,
+            style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.3f).sp, letterSpacing = 0.2.sp))
+    }
+}
+
+/** Score that rolls up when it changes (old number slides out the top, new one rises in). */
+@Composable
+private fun ScoreNum(value: Int, size: Int, color: Color = Color.White, from: Int? = null, rollAfterMs: Long = 0, key: Any? = null) {
+    var shownValue by remember(key) { mutableStateOf(from ?: value) }
+    LaunchedEffect(value, key) { if (shownValue != value) { delay(rollAfterMs); shownValue = value } }
+    AnimatedContent(shownValue, transitionSpec = {
+        (slideInVertically(spring(dampingRatio = 0.62f, stiffness = 300f)) { it } + fadeIn(tween(200))) togetherWith
+            (slideOutVertically(tween(260)) { -it } + fadeOut(tween(200)))
+    }, label = "score") { n ->
+        Text("$n", color = color, maxLines = 1,
+            style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = size.sp, lineHeight = (size * 1.05f).sp))
+    }
+}
+
+@Composable
+private fun SportsCompact(g: Sports.Game, h: Dp) = Compact({
+    Badge(g.home, h - 12.dp); Spacer(Modifier.width(7.dp)); ScoreNum(g.home.score, 17)
+}, {
+    Text(if (g.live) g.clock.take(6) else "", color = Dim, style = label().copy(fontSize = 10.sp), modifier = Modifier.padding(end = 7.dp))
+    ScoreNum(g.away.score, 17); Spacer(Modifier.width(7.dp)); Badge(g.away, h - 12.dp)
+})
+
+/** The open card. During a goal it starts from [roll]'s old score and rolls the scorer's number up. */
+@Composable
+private fun ScoreCard(g: Sports.Game, roll: Sports.Score? = null, rollAfterMs: Long = 0, more: Int = 0, index: Int = 0) {
+    val hc = Color(g.home.color); val ac = Color(g.away.color)
+    val done = g.state == "post"
+    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to hc.copy(alpha = 0.9f), 0.5f to Color(0xFF0D0D10), 1f to ac.copy(alpha = 0.9f)))) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x59000000), Color.Transparent, Color(0x8C000000)))))
+        // Content starts below the camera hole; the league name sits in the middle column above the clock.
+        Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 30.dp, bottom = 12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TeamCol(g.home)
+                Spacer(Modifier.width(12.dp))
+                ScoreNum(g.home.score, 40, if (done && g.home.score < g.away.score) Dim else Color.White,
+                    from = roll?.takeIf { it.home }?.before, rollAfterMs = rollAfterMs, key = roll?.at)
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(g.league.name, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 10.sp),
+                        modifier = Modifier.padding(bottom = 3.dp))
+                    Text(g.clock, color = Color.White, maxLines = 1, style = label().copy(fontFamily = Display, fontSize = 16.sp))
+                    if (g.state == "pre") Text("Kick-off", color = Faint, style = label().copy(fontSize = 10.sp))
+                    else if (g.live) LiveDot()
+                }
+                ScoreNum(g.away.score, 40, if (done && g.away.score < g.home.score) Dim else Color.White,
+                    from = roll?.takeIf { !it.home }?.before, rollAfterMs = rollAfterMs, key = roll?.at)
+                Spacer(Modifier.width(12.dp))
+                TeamCol(g.away)
+            }
+            if (g.lastPlay.isNotBlank()) Row(Modifier.padding(top = 10.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(2.5.dp).fillMaxHeight().clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
+                Spacer(Modifier.width(9.dp))
+                Text((if (g.league.kind == Sports.Kind.SOCCER) "⚽  " else "") + g.lastPlay, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp))
+            }
+            if (more > 1) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
+                repeat(more.coerceAtMost(6)) { i -> Box(Modifier.padding(horizontal = 2.5.dp).size(5.dp).clip(CircleShape).background(if (i == index) Color.White else Faint)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeamCol(s: Sports.Side) = Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(56.dp)) {
+    Badge(s, 40.dp)
+    Text(s.name, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 11.sp), modifier = Modifier.padding(top = 4.dp))
+}
+
+@Composable
+private fun LiveDot() {
+    val t = rememberInfiniteTransition(label = "live")
+    val a by t.animateFloat(0.35f, 1f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "a")
+    Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(5.dp).graphicsLayer { alpha = a }.clip(CircleShape).background(Red))
+        Spacer(Modifier.width(4.dp))
+        Text("LIVE", color = Faint, style = label().copy(fontSize = 9.sp, letterSpacing = 1.sp))
+    }
+}
+
+/**
+ * The goal moment (~6.5 s):
+ *  1. the scoring team's colour floods in from their side of the card, with a white flash,
+ *  2. "GOAL" (or TOUCHDOWN, HOME RUN…) drops in letter by letter on a bouncy spring, scorer underneath,
+ *  3. the word lifts away, the score card rises back and the scorer's number rolls up.
+ */
+@Composable
+private fun GoalView(s: Sports.Score) {
+    val side = if (s.home) s.game.home else s.game.away
+    val tc = Color(side.color)
+    val flood = remember(s.at) { Animatable(0f) }
+    val flash = remember(s.at) { Animatable(0f) }
+    val leave = remember(s.at) { Animatable(0f) }
+    val board = remember(s.at) { Animatable(0f) }
+    val letters = remember(s.at) { List(s.label.length) { Animatable(0f) } }
+    val sub = remember(s.at) { Animatable(0f) }
+    LaunchedEffect(s.at) {
+        launch { flood.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
+        launch { delay(140); flash.snapTo(0.6f); flash.animateTo(0f, tween(520)) }
+        letters.forEachIndexed { i, a -> launch { delay(160L + i * 55L); a.animateTo(1f, spring(dampingRatio = 0.48f, stiffness = 300f)) } }
+        launch { delay(520); sub.animateTo(1f, tween(380)) }
+        delay(2300)
+        launch { leave.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
+        delay(120)
+        board.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+    }
+    Box(Modifier.fillMaxSize()) {
+        // The score card underneath (rolls the score once it's back).
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = board.value; translationY = (1f - board.value) * 18.dp.toPx() }) {
+            ScoreCard(s.game, roll = s, rollAfterMs = 2700)
+        }
+        // Team-colour flood from the scorer's side.
+        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - board.value }) {
+            val o = Offset(if (s.home) 0f else size.width, size.height * 0.55f)
+            val r = (size.width * 1.35f * flood.value).coerceAtLeast(1f)
+            drawRect(Color(0xFF0D0D10))
+            drawCircle(Brush.radialGradient(0f to tc, 0.6f to tc.copy(alpha = 0.8f), 1f to tc.copy(alpha = 0f), center = o, radius = r), r, o)
+            // Light sweeping across with the flood.
+            val x = size.width * (if (s.home) flood.value else 1f - flood.value)
+            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.22f * (1f - flood.value)), Color.Transparent), x - 60f, x + 60f))
+            drawRect(Color.White.copy(alpha = flash.value))
+        }
+        // The word.
+        Column(Modifier.align(Alignment.Center).graphicsLayer {
+            alpha = 1f - leave.value; translationY = -leave.value * 34.dp.toPx(); val k = 1f + leave.value * 0.12f; scaleX = k; scaleY = k
+        }, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(side.name.uppercase(), color = Color.White.copy(alpha = 0.85f * sub.value), style = label().copy(fontSize = 11.sp, letterSpacing = 2.sp))
+            Row {
+                s.label.forEachIndexed { i, ch ->
+                    val v = letters.getOrNull(i)?.value ?: 1f
+                    Text(ch.toString(), color = Color.White, modifier = Modifier.graphicsLayer {
+                        alpha = v.coerceIn(0f, 1f); translationY = (1f - v) * 28.dp.toPx(); val k = 0.4f + 0.6f * v; scaleX = k; scaleY = k
+                    }, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
+                        fontSize = (if (s.label.length > 6) 40 else 56).sp, lineHeight = 60.sp))
+                }
+            }
+            if (s.who.isNotBlank()) Text(s.who, color = Color.White.copy(alpha = sub.value), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = label().copy(fontSize = 13.sp), modifier = Modifier.padding(horizontal = 24.dp).graphicsLayer { translationY = (1f - sub.value) * 8.dp.toPx() })
+        }
+    }
+}
+
+/** Goal buzz: three quick pulses, plus the goal sound. */
+private fun goalBuzz(ctx: android.content.Context) {
+    runCatching {
+        val v = if (Build.VERSION.SDK_INT >= 31) ctx.getSystemService(android.os.VibratorManager::class.java).defaultVibrator
+            else @Suppress("DEPRECATION") ctx.getSystemService(android.os.Vibrator::class.java)
+        if (Build.VERSION.SDK_INT >= 26) v?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 40, 70, 40, 70, 120), intArrayOf(0, 200, 0, 200, 0, 255), -1))
+    }
+    com.nebula.assistant.audio.Sounds.play(ctx, com.nebula.assistant.audio.NebulaSound.GOAL)
+}
 
 // ============================================================================ Hey Nebula
 

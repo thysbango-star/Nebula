@@ -132,6 +132,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
         }
 
         R3cketGroup(prefs)
+        SportsGroup(prefs)
 
         Group("Vibrance glow") {
             Text("The light that wraps the screen when Nebula wakes.", style = MaterialTheme.typography.bodySmall, color = p.dim)
@@ -392,6 +393,85 @@ private fun GameList(prefs: NebulaPrefs) {
                     uncheckedThumbColor = p.faint, uncheckedTrackColor = p.surface2, uncheckedBorderColor = p.line))
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------- Sports
+
+@Composable
+private fun SportsGroup(prefs: NebulaPrefs) {
+    val p = Pal
+    var tick by remember { mutableStateOf(0) }
+    var following by remember { mutableStateOf(prefs.sportsTeams.mapNotNull(com.nebula.assistant.sports.Sports.Team::decode)) }
+    var league by remember { mutableStateOf<com.nebula.assistant.sports.Sports.League?>(null) }
+    var query by remember { mutableStateOf("") }
+    fun save(list: List<com.nebula.assistant.sports.Sports.Team>) { following = list; prefs.sportsTeams = list.map { it.encode() }.toSet() }
+    Group("Sports", if (following.isEmpty()) null else "${following.size} team${if (following.size == 1) "" else "s"}", p.ok) {
+        Text("Follow your teams and their live score sits around the camera while they play. Tap it for the full card. When they score, the notch plays the goal moment.",
+            style = MaterialTheme.typography.bodySmall, color = p.dim)
+        Keyed(tick) {
+            Toggle("Live scores in the notch", "Only while one of your teams is playing.", prefs.sportsOn) { prefs.sportsOn = it; tick++ }
+            Toggle("Goal moments", "The goal animation, a buzz and a cheer when your team scores.", prefs.sportsGoals) { prefs.sportsGoals = it; tick++ }
+        }
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Btn("Preview a goal", primary = true) { com.nebula.assistant.sports.Sports.startDemo() }
+            Text("  Watch the top of your screen", style = MaterialTheme.typography.bodySmall, color = p.faint)
+        }
+        if (following.isNotEmpty()) {
+            Text("Following", style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+            following.forEach { t ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TeamDot(t)
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(t.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(com.nebula.assistant.sports.Sports.league(t.league)?.name ?: "", style = MaterialTheme.typography.bodySmall, color = p.faint)
+                    }
+                    Icon(Icons.Rounded.Close, "Unfollow", tint = p.faint, modifier = Modifier.size(22.dp).pressable(onClick = { save(following - t) }))
+                }
+            }
+        }
+        Text("Add a team", style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            com.nebula.assistant.sports.Sports.LEAGUES.forEach { lg ->
+                val on = league == lg
+                Box(Modifier.padding(end = 6.dp).clip(CircleShape).background(if (on) p.text else p.surface2)
+                    .pressable(onClick = { league = if (on) null else lg; query = "" }).padding(horizontal = 12.dp, vertical = 7.dp)) {
+                    Text(lg.name, style = MaterialTheme.typography.labelLarge, color = if (on) p.bg else p.text)
+                }
+            }
+        }
+        league?.let { lg ->
+            val teams by androidx.compose.runtime.produceState<List<com.nebula.assistant.sports.Sports.Team>?>(null, lg) {
+                value = runCatching { com.nebula.assistant.sports.Sports.teams(lg) }.getOrDefault(emptyList())
+            }
+            Box(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.surface2).padding(horizontal = 14.dp, vertical = 11.dp)) {
+                if (query.isEmpty()) Text("Search ${lg.name}", style = MaterialTheme.typography.bodyMedium, color = p.faint)
+                BasicTextField(query, { query = it }, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = p.text),
+                    cursorBrush = SolidColor(p.flame), modifier = Modifier.fillMaxWidth())
+            }
+            when {
+                teams == null -> Text("Loading teams…", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 8.dp))
+                teams!!.isEmpty() -> Text("Couldn't load teams. Check your connection.", style = MaterialTheme.typography.bodySmall, color = p.warn, modifier = Modifier.padding(top = 8.dp))
+                else -> Column(Modifier.padding(top = 6.dp)) {
+                    teams!!.filter { query.isBlank() || it.name.contains(query, true) || it.abbr.contains(query, true) }.take(40).forEach { t ->
+                        val on = following.any { it.league == t.league && it.id == t.id }
+                        Row(Modifier.fillMaxWidth().pressable(onClick = { save(if (on) following.filterNot { it.league == t.league && it.id == t.id } else following + t) })
+                            .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TeamDot(t)
+                            Text(t.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                            Text(if (on) "★" else "☆", style = MaterialTheme.typography.titleLarge, color = if (on) p.flame else p.faint)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeamDot(t: com.nebula.assistant.sports.Sports.Team) {
+    Box(Modifier.size(30.dp).clip(CircleShape).background(Color(t.color)), contentAlignment = Alignment.Center) {
+        Text(t.abbr.take(3), style = MaterialTheme.typography.labelSmall, color = Color.White)
     }
 }
 

@@ -569,6 +569,13 @@ function renderSettings() {
     <div class="slider">Games list<small>${d.gaming ? `Playing now: ${esc(d.game)}` : ''}</small></div><input class="field" id="sGames" placeholder="e.g. RobloxPlayerBeta, Minecraft" value="${esc((d.games || []).join(', '))}" spellcheck="false">
     <p class="sub" style="margin-top:10px">Some online games ban auto-clickers and can suspend accounts. Use it where it's allowed.</p></div>
 
+  <div class="group"><h3>Sports <small style="color:var(--ok)">${(d.sportsTeams || []).length ? `${d.sportsTeams.length} team${d.sportsTeams.length === 1 ? '' : 's'}` : ''}</small></h3>
+    <p class="sub">Follow your teams and their live score sits in the island while they play. Hover it for the full card. When they score, the island plays the goal moment.</p>
+    ${toggle('sSports', 'Live scores in the island', 'Only while one of your teams is playing.', d.sportsOn !== false)}
+    ${toggle('sGoals', 'Goal moments', 'The goal animation and a cheer when your team scores.', d.sportsGoals !== false)}
+    <div class="row"><button class="pill press" id="sGoalDemo">Preview a goal</button></div>
+    <div id="sportsPick"></div></div>
+
   <div class="group"><h3>Shortcut & startup</h3>
     <div class="slider">Talk to Nebula</div><input class="field hk" id="sHk" readonly value="${esc((d.activeHotkey || d.hotkey || '').replace(/\+/g, ' + '))}">
     <p class="sub" style="margin-top:8px">${d.activeHotkey && d.activeHotkey !== d.hotkey ? `“${esc(d.hotkey)}” is taken by another app, so Nebula is using ${esc(d.activeHotkey)}.` : 'Click, then press the keys you want. The Copilot key works too.'}</p>
@@ -628,6 +635,10 @@ function renderSettings() {
   B.querySelectorAll('[data-perf]').forEach((b) => (b.onclick = () => setS({ performance: b.dataset.perf }).then(renderSettings)));
   recorder($('sCrossHk'), (k) => setS({ crosshairHotkey: k }).then(renderSettings), true);
   coach.render();
+  on('sSports', 'onchange', (e) => setS({ sportsOn: e.target.checked }));
+  on('sGoals', 'onchange', (e) => setS({ sportsGoals: e.target.checked }));
+  on('sGoalDemo', 'onclick', () => api.send('sports:demo'));
+  sportsUi.render();
   on('sQuiet', 'onchange', (e) => setS({ r3cketQuiet: e.target.checked }));
   on('sClick', 'oninput', (e) => { $('sClickV').textContent = speedLabel(fromSlider(+e.target.value)); });
   on('sClick', 'onchange', (e) => setS({ clickInterval: fromSlider(+e.target.value) }));
@@ -636,6 +647,41 @@ function renderSettings() {
   recorder($('sHk'), (k) => setS({ hotkey: k }).then(renderSettings), false);
   recorder($('sClickHk'), (k) => setS({ clickHotkey: k }).then(renderSettings), true);
 }
+// ------------------------------------------------------------ sports teams
+const sportsUi = {
+  league: null, query: '', teams: {}, leagues: null,
+  dot(t) { return `<span style="display:inline-grid;place-items:center;width:28px;height:28px;border-radius:14px;background:${t.color};color:#fff;font:800 9px/1 sans-serif;flex:none">${esc((t.abbr || '').slice(0, 3))}</span>`; },
+  async render() {
+    const el = $('sportsPick'); if (!el) return;
+    if (!this.leagues) this.leagues = await api.invoke('sports:leagues');
+    const mine = S.sportsTeams || [];
+    const row = (t, right, attr) => `<div ${attr} style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer">${this.dot(t)}<div style="flex:1">${esc(t.name)}</div>${right}</div>`;
+    let h = '';
+    if (mine.length) h += `<div class="slider">Following</div>` + mine.map((t, i) => row(t, '<span style="color:var(--faint)">✕</span>', `data-unfollow="${i}"`)).join('');
+    h += `<div class="slider">Add a team</div><div class="chiprow">${this.leagues.map((l) => `<button class="chip press ${this.league === l.path ? 'on' : ''}" data-league="${l.path}">${esc(l.name)}</button>`).join('')}</div>`;
+    if (this.league) {
+      const list = this.teams[this.league];
+      h += `<input class="field" id="sTeamQ" placeholder="Search" value="${esc(this.query)}" spellcheck="false" style="margin-top:10px">`;
+      if (!list) h += '<p class="sub">Loading teams…</p>';
+      else if (list.error || !list.length) h += `<p class="sub" style="color:var(--warn)">Couldn't load teams. Check your connection.</p>`;
+      else h += list.filter((t) => !this.query || (t.name + ' ' + t.abbr).toLowerCase().includes(this.query.toLowerCase())).slice(0, 40)
+        .map((t) => { const on = mine.some((m) => m.league === t.league && m.id === t.id); return row(t, `<span style="font-size:20px;color:${on ? 'var(--flame)' : 'var(--faint)'}">${on ? '★' : '☆'}</span>`, `data-team="${esc(t.id)}"`); }).join('');
+    }
+    el.innerHTML = h;
+    el.querySelectorAll('[data-unfollow]').forEach((b) => (b.onclick = () => this.save(mine.filter((_, i) => i !== +b.dataset.unfollow))));
+    el.querySelectorAll('[data-league]').forEach((b) => (b.onclick = async () => {
+      this.league = this.league === b.dataset.league ? null : b.dataset.league; this.query = ''; this.render();
+      if (this.league && !this.teams[this.league]) { const lg = this.league; this.teams[lg] = await api.invoke('sports:teams', lg); this.render(); }
+    }));
+    el.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => {
+      const t = (this.teams[this.league] || []).find((x) => x.id === b.dataset.team); if (!t) return;
+      const on = mine.some((m) => m.league === t.league && m.id === t.id);
+      this.save(on ? mine.filter((m) => !(m.league === t.league && m.id === t.id)) : [...mine, t]);
+    }));
+    const q = $('sTeamQ'); if (q) q.oninput = (e) => { this.query = e.target.value; const pos = e.target.selectionStart; this.render().then(() => { const n = $('sTeamQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+  },
+  async save(list) { S = await setS({ sportsTeams: list }); this.render(); },
+};
 // ------------------------------------------------------------ name coach
 const coach = {
   step: -1, heard: [], options: [], chosen: '', status: '', busy: false,
