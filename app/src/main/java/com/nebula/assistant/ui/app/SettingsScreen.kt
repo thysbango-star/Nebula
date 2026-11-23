@@ -135,6 +135,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
 
         R3cketGroup(prefs)
         SportsGroup(prefs)
+        BeamGroup(prefs)
 
         Group("Vibrance glow") {
             Text("The light that wraps the screen when Nebula wakes.", style = MaterialTheme.typography.bodySmall, color = p.dim)
@@ -499,6 +500,33 @@ private fun SportsGroup(prefs: NebulaPrefs) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BeamGroup(prefs: NebulaPrefs) {
+    val p = Pal
+    var tick by remember { mutableStateOf(0) }
+    var visible by remember { mutableStateOf(com.nebula.assistant.beam.BeamController.visible) }
+    Group("Beam", "New", p.flame) {
+        Text("Double-tap the notch to send photos, videos, files or text to Nebula devices nearby — or through Quick Share, or with a QR code. The other person always accepts first.",
+            style = MaterialTheme.typography.bodySmall, color = p.dim)
+        Keyed(tick) {
+            Toggle("Double-tap the notch", "Opens Beam. While it's on, the area over the camera takes taps.", prefs.beamDoubleTap) { prefs.beamDoubleTap = it; tick++ }
+            Toggle("Haptics", "A tap when a Beam starts, arrives or lands.", prefs.beamHaptics) { prefs.beamHaptics = it; tick++ }
+            Toggle("Offer Beam Link when it fails", "A QR fallback if a device can't be reached.", prefs.beamLinkFallback) { prefs.beamLinkFallback = it; tick++ }
+        }
+        Text("Who can find me", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
+        ChipRow(listOf("Only while Beam is open", "Everyone nearby · 10 min"), if (visible) "Everyone nearby · 10 min" else "Only while Beam is open") {
+            if (it.startsWith("Everyone")) { com.nebula.assistant.beam.BeamController.makeVisible(10); visible = true } else { com.nebula.assistant.beam.BeamController.hide(); visible = false }
+        }
+        Text("Largest Beam", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
+        val sizes = listOf(100 to "100 MB", 500 to "500 MB", 2048 to "2 GB", 10240 to "10 GB")
+        Keyed(tick) { ChipRow(sizes.map { it.second }, sizes.firstOrNull { it.first == prefs.beamMaxMb }?.second) { l -> prefs.beamMaxMb = sizes.first { it.second == l }.first; tick++ } }
+        Text("Nebula-to-Nebula Beams are end-to-end encrypted over your Wi-Fi with a code you can check. Beam Link is plain http on your Wi-Fi, expires in 10 minutes and allows 3 downloads per file. Received files go to Downloads › Nebula Beam. There's also a Beam tile for Quick Settings.",
+            style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 8.dp))
+        Text("Clear Beam history ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+            modifier = Modifier.padding(top = 10.dp).pressable(onClick = { prefs.beamHistory = "[]" }))
     }
 }
 

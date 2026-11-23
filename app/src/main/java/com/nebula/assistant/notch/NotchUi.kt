@@ -158,7 +158,7 @@ private val Display = FontFamily(Font(R.font.space_grotesk, FontWeight.Medium), 
 private val Condensed = FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)))
 private val Body = FontFamily(Font(R.font.manrope, FontWeight.Medium), Font(R.font.manrope, FontWeight.SemiBold), Font(R.font.manrope, FontWeight.Bold))
 
-private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL, LIVE, LIVE_OPEN }
+private enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL, LIVE, LIVE_OPEN, BEAM }
 
 /** Exact size and corner of the island for a view. Fixed sizes = no measuring, no jitter. */
 private data class Geo(val w: Dp, val h: Dp, val r: Dp)
@@ -190,6 +190,7 @@ fun NotchUi(c: NotchController) {
     val games by Sports.games.collectAsState()
     val lives by NotchBus.live.collectAsState()
     val goal by Sports.goal.collectAsState()
+    val beam by com.nebula.assistant.beam.BeamController.ui.collectAsState()
     val L = c.layout
     val base = LocalDensity.current
 
@@ -248,6 +249,7 @@ fun NotchUi(c: NotchController) {
         voice.active -> Mode.VOICE // Hey Nebula always shows, even with the notch's extras switched off
         !prefs.notchEnabled -> Mode.NONE
         c.unlock != null -> Mode.UNLOCK
+        beam !is com.nebula.assistant.beam.BeamUi.Idle -> Mode.BEAM
         call != null && prefs.notchCalls && (c.phoneInCall || call?.ringing == true) -> Mode.CALL
         c.volume != null -> Mode.VOLUME
         device != null -> Mode.DEVICE
@@ -269,7 +271,7 @@ fun NotchUi(c: NotchController) {
     CompositionLocalProvider(LocalDensity provides Density(base.density * L.scale, base.fontScale)) {
         val d = LocalDensity.current
         val pillH = pillDp.dp
-        val target = geoFor(mode, pillH, voice, clicker.editing, liveGame)
+        val target = geoFor(mode, pillH, voice, clicker.editing, liveGame, beam)
 
         // ---- one spring for the whole shape
         val w = remember { Animatable(target.w.value) }
@@ -297,7 +299,7 @@ fun NotchUi(c: NotchController) {
                 launch { r.animateTo(target.r.value, sp) }
             }
             with(d) {
-                if (mode == Mode.NONE) c.fit(1, 1, 60)
+                if (mode == Mode.NONE) { if (prefs.beamDoubleTap) c.fit(target.w.roundToPx(), (target.h + 6.dp).roundToPx(), 60) else c.fit(1, 1, 60) }
                 else c.fit(target.w.roundToPx() + 4, (target.h + 6.dp).roundToPx(), 60)
             }
         }
@@ -327,8 +329,12 @@ fun NotchUi(c: NotchController) {
                         }
                     }
                     .combinedClickable(
-                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL, Mode.LIVE, Mode.LIVE_OPEN),
+                        enabled = shown in setOf(Mode.MUSIC, Mode.TASK, Mode.VOLUME, Mode.GAME, Mode.SPORTS, Mode.SPORTS_OPEN, Mode.GOAL, Mode.LIVE, Mode.LIVE_OPEN) ||
+                            (shown == Mode.NONE && prefs.beamDoubleTap),
                         onLongClick = { c.talk() }, // hold the island to talk to Nebula
+                        // Double-tap the notch: Nebula Beam (COMMS mode). Only from the resting notch or a compact view.
+                        onDoubleClick = if (prefs.beamDoubleTap && shown in setOf(Mode.NONE, Mode.MUSIC, Mode.SPORTS, Mode.LIVE, Mode.TASK))
+                            ({ com.nebula.assistant.beam.BeamController.open() }) else null,
                     ) {
                         when (shown) {
                             Mode.MUSIC -> musicOpen = true
@@ -347,7 +353,7 @@ fun NotchUi(c: NotchController) {
                 if (glowAlpha > 0.01f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = glowAlpha }.background(
                     Brush.verticalGradient(0.45f to Color.Transparent, 0.82f to accent.copy(alpha = 0.16f), 1f to accent.copy(alpha = 0.55f))))
                 // Content is laid out at its final size, so it never reflows while the shape morphs.
-                val g = geoFor(shown, pillH, voice, clicker.editing, liveGame)
+                val g = geoFor(shown, pillH, voice, clicker.editing, liveGame, beam)
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -378,6 +384,7 @@ fun NotchUi(c: NotchController) {
                         Mode.SPORTS_OPEN -> liveGame?.let { ScoreCard(it, more = games.size, index = sportsIdx % games.size.coerceAtLeast(1)) }
                         Mode.GOAL -> goal?.let { when (it.kind) { "yellow", "red", "red20" -> CardMoment(it); "sub" -> SubBoard(it); "added" -> AddedTime(it)
                             "check", "decision" -> Review(it); "lineup" -> LineupReel(it); else -> GoalView(it) } }
+                        Mode.BEAM -> BeamView(beam)
                         Mode.NONE -> {}
                     }
                 }
@@ -386,7 +393,7 @@ fun NotchUi(c: NotchController) {
     }
 }
 
-private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolean, sport: Sports.Game? = null): Geo {
+private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolean, sport: Sports.Game? = null, beam: com.nebula.assistant.beam.BeamUi = com.nebula.assistant.beam.BeamUi.Idle): Geo {
     val card = 30.dp
     val full = 372.dp
     return when (mode) {
@@ -400,6 +407,7 @@ private fun geoFor(mode: Mode, pillH: Dp, v: VoiceState.Session, editing: Boolea
         Mode.SPORTS -> Geo(252.dp, pillH, pillH / 2)
         Mode.LIVE -> Geo(236.dp, pillH, pillH / 2)
         Mode.LIVE_OPEN -> Geo(full, 150.dp, card)
+        Mode.BEAM -> beamSize(beam, full).let { (bw, bh) -> if (beam is com.nebula.assistant.beam.BeamUi.Sent) Geo(bw, bh, bh / 2) else Geo(bw, bh, card) }
         Mode.SPORTS_OPEN -> Geo(full, (if (sport?.lastPlay.isNullOrBlank()) 152.dp else 190.dp) + (if (sport?.note.isNullOrBlank()) 0.dp else 18.dp) +
             (if (sport?.cards.isNullOrEmpty()) 0.dp else 26.dp) + (if (sport?.stats.isNullOrEmpty()) 0.dp else (24 + 17 * sport!!.stats.size.coerceAtMost(4)).dp), card)
         Mode.GOAL -> Geo(full, 190.dp, card)
@@ -421,6 +429,7 @@ private fun accentFor(mode: Mode, v: VoiceState.Session, t: NebulaTask?, call: N
     Mode.VOICE -> when (v.phase) { VoiceState.Phase.ERROR -> Red; VoiceState.Phase.LISTENING -> Sky; else -> Flame }
     Mode.CALL -> if (call?.ringing == true) Mint else Mint
     Mode.MESSAGE -> Sky
+    Mode.BEAM -> Color(0xFF8B5CF6)
     Mode.MUSIC_OPEN -> Color.Transparent // the song's own colours
     Mode.R3CKET, Mode.GAME -> Lime
     Mode.SPORTS_OPEN, Mode.GOAL -> Color.Transparent // the score card brings its own team colours

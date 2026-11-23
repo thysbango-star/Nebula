@@ -3,6 +3,10 @@
 
     <!-- Talking to the AI brain (Groq) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Nebula Beam: find nearby Nebula devices on the same Wi-Fi (mDNS) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Hearing "Hey Nebula" and your questions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- live audio bars on the music card (android.media.audiofx.Visualizer) -->
@@ -89,6 +93,24 @@
             android:noHistory="true"
             android:taskAffinity="com.nebula.assistant.talk"
             android:theme="@style/Theme.Nebula.Invisible" />
+
+        <!-- Nebula Beam: choose what to send (system photo/file pickers) -->
+        <activity
+            android:name=".beam.BeamActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.nebula.assistant.beam"
+            android:theme="@style/Theme.Nebula.Invisible" />
+
+        <!-- Quick Settings tile: Beam -->
+        <service
+            android:name=".beam.BeamTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_nebula"
+            android:label="Beam"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
 
         <service
             android:name=".wake.WakeWordService"

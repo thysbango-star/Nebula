@@ -31,6 +31,7 @@ class NebulaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         com.nebula.assistant.support.Reporter.installCrashCatcher(this)
+        com.nebula.assistant.beam.BeamController.init(this)
         Notifications.createChannels(this)
         Store.init(this)
         Sounds.warmUp(this)
