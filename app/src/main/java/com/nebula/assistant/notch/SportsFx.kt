@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -207,4 +208,70 @@ internal fun DrawScope.drawCinematic(t: Float, logo: ImageBitmap?, scorerOnLeft:
     // letterbox
     val bar = 14 * u * ease((t - 0.1f) / 0.35f) * (1f - ease((t - 3.6f) / 0.4f))
     if (bar > 0.5f) { drawRect(Color.Black, Offset.Zero, Size(w, bar)); drawRect(Color.Black, Offset(0f, h - bar), Size(w, bar)) }
+}
+
+// ------------------------------------------------------------------ more looks for every team
+
+/** Rows of the word ("TRY TRY TRY…") as outlines, tilted, sliding in opposite directions. */
+internal fun DrawScope.drawWordWall(word: androidx.compose.ui.text.TextLayoutResult, t: Float, tint: Color) {
+    val w = size.width; val h = size.height; val u = 1.dp.toPx()
+    val ww = word.size.width + 14 * u; val rh = word.size.height * 1.05f
+    rotate(-13f, Offset(w / 2, h / 2)) {
+        var row = 0; var y = -h * 0.6f
+        while (y < h * 1.6f) {
+            val dirRow = if (row % 2 == 0) 1 else -1
+            val shift = frac(t * 0.35f * (1 + row % 3 * 0.2f)) * ww * dirRow + (row % 2) * ww / 2
+            var x = -w * 0.6f - ww + shift
+            while (x < w * 1.6f) {
+                drawText(word, color = tint, topLeft = Offset(x, y), alpha = 0.42f)
+                x += ww
+            }
+            y += rh; row++
+        }
+    }
+}
+
+/** The team's logo bursting up from the bottom corner on the scorer's side, cut off by the frame. */
+internal fun DrawScope.drawLogoPeek(t: Float, logo: ImageBitmap, scorerOnLeft: Boolean) {
+    val w = size.width; val h = size.height
+    val p = (t - 0.28f) / 0.55f
+    val pop = if (p <= 0f) 0f else if (p >= 1f) 1f else 1f - (1f - p) * (1f - p) * (1f - 2.6f * p * (1f - p)) // overshoot
+    val leave = ease((t - 3.4f) / 0.4f)
+    val sz = h * 1.35f
+    val cx = if (scorerOnLeft) w * 0.13f else w * 0.87f
+    val cy = h * 0.98f + (1f - pop + leave) * sz * 0.7f
+    withTransform({ translate(cx, cy); rotate((if (scorerOnLeft) 10f else -10f) * (1f - pop) + (if (scorerOnLeft) -6f else 6f), Offset.Zero) }) {
+        drawImage(logo, IntOffset.Zero, IntSize(logo.width, logo.height), IntOffset((-sz / 2).toInt(), (-sz / 2).toInt()), IntSize(sz.toInt(), sz.toInt()), alpha = (1f - leave))
+    }
+}
+
+/** Light rays wheeling out from the scorer's badge and confetti in the team's colours. */
+internal fun DrawScope.drawBurst(t: Float, at: Offset, tint: Color, light: Color) {
+    val w = size.width; val h = size.height; val u = 1.dp.toPx()
+    val a = ease((t - 0.3f) / 0.5f) * (1f - ease((t - 3.4f) / 0.4f))
+    if (a > 0.01f) rotate(t * 22f, at) {
+        val r = w * 1.2f
+        for (k in 0 until 16 step 2) {
+            val a0 = k * (360f / 16); val a1 = a0 + 360f / 16
+            val path = Path().apply {
+                moveTo(at.x, at.y)
+                lineTo(at.x + r * cos(Math.toRadians(a0.toDouble())).toFloat(), at.y + r * sin(Math.toRadians(a0.toDouble())).toFloat())
+                lineTo(at.x + r * cos(Math.toRadians(a1.toDouble())).toFloat(), at.y + r * sin(Math.toRadians(a1.toDouble())).toFloat())
+                close()
+            }
+            drawPath(path, Color.White.copy(alpha = 0.10f * a))
+        }
+    }
+    val colors = listOf(tint, light, Color.White, lerp(tint, Color.Black, 0.3f))
+    for (i in 0 until 46) {
+        val start = 0.35f + frac(i * 0.137f) * 0.9f
+        val k = t - start
+        if (k < 0f || k > 2.6f) continue
+        val x = w * frac(i * 0.618f + 0.07f) + sin(k * 3f + i) * 12 * u
+        val y = -10 * u + k * (55 + 40 * frac(i * 0.29f)) * u * 1.4f
+        if (y > h + 10 * u) continue
+        withTransform({ translate(x, y); rotate(k * 260f + i * 40f, Offset.Zero) }) {
+            drawRect(colors[i % colors.size], Offset(-3 * u, -1.8f * u), Size(6 * u, 3.6f * u * (0.6f + 0.4f * cos(k * 9f + i))))
+        }
+    }
 }

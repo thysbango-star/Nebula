@@ -418,7 +418,8 @@ private fun SportsGroup(prefs: NebulaPrefs) {
             Toggle("Cards & substitutions", "Yellow and red cards (with rugby's sin-bin and 20-minute timers), substitution boards, and who scored.", prefs.sportsEvents) { prefs.sportsEvents = it; tick++ }
         }
         Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            listOf("Arsenal goal" to "goal", "Seagulls" to "gulls", "Springbok try" to "try", "Red card" to "cards", "Substitution" to "sub", "A six" to "six")
+            listOf("Arsenal goal" to "goal", "Seagulls" to "gulls", "Springbok try" to "try", "Lineup" to "lineup", "VAR" to "var", "TMO" to "tmo",
+                "Added time" to "added", "Red card" to "cards", "Substitution" to "sub", "A six" to "six")
                 .forEachIndexed { i, (label, which) ->
                     if (i > 0) Spacer(Modifier.size(8.dp))
                     Btn(label, primary = i == 0) { com.nebula.assistant.sports.Sports.startDemo(which) }

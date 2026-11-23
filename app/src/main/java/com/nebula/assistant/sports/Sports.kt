@@ -88,6 +88,8 @@ object Sports {
         val note: String = "",      // e.g. rugby: "Conversion to come" / "Conversion missed"
         val feed: String = "",      // the ESPN league path this game came from (for its key events)
         val cards: List<Card> = emptyList(),
+        val leagueLogo: String = "",     // the competition's logo from ESPN
+        val stats: List<Stat> = emptyList(),
     ) {
         val live get() = state == "in"
     }
@@ -105,7 +107,12 @@ object Sports {
     data class Score(val game: Game, val home: Boolean, val before: String, val label: String, val who: String,
                      val chant: String = "", val at: Long = System.currentTimeMillis(), val kind: String = "score",
                      val minute: String = "", val until: Long = 0, val subs: List<Pair<String, String>> = emptyList(),
-                     val motif: String = "")
+                     val motif: String = "", val players: List<Player> = emptyList(), val extra: String = "",
+                     val favour: Int = -1 /* VAR/TMO decision: 1 = home, 0 = away, -1 = unclear */, val good: Boolean = true)
+
+    /** A team stat for the open card ("Possession", "54%", "46%"); [h]/[a] are the numbers, for the bars. */
+    data class Stat(val label: String, val home: String, val away: String, val h: Float, val a: Float)
+    data class Player(val no: String, val name: String, val pos: String, val starter: Boolean)
 
     /** A key event from the match summary: a scorer, a card or a substitution. */
     data class KeyEvent(val id: String, val kind: String, val teamId: String, val player: String, val player2: String, val minute: String)
@@ -131,15 +138,22 @@ object Sports {
         if (m.kind != "score") return ""
         val s = if (m.home) m.game.home else m.game.away
         val n = s.name.lowercase()
-        return when {
+        val own = when {
             m.game.league.kind == Kind.SOCCER && n.contains("arsenal") -> "cannons"
             m.game.league.kind == Kind.SOCCER && n.contains("brighton") -> "gulls"
             m.game.league.kind == Kind.SOCCER && n.contains("newcastle") -> "magpies"
             m.game.league.kind == Kind.SOCCER && n.contains("crystal palace") -> "eagles"
             m.game.league.kind == Kind.RUGBY -> "cinematic"
-            else -> "logos"
+            else -> "burst"
         }
+        // Five looks per team, taking turns so back-to-back scores never look the same:
+        // their own moment, a wall of the word, the logo bursting in from the corner, rays + confetti, logo tiles.
+        val looks = listOf(own, "wordwall", "logopeek", if (own == "burst") "logos" else "burst", "logos").distinct()
+        val k = norm(s.name)
+        val i = variantTurn.getOrDefault(k, 0); variantTurn[k] = i + 1
+        return looks[i % looks.size]
     }
+    private val variantTurn = HashMap<String, Int>()
 
     private val seenEvents = HashMap<String, MutableSet<String>>()
     private val cardsByGame = HashMap<String, MutableList<Card>>()
@@ -200,8 +214,16 @@ object Sports {
         for (g in filled) {
             val prev = last[g.id]
             // Names behind the numbers: scorers, cards and substitutions from the match summary.
-            val fresh = if (g.live && prefs.sportsEvents && g.league.kind != Kind.CRICKET && g.feed.isNotEmpty())
-                runCatching { newEvents(g, now) }.getOrDefault(emptyList()) else emptyList()
+            val wantSummary = prefs.sportsEvents && g.league.kind != Kind.CRICKET && g.feed.isNotEmpty() &&
+                (g.live || (g.state == "pre" && g.start - now < 90 * 60_000L && g.id !in lineupShown))
+            val summary = if (wantSummary) runCatching { get(BASE + g.feed + "/summary?event=" + g.id) }.getOrNull() else null
+            val fresh = if (summary != null && g.live) runCatching { newEvents(g, summary, now) }.getOrDefault(emptyList()) else emptyList()
+            if (summary != null) {
+                statsByGame[g.id] = runCatching { stats(g, summary) }.getOrDefault(emptyList())
+                if (g.live) runCatching { commentary(g, summary) }.getOrDefault(emptyList()).forEach(::show)
+                // Lineups: once per game, when they're announced (about an hour before) or at kick-off.
+                if (g.id !in lineupShown) runCatching { lineups(g, summary, teams) }.getOrNull()?.let { ls -> if (ls.isNotEmpty()) { lineupShown += g.id; ls.forEach(::show) } }
+            }
             if (prev != null) moment(prev, g, now)?.let { m ->
                 val scorer = fresh.lastOrNull { it.kind in setOf("goal", "try", "conversion", "penalty", "drop", "pentry") && it.teamId == (if (m.home) g.home.id else g.away.id) }
                 show(if (scorer != null && scorer.player.isNotBlank()) m.copy(who = scorerLine(m, scorer)) else m)
@@ -218,7 +240,7 @@ object Sports {
         // Rugby conversions: a try with no kick by the end of the window means it was missed (or not taken).
         for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
         val annotated = filled.map { gg ->
-            val g = gg.copy(cards = liveCards(gg, now))
+            val g = gg.copy(cards = liveCards(gg, now), stats = statsByGame[gg.id].orEmpty())
             if (g.league.kind != Sports.Kind.RUGBY) return@map g
             val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
                 ?: return@map g
@@ -242,8 +264,8 @@ object Sports {
     private fun minuteOf(s: String): Int? = Regex("(\\d+)").find(s)?.groupValues?.get(1)?.toIntOrNull()
 
     /** Events we haven't seen yet for this game. The first look only learns what already happened (no replays). */
-    private suspend fun newEvents(g: Game, now: Long): List<KeyEvent> {
-        val all = keyEvents(g)
+    private fun newEvents(g: Game, summary: JSONObject, now: Long): List<KeyEvent> {
+        val all = keyEvents(g, summary)
         val seen = seenEvents[g.id]
         if (seen == null) {
             seenEvents[g.id] = all.map { it.id }.toMutableSet()
@@ -256,8 +278,7 @@ object Sports {
         return fresh
     }
 
-    private suspend fun keyEvents(g: Game): List<KeyEvent> {
-        val j = get(BASE + g.feed + "/summary?event=" + g.id)
+    private fun keyEvents(g: Game, j: JSONObject): List<KeyEvent> {
         val arr = j.optJSONArray("keyEvents") ?: j.optJSONObject("header")?.optJSONArray("competitions")?.optJSONObject(0)?.optJSONArray("details") ?: return emptyList()
         val out = ArrayList<KeyEvent>()
         for (i in 0 until arr.length()) {
@@ -290,6 +311,95 @@ object Sports {
             val minute = x.optJSONObject("clock")?.optString("displayValue").orEmpty()
             val tid = x.optJSONObject("team")?.optString("id").orEmpty()
             out += KeyEvent(x.optString("id").ifBlank { "$type|$minute|$tid|$p1" }, kind, tid, p1, p2, minute)
+        }
+        return out
+    }
+
+    private val lineupShown = HashSet<String>()
+    private val statsByGame = HashMap<String, List<Stat>>()
+    private val seenCommentary = HashMap<String, MutableSet<String>>()
+
+    /** Team stats from the summary's box score, football's favourites first, then whatever the sport has. */
+    private fun stats(g: Game, j: JSONObject): List<Stat> {
+        val teams = j.optJSONObject("boxscore")?.optJSONArray("teams") ?: return emptyList()
+        fun statsOf(id: String): Map<String, Pair<String, String>> {
+            for (i in 0 until teams.length()) {
+                val t = teams.optJSONObject(i) ?: continue
+                if (t.optJSONObject("team")?.optString("id") != id) continue
+                val arr = t.optJSONArray("statistics") ?: return emptyMap()
+                return (0 until arr.length()).mapNotNull { k -> arr.optJSONObject(k) }.associate { it.optString("name") to (it.optString("label").ifBlank { it.optString("name") } to it.optString("displayValue")) }
+            }
+            return emptyMap()
+        }
+        val h = statsOf(g.home.id); val a = statsOf(g.away.id)
+        val prefer = listOf("possessionPct" to "Possession", "totalShots" to "Shots", "shotsOnTarget" to "On target", "wonCorners" to "Corners", "foulsCommitted" to "Fouls")
+        val keys = prefer.filter { h.containsKey(it.first) && a.containsKey(it.first) }.map { it.first to it.second }
+            .ifEmpty { h.keys.filter { a.containsKey(it) && h[it]!!.second.toFloatOrNull() != null }.take(5).map { it to h[it]!!.first } }
+        return keys.map { (k, label) ->
+            val hv = h[k]!!.second; val av = a[k]!!.second
+            val pct = k.contains("Pct", true) || k.contains("possession", true)
+            Stat(label, if (pct && !hv.endsWith("%")) "$hv%" else hv, if (pct && !av.endsWith("%")) "$av%" else av,
+                hv.removeSuffix("%").toFloatOrNull() ?: 0f, av.removeSuffix("%").toFloatOrNull() ?: 0f)
+        }
+    }
+
+    /**
+     * From the live commentary: the fourth official's added time ("+4"), and VAR (football) / TMO (rugby) checks
+     * and their decisions — saying which team the call went for.
+     */
+    private fun commentary(g: Game, j: JSONObject): List<Score> {
+        val arr = j.optJSONArray("commentary") ?: return emptyList()
+        val items = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { x ->
+            val text = x.optString("text").ifBlank { x.optJSONObject("play")?.optString("text").orEmpty() }
+            val id = x.optString("sequence").ifBlank { text.hashCode().toString() }
+            Triple(id, text, x.optJSONObject("time")?.optString("displayValue").orEmpty())
+        }
+        val seen = seenCommentary[g.id]
+        if (seen == null) { seenCommentary[g.id] = items.map { it.first }.toMutableSet(); return emptyList() }
+        val out = ArrayList<Score>()
+        for ((id, text, minute) in items) {
+            if (!seen.add(id) || text.isBlank()) continue
+            Regex("(\\d+)\\s+minutes?\\s+of\\s+(?:added|additional|stoppage)\\s+time", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+                out += Score(g, true, "", "+" + m.groupValues[1], "minutes of added time", kind = "added", minute = minute, extra = m.groupValues[1])
+            }
+            val ref = when { Regex("\\bVAR\\b").containsMatchIn(text) -> "VAR"; Regex("\\bTMO\\b").containsMatchIn(text) -> "TMO"; else -> null } ?: continue
+            if (text.contains("decision", true) || text.contains("overturned", true) || text.contains("stands", true)) {
+                val outcome = text.substringAfter(":", text).trim().removeSuffix(".").let { it.substringBefore(" (").take(44) }
+                val bad = Regex("\\b(no|disallowed|cancelled|overturned|not given|chalked)\\b", RegexOption.IGNORE_CASE).containsMatchIn(outcome)
+                val named = when { outcome.contains(g.home.name, true) -> 1; outcome.contains(g.away.name, true) -> 0; else -> -1 }
+                val favour = if (named == -1) -1 else if (bad) 1 - named else named
+                out += Score(g, favour != 0, "", ref, outcome.uppercase(), kind = "decision", minute = minute, extra = ref, favour = favour, good = !bad)
+            } else {
+                val reason = Regex("(possible|potential)\\s+([a-z\\- ]{3,24})", RegexOption.IGNORE_CASE).find(text)?.value
+                    ?: Regex("check(?:ing)?\\s+(?:for\\s+)?(?:a\\s+)?([a-z\\- ]{3,24})", RegexOption.IGNORE_CASE).find(text)?.let { "Possible " + it.groupValues[1] }
+                    ?: "Checking"
+                out += Score(g, true, "", ref, reason.trim().replaceFirstChar { it.uppercase() }, kind = "check", minute = minute, extra = ref)
+            }
+        }
+        return out
+    }
+
+    /** Starting lineup + bench for the team(s) you follow, from the summary's rosters. */
+    private fun lineups(g: Game, j: JSONObject, mine: List<Team>): List<Score> {
+        val rosters = j.optJSONArray("rosters") ?: return emptyList()
+        val out = ArrayList<Score>()
+        for (i in 0 until rosters.length()) {
+            val r = rosters.optJSONObject(i) ?: continue
+            val tid = r.optJSONObject("team")?.optString("id").orEmpty()
+            val home = r.optString("homeAway").let { if (it.isNotEmpty()) it == "home" else tid == g.home.id }
+            val side = if (home) g.home else g.away
+            if (mine.none { matches(it, side) }) continue
+            val list = r.optJSONArray("roster") ?: continue
+            val players = (0 until list.length()).mapNotNull { list.optJSONObject(it) }.map { p ->
+                Player(p.optString("jersey"), p.optJSONObject("athlete")?.optString("displayName").orEmpty(),
+                    p.optJSONObject("position")?.optString("abbreviation").orEmpty(), p.optBoolean("starter"))
+            }.filter { it.name.isNotBlank() }
+            if (players.count { it.starter } < 5) continue
+            val formation = r.opt("formation").let { f -> if (f is JSONObject) f.optString("name") else f?.toString().orEmpty() }.takeIf { it != "null" }.orEmpty()
+            val starters = players.filter { it.starter }.sortedBy { it.no.toIntOrNull() ?: 99 }
+            val bench = players.filter { !it.starter }.sortedBy { it.no.toIntOrNull() ?: 99 }
+            val label = when (g.league.kind) { Kind.RUGBY -> "STARTING XV"; Kind.SOCCER -> "STARTING XI"; else -> "LINEUP" }
+            out += Score(g, home, side.text, label, side.name, kind = "lineup", players = starters + bench, extra = formation)
         }
         return out
     }
@@ -464,8 +574,12 @@ object Sports {
             }
             return out
         }
-        val events = get(BASE + feed + "/scoreboard").optJSONArray("events") ?: return emptyList()
-        return (0 until events.length()).mapNotNull { i -> runCatching { parse(lg, events.getJSONObject(i))?.copy(feed = feed) }.getOrNull() }
+        val root = get(BASE + feed + "/scoreboard")
+        val events = root.optJSONArray("events") ?: return emptyList()
+        val lgLogo = root.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("logos")?.let { a ->
+            (0 until a.length()).mapNotNull { a.optJSONObject(it) }.let { l -> (l.firstOrNull { it.optJSONArray("rel")?.toString()?.contains("dark") == true } ?: l.firstOrNull())?.optString("href") }
+        }.orEmpty()
+        return (0 until events.length()).mapNotNull { i -> runCatching { parse(lg, events.getJSONObject(i))?.copy(feed = feed, leagueLogo = lgLogo) }.getOrNull() }
     }
 
     private val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -663,7 +777,10 @@ object Sports {
     suspend fun demo(which: String = "goal") {
         val epl = League("demo", "Premier League", Kind.SOCCER, "Football", "England")
         val tests = League("demo", "Nations Championship", Kind.RUGBY, "Rugby", "International")
-        if (which == "try") runCatching { withContext(Dispatchers.IO) { nationLogos() } }
+        if (which == "try" || which == "tmo" || which == "lineup") runCatching { withContext(Dispatchers.IO) { nationLogos() } }
+        val demoStats = listOf(Stat("Possession", "54%", "46%", 54f, 46f), Stat("Shots", "11", "7", 11f, 7f), Stat("On target", "5", "2", 5f, 2f), Stat("Corners", "6", "3", 6f, 3f))
+        fun boks(score: Int) = Side("1", "RSA", "South Africa", score, 0xFF00704A, logo = nations?.get("southafrica").orEmpty())
+        fun eng(score: Int) = Side("2", "ENG", "England", score, 0xFFC8102E, logo = nations?.get("england").orEmpty())
         val now = System.currentTimeMillis()
         val (g, moments) = when (which) {
             "try" -> {
@@ -687,6 +804,29 @@ object Sports {
                 val g = Game("demo", epl, Side("1", "BHA", "Brighton", 2, 0xFF0057B8), Side("2", "NEW", "Newcastle", 1, 0xFF3A3A3A), "in", "71'", "K. Mitoma 71'", 0)
                 g to listOf(Score(g, true, "1", "GOAL", "K. Mitoma 71'"))
             }
+            "added" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "90'", "B. Saka 67'", 0, stats = demoStats)
+                g to listOf(Score(g, true, "2", "+4", "minutes of added time", kind = "added", minute = "90'", extra = "4"))
+            }
+            "var" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "67'", "B. Saka 67'", 0, stats = demoStats)
+                g to listOf(Score(g, true, "2", "VAR", "Possible offside", kind = "check", minute = "67'", extra = "VAR"),
+                    Score(g, true, "2", "VAR", "GOAL STANDS", kind = "decision", minute = "68'", extra = "VAR", favour = 1, good = true))
+            }
+            "tmo" -> {
+                val g = Game("demo", tests, boks(17), eng(14), "in", "62'", "", 0)
+                g to listOf(Score(g, false, "14", "TMO", "Possible knock-on", kind = "check", minute = "62'", extra = "TMO"),
+                    Score(g, true, "17", "TMO", "NO TRY", kind = "decision", minute = "63'", extra = "TMO", favour = 1, good = false))
+            }
+            "lineup" -> {
+                val g = Game("demo", tests, boks(0), eng(0), "pre", "17:00", "", now + 3_600_000)
+                val xv = listOf("Ox Nché", "Malcolm Marx", "Frans Malherbe", "Eben Etzebeth", "RG Snyman", "Siya Kolisi", "Pieter-Steph du Toit", "Jasper Wiese",
+                    "Cobus Reinach", "Handré Pollard", "Makazole Mapimpi", "Damian de Allende", "Jesse Kriel", "Cheslin Kolbe", "Damian Willemse")
+                val bench = listOf("Bongi Mbonambi", "Steven Kitshoff", "Vincent Koch", "Franco Mostert", "Kwagga Smith", "Faf de Klerk", "Manie Libbok", "Willie le Roux")
+                val pos = listOf("LP", "HK", "TP", "LK", "LK", "FL", "FL", "N8", "SH", "FH", "WG", "CE", "CE", "WG", "FB")
+                val players = xv.mapIndexed { i, n -> Player("${i + 1}", n, pos[i], true) } + bench.mapIndexed { i, n -> Player("${i + 16}", n, "", false) }
+                g to listOf(Score(g, true, "0", "STARTING XV", "South Africa", kind = "lineup", players = players))
+            }
             "cards" -> {
                 val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 1, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "78'", "", 0)
                 g to listOf(Score(g, false, "1", "RED CARD", "M. Caicedo", kind = "red", minute = "78'"))
@@ -697,13 +837,13 @@ object Sports {
                     subs = listOf("G. Martinelli" to "L. Trossard", "M. Merino" to "J. Jorginho")))
             }
             else -> { // goal: Arsenal's cannons
-                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "67'", "B. Saka 67'", 0)
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "67'", "B. Saka 67'", 0, stats = demoStats)
                 g to listOf(Score(g, true, "1", "GOAL", "B. Saka 67'"))
             }
         }
         val first = moments.first()
         val start = g.copy(home = g.home.copy(text = if (first.home) first.before else g.home.text), away = g.away.copy(text = if (!first.home) first.before else g.away.text))
-        demoUntil = now + 40_000
+        demoUntil = now + if (which == "lineup") 50_000 else 40_000
         _games.value = listOf(start)
         delay(2600)
         val withCards = moments.lastOrNull { it.kind == "yellow" }?.let { y -> g.copy(cards = listOf(Card(y.home, y.who, "yellow", y.minute, y.until))) } ?: g
