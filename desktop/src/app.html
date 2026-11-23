@@ -574,7 +574,7 @@ function renderSettings() {
     ${toggle('sSports', 'Live scores in the island', 'Only while one of your teams is playing.', d.sportsOn !== false)}
     ${toggle('sGoals', 'Goal moments', 'The goal animation and a cheer when your team scores.', d.sportsGoals !== false)}
     ${toggle('sEvents', 'Cards & substitutions', "Yellow and red cards (with rugby's sin-bin and 20-minute timers), substitution boards, and who scored.", d.sportsEvents !== false)}
-    <div class="chiprow">${[['goal', 'Arsenal goal'], ['gulls', 'Seagulls'], ['try', 'Springbok try'], ['cards', 'Red card'], ['sub', 'Substitution'], ['six', 'A six']].map(([v, l]) => `<button class="chip press" data-sdemo="${v}">${l}</button>`).join('')}</div>
+    <div class="chiprow">${[['goal', 'Arsenal goal'], ['gulls', 'Seagulls'], ['try', 'Springbok try'], ['lineup', 'Lineup'], ['var', 'VAR'], ['tmo', 'TMO'], ['added', 'Added time'], ['cards', 'Red card'], ['sub', 'Substitution'], ['six', 'A six']].map(([v, l]) => `<button class="chip press" data-sdemo="${v}">${l}</button>`).join('')}</div>
     <div id="sportsPick"></div></div>
 
   <div class="group"><h3>Shortcut & startup</h3>

@@ -81,6 +81,37 @@ global.fetch = async (url) => ({ ok: true, json: async () => (/summary/.test(url
   const sub = moments.find((m) => m.kind === 'sub');
   assert.ok(sub && sub.subs.length === 2 && sub.subs[0][0] === 'A. Garnacho' && sub.subs[0][1] === 'M. Mount', 'double change on one board');
   assert.ok(by('GOAL') && by('GOAL').who.startsWith('A. Garnacho'), 'goal names the scorer');
-  assert.strictEqual(by('GOAL').motif, 'logos');
+  assert.ok(['burst', 'wordwall', 'logopeek', 'logos'].includes(by('GOAL').motif), 'a look from the rotation');
+
+  // Rotation: five scores in a row by one team never repeat the previous look.
+  const { motifFor } = require('../src/sports');
+  const g0 = { league: { kind: 'rugby' }, home: { name: 'South Africa' }, away: { name: 'England' } };
+  const looks = Array.from({ length: 5 }, () => motifFor({ kind: 'score', game: g0, home: true }));
+  assert.strictEqual(new Set(looks).size, 5, 'five different looks in five scores');
+
+  // Commentary: added time and a VAR check + decision; lineups; stats.
+  moments.length = 0;
+  fbEvents = []; // keep key events quiet
+  const extra = { commentary: [
+    { sequence: 1, text: 'Fourth official has announced 4 minutes of added time.', time: { displayValue: "90'" } },
+    { sequence: 2, text: 'VAR check: possible penalty for Arsenal.', time: { displayValue: "91'" } },
+    { sequence: 3, text: 'VAR Decision: No Penalty Arsenal.', time: { displayValue: "92'" } }],
+    rosters: [{ homeAway: 'away', team: { id: '2' }, formation: '4-2-3-1', roster: Array.from({ length: 13 }, (_, i) => ({ jersey: String(i + 1), starter: i < 11, athlete: { displayName: `Player ${i + 1}` } })) }],
+    boxscore: { teams: [{ team: { id: '1' }, statistics: [{ name: 'possessionPct', displayValue: '58' }, { name: 'totalShots', displayValue: '12' }] },
+      { team: { id: '2' }, statistics: [{ name: 'possessionPct', displayValue: '42' }, { name: 'totalShots', displayValue: '6' }] }] } };
+  const before = global.fetch;
+  let primed = false;
+  global.fetch = async (url) => ({ ok: true, json: async () => (/summary/.test(url) ? (primed ? { ...extra, keyEvents: [] } : { commentary: [], keyEvents: [] }) : await (await before(url)).json()) });
+  await s.poll(); // first look at the commentary: learns what's there, no replays
+  primed = true; await s.poll();
+  const lineup = moments.find((m) => m.kind === 'lineup');
+  assert.ok(lineup && lineup.players.length === 13 && lineup.players[0].starter && lineup.extra === '4-2-3-1' && lineup.label === 'STARTING XI');
+  const add = moments.find((m) => m.kind === 'added'); assert.ok(add && add.label === '+4');
+  assert.ok(moments.find((m) => m.kind === 'check' && /penalty/i.test(m.who)));
+  const dec = moments.find((m) => m.kind === 'decision');
+  assert.ok(dec && dec.good === false && dec.favour === 0, 'no penalty for Arsenal = in favour of the other side');
+  const fgame = games.find((g) => g.id === '42');
+  assert.ok(fgame.stats.length === 2 && fgame.stats[0].home === '58%');
+  global.fetch = before;
   console.log('Sports watcher OK:', ['GOAL', 'TRY', 'SIX', 'PENALTY', 'WICKET', 'DROP GOAL', 'WIN', 'CONVERTED', 'conversion missed', 'PENALTY TRY'].join(', '));
 })().catch((e) => { console.error(e); process.exit(1); });

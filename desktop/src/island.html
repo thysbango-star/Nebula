@@ -187,6 +187,53 @@
   #goal .subb .off { color: #FF4D4D; text-shadow: 0 0 12px rgba(255,77,77,.75); }
   @keyframes boardUp { to { transform: none; } }
   @keyframes stripes { to { transform: translateX(48px); } }
+  /* compact score: each half in its team's colour, the competition's logo at the seam */
+  #island.score { width: 340px; }
+  body.m-score #shL { left: calc(50% - 170px - 16px); } body.m-score #shR { left: calc(50% + 170px); }
+  #score .halves { position: absolute; inset: 0; pointer-events: none; }
+  #score > *:not(.halves) { position: relative; }
+  #score .lgl { width: 18px; height: 18px; object-fit: contain; }
+  /* stats */
+  .stats { margin-top: 8px; display: grid; gap: 3px; }
+  .stat { display: grid; grid-template-columns: 38px 1fr 76px 1fr 38px; align-items: center; gap: 6px; font: 600 11.5px/1 "Segoe UI", sans-serif; }
+  .stat .lb { text-align: center; color: var(--dim); font-size: 10.5px; } .stat .r { text-align: right; }
+  .stat .bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); overflow: hidden; display: flex; }
+  .stat .bar.l { justify-content: flex-end; } .stat .bar i { display: block; height: 100%; }
+  .espn { justify-self: center; margin-top: 3px; font: 800 8.5px/1 "Segoe UI", sans-serif; letter-spacing: 1.6px; background: #CC1A16; color: #fff; padding: 2px 7px; border-radius: 3px; }
+  /* added time */
+  #goal .added { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 16px;
+    background: linear-gradient(90deg, #FF8F4F, #8B5CFF, #FF8F4F, #8B5CFF, #FF8F4F); background-size: 200% 100%; animation: slideBg 3s linear infinite; }
+  #goal .added .in { display: flex; align-items: center; gap: 16px; opacity: 0; transform: scale(.85); }
+  #goal.on .added .in { animation: popIn .6s cubic-bezier(.3, 1.5, .5, 1) forwards; }
+  #goal .added .n { font-size: 84px; line-height: 1; } #goal .added .t { font-size: 28px; line-height: 1.02; letter-spacing: 1px; }
+  @keyframes slideBg { to { background-position: -200% 0; } }
+  @keyframes popIn { to { opacity: 1; transform: none; } }
+  /* VAR / TMO */
+  #goal .rev { position: absolute; inset: 0; display: flex; align-items: center; gap: 22px; padding: 0 34px; }
+  #goal .rev.var { background: #2E0B3A; } #goal .rev.tmo { background: linear-gradient(120deg, #2457E0, #1B1C66 50%, #2457E0); }
+  #goal .rev .scanl { position: absolute; top: 0; bottom: 0; width: 160px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.1), transparent); animation: scanX 1.3s linear infinite; }
+  @keyframes scanX { from { left: -160px; } to { left: 620px; } }
+  #goal .rev .tag { font-size: 58px; font-style: italic; letter-spacing: 1px; } #goal .rev.tmo .tag, #goal .rev.tmo .what { color: #FF7A1A; }
+  #goal .rev .col { flex: 1; min-width: 0; opacity: 0; transform: translateY(10px); } #goal.on .rev .col { animation: cwIn .42s ease forwards; }
+  #goal .rev .sm { color: var(--faint); font: 700 10.5px/1 "Segoe UI", sans-serif; letter-spacing: 1.6px; }
+  #goal .rev .what { font-size: 38px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: linear-gradient(#fff, #b9b9c2); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #goal .rev.tmo .what { background: none; -webkit-text-fill-color: #FF7A1A; }
+  #goal .rev .fav { display: flex; align-items: center; gap: 7px; margin-top: 4px; font: 600 13px/1 "Segoe UI", sans-serif; }
+  #goal .rev .mark { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; font: 800 26px/1 "Segoe UI", sans-serif; transform: scale(0); flex: none; }
+  #goal.on .rev .mark { animation: popIn .5s cubic-bezier(.3, 1.8, .5, 1) .7s forwards; }
+  /* lineup reel */
+  #goal .lineup { position: absolute; inset: 0; overflow: hidden; }
+  #goal .lineup .lg { position: absolute; left: -70px; bottom: -70px; width: 230px; height: 230px; object-fit: contain; transform: rotate(-8deg) translateX(-120px); opacity: 0; }
+  #goal.on .lineup .lg { animation: peekIn .8s cubic-bezier(.3, 1.4, .5, 1) forwards; }
+  @keyframes peekIn { to { opacity: 1; transform: rotate(-8deg); } }
+  #goal .lineup .side { position: absolute; right: 40px; top: 50%; transform: translateY(-50%); width: 300px; text-align: center; }
+  #goal .lineup .hdr { font: 700 11px/1 "Segoe UI", sans-serif; letter-spacing: 2.2px; opacity: .9; }
+  #goal .lineup .no { font-size: 70px; line-height: 1; margin-top: 4px; }
+  #goal .lineup .nm { font: italic 800 22px/1.1 "Segoe UI", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #goal .lineup .ct { font: 600 11px/1 "Segoe UI", sans-serif; opacity: .75; margin-top: 4px; }
+  #goal .lineup .pl { animation: plIn .32s cubic-bezier(.3, 1.4, .5, 1); }
+  @keyframes plIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
   @keyframes flicker { 0% { opacity: 0; } 20% { opacity: .9; } 40% { opacity: .2; } 60% { opacity: 1; } 80% { opacity: .4; } 100% { opacity: 1; } }
   .board .shade { position: absolute; inset: 0; background: linear-gradient(rgba(0,0,0,.35), transparent 40%, rgba(0,0,0,.55)); }
   .board .in { position: relative; padding: 12px 26px 12px; display: flex; flex-direction: column; height: 100%; }
@@ -394,7 +441,8 @@ function render() {
       island.style.height = `${Math.max(150, h)}px`;
     });
   } else {
-    island.style.height = m === 'card' ? ((liveGame() || {}).lastPlay ? ((liveGame() || {}).note ? '196px' : '') : '158px') : '';
+    const lg0 = liveGame() || {};
+    island.style.height = m === 'card' ? `${(lg0.lastPlay ? 176 : 158) + (lg0.note ? 20 : 0) + ((lg0.cards || []).length ? 26 : 0) + ((lg0.stats || []).length ? 22 + 18 * Math.min(4, lg0.stats.length) : 0)}px` : '';
   }
 
   const hints = $('hints');
@@ -447,9 +495,11 @@ function renderScore() {
   const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${(g.cards || []).map((c) => c.until).join(',')}`;
   if ($('score').dataset.k === key) return; $('score').dataset.k = key;
   const bs = PHONE ? 34 : 22;
-  $('score').innerHTML = `${badge(g.home, bs)}${num(txt(g.home), rollKey('s' + g.id + 'h', txt(g.home)))}
+  $('score').innerHTML = `<div class="halves" style="background:linear-gradient(90deg, ${g.home.color}b3, ${g.home.color}33 45%, transparent 50%, ${g.away.color}33 55%, ${g.away.color}b3)"></div>
+    ${badge(g.home, bs)}${num(txt(g.home), rollKey('s' + g.id + 'h', txt(g.home)))}
     <div class="clk">${(() => { const c = (g.cards || []).filter((x) => x.until > Date.now()).pop();
-      return c ? `<i class="mini ${c.kind}"></i><b class="cd" data-until="${c.until}"></b>` : `${g.live ? '<span class="live"></span>' : ''}${esc(g.clock)}`; })()}</div>
+      return c ? `<i class="mini ${c.kind}"></i><b class="cd" data-until="${c.until}"></b>`
+        : `${g.leagueLogo && !PHONE ? `<img class="lgl" src="${esc(g.leagueLogo)}" alt="" onerror="this.remove()">` : ''}${g.live ? '<span class="live"></span>' : ''}${esc(g.clock)}`; })()}</div>
     ${num(txt(g.away), rollKey('s' + g.id + 'a', txt(g.away)))}${badge(g.away, bs)}`;
   kickRolls($('score'), 60);
 }
@@ -466,10 +516,12 @@ function boardHTML(g, roll, count = 0, idx = 0) {
       <div class="row">
         <div class="team">${badge(g.home, 44)}<span>${esc(g.home.name)}</span>${g.home.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.home.sub)}</small>` : ''}</div>
         ${num(txt(g.home), from(true), lose(g.home.score, g.away.score) + bigc)}
-        <div class="mid"><span class="lg2">${esc(g.league.name)}</span><b>${esc(g.clock)}</b>${g.live ? '<i><span class="live"></span>LIVE</i>' : g.state === 'pre' ? '<i>KICK-OFF</i>' : ''}</div>
+        <div class="mid">${g.leagueLogo ? `<img src="${esc(g.leagueLogo)}" alt="" style="width:22px;height:22px;object-fit:contain" onerror="this.remove()">` : ''}<span class="lg2">${esc(g.league.name)}</span><b>${esc(g.clock)}</b>${g.live ? '<i><span class="live"></span>LIVE</i>' : g.state === 'pre' ? '<i>KICK-OFF</i>' : ''}</div>
         ${num(txt(g.away), from(false), lose(g.away.score, g.home.score) + bigc)}
         <div class="team">${badge(g.away, 44)}<span>${esc(g.away.name)}</span>${g.away.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.away.sub)}</small>` : ''}</div>
       </div>
+      ${(g.stats || []).length ? `<div class="stats">${g.stats.slice(0, 4).map((st) => { const tot = (st.h + st.a) || 1;
+        return `<div class="stat"><span>${esc(st.home)}</span><div class="bar l"><i style="width:${(st.h / tot) * 100}%;background:${g.home.color}"></i></div><span class="lb">${esc(st.label)}</span><div class="bar"><i style="width:${(st.a / tot) * 100}%;background:${g.away.color}"></i></div><span class="r">${esc(st.away)}</span></div>`; }).join('')}<span class="espn">STATS BY ESPN</span></div>` : ''}
       ${(g.cards || []).length ? `<div class="cardchips">${g.cards.map((c) => `<span class="cardchip"><i class="mini ${c.kind}"></i>${esc(String(c.player).split(' ').pop())} · ${esc((c.home ? g.home : g.away).abbr)}${c.until > Date.now() ? ` <b class="cd" data-until="${c.until}" style="color:${c.kind === 'yellow' ? '#FFD60A' : '#FF4D4D'}"></b>` : c.kind === 'red' ? ' <span style="color:var(--dim)">off</span>' : ''}</span>`).join('')}</div>` : ''}
       ${g.note ? `<div style="text-align:center;margin-top:8px;font:700 10.5px/1 'Segoe UI',sans-serif;letter-spacing:1.3px;color:${/missed$/.test(g.note) ? 'var(--dim)' : 'var(--amber)'}">${esc(g.note.toUpperCase())}</div>` : ''}
       ${g.lastPlay ? `<div class="play">${({ soccer: '⚽&nbsp;', rugby: '🏉&nbsp;', cricket: '🏏&nbsp;' })[g.league.kind] || ''}${esc(g.lastPlay)}</div>` : ''}
@@ -499,16 +551,19 @@ setInterval(() => document.querySelectorAll('.cd[data-until]').forEach((el) => {
   el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
 }), 500);
 const momentQueue = [];
-const FANCY = ['cannons', 'gulls', 'magpies', 'eagles', 'cinematic'];
+const FANCY = ['cannons', 'gulls', 'magpies', 'eagles', 'cinematic', 'wordwall', 'logopeek', 'burst'];
 function endMoment() { goal = null; const next = momentQueue.shift(); if (next) playGoal(next); else render(); }
 function playGoal(s) {
   if (goal && goal !== s) { if (momentQueue.length < 4) momentQueue.push(s); return; }
   if (s.kind === 'yellow' || s.kind === 'red' || s.kind === 'red20') return playCard(s);
   if (s.kind === 'sub') return playSub(s);
+  if (s.kind === 'added') return playAdded(s);
+  if (s.kind === 'check' || s.kind === 'decision') return playReview(s);
+  if (s.kind === 'lineup') return playLineup(s);
   const side = s.home ? s.game.home : s.game.away;
   const dir = s.home ? 1 : -1;
   const chant = s.chant || '';
-  const motif = s.motif || '';
+  const motif = s.motif === 'logopeek' && !side.logo ? 'burst' : (s.motif || '');
   const fancy = FANCY.includes(motif);
   const wordAt = chant ? 1.5 : 0.64;             // seconds
   const outAt = wordAt + (fancy ? 3.2 : 2.1), total = (chant ? 7.6 : 6.8) + (fancy ? 1.1 : 0);
@@ -519,7 +574,7 @@ function playGoal(s) {
   el.style.setProperty('--dir', dir); el.style.setProperty('--light', light);
   el.innerHTML = `${boardHTML(s.game, s)}<canvas class="fx"></canvas>
     <div class="ride" style="animation: rideOut .52s cubic-bezier(.4,0,.2,1) ${outAt}s forwards">
-      <div class="gbadge" style="${s.home ? 'left:38px' : 'right:38px'}">${badge(side, 60, true)}</div>
+      <div class="gbadge" style="${s.home ? 'left:38px' : 'right:38px'}${motif === 'logopeek' ? ';visibility:hidden' : ''}">${badge(side, 60, true)}</div>
       <div class="words" style="${s.home ? 'padding-left:90px' : 'padding-right:90px'}">
         <div class="who-team" style="animation: fadeUp .4s ease ${wordAt + .3}s forwards">${esc(side.name.toUpperCase())}</div>
         ${chant ? `<div class="chant num" style="font-size:${chant.length > 8 ? 46 : 64}px;animation: chantFly .9s cubic-bezier(.2,.8,.2,1) .56s forwards">${esc(chant)}</div>` : ''}
@@ -583,6 +638,9 @@ function playGoal(s) {
     if (motif === 'cannons') { const sh = cannonShake(t); el.style.transform = `translate(${sh[0]}px,${sh[1]}px)`; drawCannons(g, t, dir, W, H); }
     else if (motif === 'gulls' || motif === 'magpies' || motif === 'eagles') drawBirds(g, t, dir, W, H, motif);
     else if (motif === 'cinematic') drawCinematic(g, t, logo, s.home, W, H, side.color);
+    else if (motif === 'wordwall' && lead > tail) drawWordWall(g, t, s.label, light, W, H);
+    else if (motif === 'logopeek' && logo) drawLogoPeek(g, t, logo, s.home, W, H);
+    else if (motif === 'burst') drawBurst(g, t, s.home ? 68 : W - 68, H * .5, side.color, light, W, H);
     if (t < 0.26) { // neon glitch slices
       seed = 1 + Math.floor(t / 0.03) * 7919;
       for (let i = 0; i < 7; i++) {
@@ -698,6 +756,94 @@ function drawCinematic(g, t, logo, scorerLeft, W, H, tint) {
   g.fillStyle = 'rgba(255,255,255,.05)'; for (let i = 0; i < 160; i++) g.fillRect(r() * W, r() * H, 1.2, 1.2);
   const bar = 18 * easeO((t - .1) / .35) * (1 - easeO((t - 3.6) / .4));
   if (bar > .5) { g.fillStyle = '#000'; g.fillRect(0, 0, W, bar); g.fillRect(0, H - bar, W, bar); }
+}
+
+function drawWordWall(g, t, word, tint, W, H) {
+  g.save(); g.translate(W / 2, H / 2); g.rotate(-13 * Math.PI / 180); g.translate(-W / 2, -H / 2);
+  g.font = '700 28px Bahnschrift, "Roboto Condensed", "Arial Narrow", sans-serif'; g.strokeStyle = tint; g.globalAlpha = .42; g.lineWidth = 1.3;
+  const ww = g.measureText(word).width + 18, rh = 32;
+  for (let row = 0, y = -H * .6; y < H * 1.6; y += rh, row++) {
+    const d = row % 2 ? -1 : 1, shift = frac(t * .35 * (1 + (row % 3) * .2)) * ww * d + (row % 2) * ww / 2;
+    for (let x = -W * .6 - ww + shift; x < W * 1.6; x += ww) g.strokeText(word, x, y);
+  }
+  g.restore(); g.globalAlpha = 1;
+}
+function drawLogoPeek(g, t, logo, left, W, H) {
+  const p = (t - .28) / .55;
+  const pop = p <= 0 ? 0 : p >= 1 ? 1 : 1 - (1 - p) * (1 - p) * (1 - 2.6 * p * (1 - p));
+  const lv = easeO((t - 3.4) / .4), sz = H * 1.35, cx = left ? W * .13 : W * .87, cy = H * .98 + (1 - pop + lv) * sz * .7;
+  g.save(); g.translate(cx, cy); g.rotate(((left ? 10 : -10) * (1 - pop) + (left ? -6 : 6)) * Math.PI / 180); g.globalAlpha = 1 - lv;
+  g.drawImage(logo, -sz / 2, -sz / 2, sz, sz); g.restore(); g.globalAlpha = 1;
+}
+function drawBurst(g, t, cx, cy, tint, light, W, H) {
+  const a = easeO((t - .3) / .5) * (1 - easeO((t - 3.4) / .4));
+  if (a > .01) {
+    g.save(); g.translate(cx, cy); g.rotate(t * 22 * Math.PI / 180); g.fillStyle = `rgba(255,255,255,${.1 * a})`;
+    for (let k = 0; k < 16; k += 2) { const a0 = k * Math.PI * 2 / 16, a1 = a0 + Math.PI * 2 / 16, r = W * 1.2;
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a0) * r, Math.sin(a0) * r); g.lineTo(Math.cos(a1) * r, Math.sin(a1) * r); g.closePath(); g.fill(); }
+    g.restore();
+  }
+  const cols = [tint, light, '#ffffff', mix(tint, 'b', .3)];
+  for (let i = 0; i < 60; i++) {
+    const k = t - (.35 + frac(i * .137) * .9); if (k < 0 || k > 2.6) continue;
+    const x = W * frac(i * .618 + .07) + Math.sin(k * 3 + i) * 15, y = -12 + k * (55 + 40 * frac(i * .29)) * 1.8;
+    if (y > H + 12) continue;
+    g.save(); g.translate(x, y); g.rotate((k * 260 + i * 40) * Math.PI / 180); g.fillStyle = cols[i % 4];
+    g.fillRect(-4, -2.4, 8, 4.8 * (.6 + .4 * Math.cos(k * 9 + i))); g.restore();
+  }
+}
+
+// ---- added time, VAR / TMO, lineups
+function playAdded(s) {
+  const el = $('goal'); el.classList.remove('on'); void el.offsetWidth;
+  const n = parseInt(s.extra, 10) || 0;
+  el.innerHTML = `<div class="added"><div class="in">${s.game.leagueLogo ? `<img src="${esc(s.game.leagueLogo)}" alt="" style="width:62px;height:62px;object-fit:contain" onerror="this.remove()">` : ''}
+    <span class="n num" id="addN">+0</span><span class="t num">MINUTES OF<br>ADDED TIME</span></div></div>`;
+  goal = s; clearTimeout(goalTimer); render(); el.classList.add('on');
+  const t0 = performance.now();
+  const tick = (now) => { const k = Math.min(1, Math.max(0, (now - t0 - 250) / 700)); const v = Math.round(n * (1 - Math.pow(1 - k, 3)));
+    const e = $('addN'); if (e) e.textContent = `+${v}`; if (k < 1 && goal === s) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  playSound('thinking');
+  goalTimer = setTimeout(endMoment, 4600);
+}
+function playReview(s) {
+  const tmo = s.extra === 'TMO' || s.label === 'TMO', decision = s.kind === 'decision';
+  const fav = s.favour === 1 ? s.game.home : s.favour === 0 ? s.game.away : null;
+  const el = $('goal'); el.classList.remove('on'); void el.offsetWidth;
+  el.innerHTML = `<div class="rev ${tmo ? 'tmo' : 'var'}">${decision ? '' : '<div class="scanl"></div>'}
+    ${fav ? `<div style="position:absolute;inset:0;background:radial-gradient(circle at ${s.favour === 1 ? '0%' : '100%'} 100%, ${fav.color}8c 0, transparent 60%)"></div>` : ''}
+    <span class="tag num" style="position:relative">${tmo ? 'TMO' : 'VAR'}</span>
+    <div class="col" style="position:relative"><div class="sm" id="revSm">${decision ? 'CHECK COMPLETE' : 'CHECKING'}</div>
+      <div class="what num">${esc(s.who)}</div>
+      ${decision && fav ? `<div class="fav">${badge(fav, 20)}In favour of ${esc(fav.name)}</div>` : ''}</div>
+    ${decision ? `<div class="mark" style="position:relative;background:${s.good ? '#4ADE80' : '#EF4444'}">${s.good ? '✓' : '✕'}</div>` : ''}</div>`;
+  goal = s; clearTimeout(goalTimer); render(); el.classList.add('on');
+  if (!decision) { let d = 0; const iv = setInterval(() => { const e = $('revSm'); if (!e || goal !== s) return clearInterval(iv); d = (d + 1) % 3; e.textContent = 'CHECKING' + '.'.repeat(d + 1); }, 400); }
+  goalTimer = setTimeout(endMoment, decision ? 5600 : 5200);
+}
+function playLineup(s) {
+  const side = s.home ? s.game.home : s.game.away;
+  const players = s.players || [], starters = players.filter((p) => p.starter), bench = players.filter((p) => !p.starter);
+  const el = $('goal'); el.classList.remove('on'); void el.offsetWidth;
+  const l = mix(side.color, 'w', .35);
+  el.innerHTML = `<div class="lineup" style="background:linear-gradient(90deg, ${l}, ${side.color}, ${l}, ${side.color}, ${l});background-size:200% 100%;animation:slideBg 5s linear infinite">
+    ${side.logo ? `<img class="lg" src="${esc(side.logo)}" alt="" onerror="this.remove()">` : `<div style="position:absolute;left:34px;top:50%;margin-top:-36px">${badge(side, 72)}</div>`}
+    <div class="side"><div class="hdr" id="luH"></div><div id="luP"></div><div class="ct" id="luC"></div></div></div>`;
+  goal = s; clearTimeout(goalTimer); render(); el.classList.add('on');
+  const show = (i) => {
+    if (goal !== s) return;
+    const p = players[i]; if (!p) return;
+    const onBench = !p.starter;
+    $('luH').textContent = [onBench ? 'BENCH' : s.label, s.extra].filter(Boolean).join('  ·  ');
+    $('luP').innerHTML = `<div class="pl"><div class="no num">No.${esc(p.no)}</div><div class="nm">${esc(p.name.toUpperCase())}</div></div>`;
+    $('luC').textContent = onBench ? `${i - starters.length + 1} of ${bench.length}` : `${i + 1} of ${starters.length}`;
+    setTimeout(() => show(i + 1), onBench ? 450 : (i === starters.length - 1 && bench.length ? 950 : 800));
+  };
+  $('luH').textContent = s.label; $('luP').innerHTML = `<div class="pl"><div class="no num" style="font-size:40px">${esc(side.name.toUpperCase())}</div></div>`;
+  setTimeout(() => show(0), 700);
+  playSound('thinking');
+  goalTimer = setTimeout(endMoment, 1400 + starters.length * 800 + (bench.length ? 600 + bench.length * 450 : 0));
 }
 
 // ---- cards and substitutions
@@ -967,6 +1113,16 @@ if (q.has('demo')) {
   if (d === 'red') { const g = eplGame({ cards: [{ home: false, player: 'M. Caicedo', kind: 'red', minute: "78'", until: 0 }] }); state.sports = [g];
     go({ kind: 'red', game: g, home: false, before: '1', label: 'RED CARD', who: 'M. Caicedo', minute: "78'" }); }
   if (d === 'sub') { const g = eplGame(); state.sports = [g]; go({ kind: 'sub', game: g, home: true, before: '2', label: 'SUBSTITUTION', minute: "64'", subs: [['G. Martinelli', 'L. Trossard'], ['M. Merino', 'Jorginho']] }); }
+  if (d === 'added') { const g = eplGame(); state.sports = [g]; go({ kind: 'added', game: g, home: true, before: '2', label: '+4', who: 'minutes of added time', extra: '4', minute: "90'" }); }
+  if (d === 'var') { const g = eplGame(); state.sports = [g]; go({ kind: q.get('dec') ? 'decision' : 'check', game: g, home: true, before: '2', label: 'VAR', extra: 'VAR',
+    who: q.get('dec') ? 'GOAL STANDS' : 'Possible offside', favour: 1, good: true, minute: "67'" }); }
+  if (d === 'tmo') { state.sports = [demoRugby]; go({ kind: q.get('dec') ? 'decision' : 'check', game: demoRugby, home: true, before: '15', label: 'TMO', extra: 'TMO',
+    who: q.get('dec') ? 'NO TRY' : 'Possible knock-on', favour: 1, good: false, minute: "62'" }); }
+  if (d === 'lineup') { state.sports = [demoRugby]; const names = ['Ox Nché', 'Malcolm Marx', 'Frans Malherbe', 'Eben Etzebeth', 'RG Snyman', 'Siya Kolisi'];
+    go({ kind: 'lineup', game: demoRugby, home: true, before: '0', label: 'STARTING XV', players: names.map((n, i) => ({ no: String(i + 1), name: n, starter: true })).concat([{ no: '16', name: 'Bongi Mbonambi', starter: false }]) }); }
+  if (d === 'stats') { const g = eplGame({ leagueLogo: q.get('lg') || '', stats: [{ label: 'Possession', home: '54%', away: '46%', h: 54, a: 46 }, { label: 'Shots', home: '11', away: '7', h: 11, a: 7 },
+    { label: 'On target', home: '5', away: '2', h: 5, a: 2 }, { label: 'Corners', home: '6', away: '3', h: 6, a: 3 }] }); state.sports = [g]; hovering = q.has('open'); }
+  if (d === 'look') { const g = eplGame(); state.sports = [g]; if (q.get('logo')) g.home.logo = q.get('logo'); go({ game: g, home: true, before: '1', label: q.get('label') || 'GOAL', who: "B. Saka 67'", motif: q.get('m') || 'wordwall' }); }
   if (d === 'cardchips') { const until = Date.now() + 452000; demoRugby.cards = [{ home: false, player: 'M. Itoje', kind: 'yellow', minute: "49'", until }]; state.sports = [demoRugby]; hovering = true; }
   if (d === 'goal') setTimeout(() => playGoal({ game: demoGame, home: false, before: '0', label: q.get('label') || 'GOAL', who: demoGame.lastPlay, chant: q.get('chant') || '', at: Date.now() }), 300);
   if (d === 'try') setTimeout(() => playGoal({ game: demoRugby, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE', at: Date.now() }), 300);
