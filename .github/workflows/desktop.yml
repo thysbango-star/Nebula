@@ -50,6 +50,9 @@ jobs:
       - name: Test Nebula Beam (encrypted transfer, consent, limits, mDNS packets)
         run: node test/beam-test.js
 
+      - name: Test Voice Interrupt (echo ignored, interruptions caught and understood)
+        run: node test/interrupt-test.js
+
       - name: Test the document writers (docx, xlsx, pptx, csv, md, txt, html)
         run: node test/docs-test.js
 
@@ -118,6 +121,9 @@ jobs:
 
       - name: Test Nebula Beam
         run: node test/beam-test.js
+
+      - name: Test Voice Interrupt
+        run: node test/interrupt-test.js
 
       - name: Test the Linux media reader (playerctl)
         run: |

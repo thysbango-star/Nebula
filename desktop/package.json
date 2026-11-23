@@ -1,7 +1,7 @@
 {
   "name": "nebula-desktop",
   "productName": "Nebula",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Nebula for Windows: Vibrance island, screen glow and a voice assistant.",
   "author": {
     "name": "Nebula",
@@ -12,7 +12,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/brain.js && node --check src/voice.js && node --check src/preload.js && node --check src/win32.js && node --check src/agent.js && node --check src/store.js && node --check src/docs.js && node --check src/ears.js && node --check src/sports.js && node --check src/covers.js && node --check src/linux.js && node --check src/support.js && node --check src/beam.js",
+    "check": "node --check src/main.js && node --check src/brain.js && node --check src/voice.js && node --check src/preload.js && node --check src/win32.js && node --check src/agent.js && node --check src/store.js && node --check src/docs.js && node --check src/ears.js && node --check src/sports.js && node --check src/covers.js && node --check src/linux.js && node --check src/support.js && node --check src/beam.js && node --check src/interrupt.js",
     "dist": "electron-builder --win nsis portable --x64 --publish never",
     "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
   },

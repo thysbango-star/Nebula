@@ -69,7 +69,7 @@ function levelOf(samples) {
  * Calls onDone(Float32Array | null) — null when nothing was said.
  */
 class Utterance {
-  constructor(onDone, { maxSeconds = 15, waitSeconds = 7, silenceMs = 850, ignoreMs = 0 } = {}) {
+  constructor(onDone, { maxSeconds = 15, waitSeconds = 7, silenceMs = 850, ignoreMs = 0, noiseFloor = 0 } = {}) {
     this.ignore = (ignoreMs / 1000) * SAMPLE_RATE; // e.g. while Nebula's wake sound is still ringing
     this.onDone = onDone;
     this.max = maxSeconds * SAMPLE_RATE;
@@ -80,7 +80,8 @@ class Utterance {
     this.total = 0;
     this.heard = false;
     this.quiet = 0;
-    this.noise = [];
+    // A known room/echo level (Voice Interrupt knows it already), so your first words aren't mistaken for the room.
+    this.noise = noiseFloor > 0 ? [noiseFloor, noiseFloor, noiseFloor] : [];
     this.finished = false;
   }
 

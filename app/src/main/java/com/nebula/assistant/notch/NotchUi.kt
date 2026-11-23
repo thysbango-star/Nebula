@@ -1584,9 +1584,13 @@ private fun MusicOpen(m: NotchBus.Media) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 AnimatedContent(m.title, transitionSpec = { (fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 3 }) togetherWith fadeOut(tween(200)) }, label = "title") { t ->
-                    Text(t, color = ink, maxLines = 1, modifier = Modifier.fadeEdges().basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2200, repeatDelayMillis = 2500,
-                        spacing = androidx.compose.foundation.MarqueeSpacing(40.dp), velocity = 28.dp),
-                        style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 21.sp, letterSpacing = (-0.1).sp))
+                    // The fade sits on the full-width row, not the text: a short title ("Falling") is never touched,
+                    // a long one scrolls and softens only where it runs off the edge.
+                    Box(Modifier.fillMaxWidth().fadeEdges()) {
+                        Text(t, color = ink, maxLines = 1, modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2200, repeatDelayMillis = 2500,
+                            spacing = androidx.compose.foundation.MarqueeSpacing(40.dp), velocity = 28.dp),
+                            style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 21.sp, letterSpacing = (-0.1).sp))
+                    }
                 }
                 Text(m.artist, color = inkSub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 12.sp))
                 Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {

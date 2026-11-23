@@ -583,6 +583,8 @@ function renderSettings() {
 
   <div class="group"><h3>Conversation</h3>
     ${toggle('sFollow', 'Conversation mode', 'After Nebula answers it keeps listening a few seconds, so you can just ask a follow-up — no buttons.', d.followUps !== false)}
+    ${toggle('sInterrupt', 'Voice Interrupt', 'Talk over Nebula while it answers — "shorter", "why?", "stop", or a new question — and it stops and listens. Works best with headphones.', d.interruptOn !== false)}
+    <div class="slider">Interrupt sensitivity<small id="sIntV">${lab(d.interruptSens ?? 0.5, ['Strict', 'Balanced', 'Eager'])}</small></div><input type="range" id="sIntSens" min="0" max="1" step="0.01" value="${d.interruptSens ?? 0.5}">
     ${toggle('sShare', 'Share my screen', 'Nebula looks at your screen when you ask something, so “what is this?” or “fix this error” just work. Only used when you ask.', !!d.screenShare)}</div>
 
   <div class="group"><h3>Name coach <small style="color:var(--ok)">${d.nameSayAs ? 'Learned' : ''}</small></h3>
@@ -687,6 +689,9 @@ function renderSettings() {
   on('sHud', 'onchange', (e) => setS({ r3cketHud: e.target.checked }));
   on('sPower', 'onchange', (e) => setS({ r3cketPower: e.target.checked }));
   on('sFollow', 'onchange', (e) => setS({ followUps: e.target.checked }));
+  on('sInterrupt', 'onchange', (e) => setS({ interruptOn: e.target.checked }));
+  on('sIntSens', 'oninput', (e) => { $('sIntV').textContent = lab(+e.target.value, ['Strict', 'Balanced', 'Eager']); });
+  on('sIntSens', 'onchange', (e) => setS({ interruptSens: +e.target.value }));
   on('sShare', 'onchange', (e) => setS({ screenShare: e.target.checked }));
   B.querySelectorAll('[data-perf]').forEach((b) => (b.onclick = () => setS({ performance: b.dataset.perf }).then(renderSettings)));
   recorder($('sCrossHk'), (k) => setS({ crosshairHotkey: k }).then(renderSettings), true);

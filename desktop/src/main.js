@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { Brain, cleanKey } = require('./brain');
 const { wakeThreshold } = require('./voice');
+const interrupt = require('./interrupt');
 const { WinHelper, NOT_GAMES, isGamePath } = require('./win32');
 const os = require('os');
 const net = require('net');
@@ -46,6 +47,9 @@ const DEFAULTS = {
   hotkey: 'Alt+Space',
   speak: true,
   followUps: true,       // keep listening briefly after Nebula answers
+  interruptOn: true,     // Voice Interrupt: talk over Nebula and it stops and listens
+  interruptSens: 0.5,    // 0 = only clear, loud speech; 1 = picks up softer voices (more false stops on speakers)
+  interruptAck: true,    // answer an interruption with a short natural "Got you —"
   performance: 'auto',   // 'auto' (lite on battery) | 'full' | 'lite'
   voice: '',
   startWithWindows: true,
@@ -349,6 +353,14 @@ function onEars(m) {
   else if (m.type === 'error') { wakeError = m.message; log(m.message); if (/Wake word/.test(m.message)) { wake = false; broadcastSettings(); } }
   else if (m.type === 'wake') { if (!session.active) startSession('wake'); }
   else if (m.type === 'level') { if (session.active) { send(island, 'island:level', m.level); if (glow && !glow.isDestroyed() && glow.isVisible()) send(glow, 'vibrance:level', m.level); } }
+  else if (m.type === 'barge') {
+    // Voice Interrupt: you started talking over Nebula. Stop the voice at once (nothing more is spoken) and listen.
+    if (m.token !== session.token || session.phase !== 'speaking') return;
+    session.speechId++; session.barged = true; session.cutOn = session.reply;
+    send(island, 'island:speak-stop');
+    session.listening = m.token;
+    setPhase('listening');
+  }
   else if (m.type === 'utterance') {
     if (m.token !== session.token || session.listening !== m.token) return;
     session.listening = 0;
@@ -417,6 +429,7 @@ function initAgent() {
 const session = {
   active: false, phase: 'idle', transcript: '', reply: '', sources: [], error: '',
   listening: 0, lastEnd: 0, endTimer: null, token: 0,
+  speechId: 0, barged: false, cutOn: '', // Voice Interrupt
 };
 const timer = { endsAt: 0, label: '', handle: null };
 
@@ -536,6 +549,7 @@ function startSession(source, typed) {
 }
 
 async function onUtterance(wav, token) {
+  if (session.barged) return onInterrupt(wav, token);
   if (!wav) {
     // Silence after a follow-up just means you're done.
     if (session.followup) { session.followup = false; endSession(); return; }
@@ -555,10 +569,31 @@ async function onUtterance(wav, token) {
   }
 }
 
-async function think(text, token) {
+/** What you said over Nebula: stop, or carry on the same conversation in the new direction. */
+async function onInterrupt(wav, token) {
+  session.barged = false;
+  const cutOn = session.cutOn || ''; session.cutOn = '';
+  setPhase('thinking');
+  let text = '';
+  try { if (wav) text = await brain.transcribe(wav); } catch (e) { log('interrupt', e.message); }
+  if (token !== session.token) return;
+  const clean = String(text || '').trim().replace(/[.!?]+$/, '').toLowerCase();
+  if (!clean || interrupt.WHISPER_NOISE.has(clean)) return clarify(token); // couldn't make it out: ask, don't carry on
+  session.transcript = text; pushIslandState();
+  const kind = interrupt.classify(text);
+  if (kind === interrupt.KIND.STOP) { setPhase('done', { reply: 'Okay.' }); session.endTimer = setTimeout(endSession, 1200); return; }
+  await think(interrupt.followUp(kind, fixHeard(text), cutOn, configData.interruptAck !== false), token, text);
+}
+
+function clarify(token) {
+  session.reply = 'Sorry — what was that?'; session.expectsAnswer = true;
+  if (configData.speak) { setPhase('speaking'); speakOut(session.reply, token); } else finishTurn(token);
+}
+
+async function think(text, token, shown) {
   setPhase('thinking');
   send(island, 'island:sound', 'thinking');
-  text = fixHeard(text);
+  if (!shown) text = fixHeard(text);
   // Voice requests run through the same task engine as the app, so they show up in Chat and Tasks.
   const fresh = voiceConv && store.conversation(voiceConv) && Date.now() - store.conversation(voiceConv).updatedAt < 10 * 60_000;
   if (!fresh) voiceConv = store.newConversation().id;
@@ -583,7 +618,8 @@ async function think(text, token) {
 }
 
 function finishTurn(token) {
-  if (token !== session.token || !session.active) return;
+  if (token !== session.token || !session.active || session.barged) return;
+  if (ears) ears.postMessage({ type: 'bargeStop' });
   // Conversation mode: after Nebula answers, keep listening a few seconds for a follow-up — no button needed.
   // If Nebula asked you something, it waits a little longer. Silence closes the island.
   if (session.voice && configData.followUps !== false) {
@@ -606,8 +642,8 @@ function fail(message) {
 
 function endSession() {
   clearTimeout(session.endTimer);
-  if (session.listening && ears) ears.postMessage({ type: 'cancel' });
-  session.listening = 0; session.followup = false;
+  if (ears) ears.postMessage({ type: session.listening ? 'cancel' : 'bargeStop' });
+  session.listening = 0; session.followup = false; session.barged = false; session.speechId++;
   if (ears) ears.postMessage({ type: 'levels', on: false });
   session.token += 1;
   session.active = false;
@@ -667,11 +703,16 @@ let voiceProblem = '';
 /** Speaks with Groq Orpheus (streamed sentence by sentence to the island); falls back to the Windows voice. */
 async function speakOut(text, token) {
   text = forSpeech(text);
+  const id = ++session.speechId;
+  // Voice Interrupt: listen lightly while Nebula talks (only for spoken conversations, with the mic already on).
+  if (configData.interruptOn !== false && session.voice && ears) {
+    ears.postMessage({ type: 'barge', token, tuning: interrupt.tuning(configData.interruptSens ?? 0.5, true) });
+  }
   if (configData.voiceEngine === 'groq' && getKey()) {
     let sent = 0;
     try {
       await brain.speak(text, (buf, last) => {
-        if (token !== session.token) return false;
+        if (token !== session.token || id !== session.speechId) return false;
         sent++;
         send(island, 'island:audio', { token, b64: buf.toString('base64'), last });
         return true;
@@ -684,7 +725,7 @@ async function speakOut(text, token) {
       if (sent) { send(island, 'island:audio', { token, b64: null, last: true }); return; }
     }
   }
-  if (token === session.token) send(island, 'island:speak', { text, voice: configData.voice, token });
+  if (token === session.token && id === session.speechId) send(island, 'island:speak', { text, voice: configData.voice, token });
 }
 
 // ------------------------------------------------------------------ R3cket game mode
