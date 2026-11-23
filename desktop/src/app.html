@@ -96,6 +96,10 @@
   /* thread */
   .thread { padding: 10px 0 20px; display: flex; flex-direction: column; gap: 12px; }
   .msg { display: flex; flex-direction: column; align-items: flex-start; }
+  #banners { padding: 0 28px; display: grid; gap: 8px; }
+  .banner { border-radius: 16px; background: var(--raised); border: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
+  .banner b { font-weight: 650; } .banner .sub { margin: 2px 0 0; } .banner .acts { margin-left: auto; display: flex; gap: 8px; flex: none; }
+  .err .report { margin-top: 6px; font-size: 12.5px; color: var(--flame); cursor: pointer; background: none; border: 0; padding: 2px 4px; }
   .msg.me { align-items: flex-end; }
   .msg.new { animation: rise .45s var(--spring) both; }
   @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
@@ -228,6 +232,7 @@
 
   <main>
     <div class="top drag"><h1 id="topTitle">Chat</h1></div>
+    <div id="banners"></div>
 
     <section class="view" id="v-chat">
       <div class="scroll" id="chatScroll"><div class="wrap" id="chatBody"></div></div>
@@ -394,12 +399,14 @@ function renderChat() {
     const hideText = task && task.status === 'REQUIRES_INPUT' && task.input && m.text === task.input.question;
     return `<div class="msg ${m.role === 'user' ? 'me' : m.role === 'error' ? 'err' : ''} ${isNew ? 'new' : ''}">
       ${hideText ? '' : `<div class="bubble">${esc(m.text)}</div>`}
+      ${m.role === 'error' ? `<button class="report press" data-report="${esc(m.text)}">Report to Claude</button>` : ''}
       ${task ? taskCard(task) : ''}
       ${(m.fileIds || []).map((id) => D.files.find((f) => f.id === id)).filter(Boolean).map(fileChip).join('')}
       ${m.sources?.length ? `<div class="srcs">${m.sources.map((s) => `<a class="src" data-url="${esc(s.url)}" title="${esc(s.url)}">${esc(s.title)}</a>`).join('')}</div>` : ''}
       <div class="time">${fmtTime(m.at)}</div></div>`;
   }).join('')}${act ? `<div class="working"><svg id="spinMark" width="26" height="26" viewBox="0 0 60 60"></svg><span>${esc(act)}</span><span class="dots"><i></i><i></i><i></i></span></div>` : ''}</div>`;
   if ($('spinMark')) drawMark($('spinMark'), 26);
+  $('chatBody').querySelectorAll('[data-report]').forEach((b) => (b.onclick = () => api.send('support:report', { what: `Error: ${b.dataset.report}` })));
   wireCards($('chatBody'));
   if (atBottom || msgs.some((m) => !m.__s)) requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
 }
@@ -591,7 +598,9 @@ function renderSettings() {
 
   <div class="group"><h3>Appearance</h3><div class="chiprow">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button class="chip press ${(d.theme || 'system') === v ? 'on' : ''}" data-theme="${v}">${l}</button>`).join('')}</div></div>
 
-  <div class="group"><h3>About</h3><p class="sub">Nebula for Windows ${esc(d.version || '')}</p></div>`;
+  <div class="group"><h3>About</h3><p class="sub">Nebula for ${d.platform === 'linux' ? 'Linux' : 'Windows'} ${esc(d.version || '')}${d.update ? ` · <b>${esc(d.update.version)} is available</b>` : ''}</p>
+    <div class="row"><button class="pill press" id="reportBtn">Report a problem to Claude</button></div>
+    <p class="sub">Opens a pre-filled report on GitHub for you to check and send. Claude reads new reports daily, fixes them and ships an update.</p></div>`;
 
   const B = $('setBody');
   const on = (id, ev, f) => { const el = $(id); if (el) el[ev] = f; };
@@ -641,6 +650,7 @@ function renderSettings() {
   coach.render();
   on('sSports', 'onchange', (e) => setS({ sportsOn: e.target.checked }));
   on('sMusic', 'onchange', (e) => setS({ islandMusic: e.target.checked }));
+  on('reportBtn', 'onclick', () => api.send('support:report', {}));
   on('sGoals', 'onchange', (e) => setS({ sportsGoals: e.target.checked }));
   on('sEvents', 'onchange', (e) => setS({ sportsEvents: e.target.checked }));
   B.querySelectorAll('[data-sdemo]').forEach((b) => (b.onclick = () => api.send('sports:demo', b.dataset.sdemo)));
@@ -813,7 +823,18 @@ function render() {
 }
 api.on('app:data', (d) => { D = d; render(); });
 api.on('app:activity', (a) => { activity = a; render(); });
-api.on('settings:data', (d) => { S = d; applyTheme(d); renderSide(); if ($('setSheet').classList.contains('on') && !$('setSheet').contains(document.activeElement)) renderSettings(); });
+function renderBanners() {
+  const d = S || {}; let h = '';
+  if (d.update) h += `<div class="banner"><div><b>Update available — Nebula ${esc(d.update.version)}</b><p class="sub">Recommended: it has the latest fixes. You can keep using this version.</p></div>
+    <div class="acts"><button class="pill press" data-up="open">Update</button><button class="chip press" data-up="later">Later</button><button class="chip press" data-up="skip">Skip</button></div></div>`;
+  if (d.lastCrash) h += `<div class="banner"><div><b>Nebula closed unexpectedly</b><p class="sub">Send the details to Claude to get it fixed in the next update.</p></div>
+    <div class="acts"><button class="pill press" id="crashReport">Report to Claude</button><button class="chip press" id="crashDismiss">Dismiss</button></div></div>`;
+  $('banners').innerHTML = h;
+  $('banners').querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => api.send('support:update', b.dataset.up)));
+  if ($('crashReport')) $('crashReport').onclick = () => api.send('support:report', { crash: true });
+  if ($('crashDismiss')) $('crashDismiss').onclick = () => api.send('support:dismissCrash');
+}
+api.on('settings:data', (d) => { S = d; applyTheme(d); renderSide(); renderBanners(); if ($('setSheet').classList.contains('on') && !$('setSheet').contains(document.activeElement)) renderSettings(); });
 api.on('app:sound', chime);
 api.on('app:open', (v) => (v === 'settings' ? openSheet('set') : go(v)));
 

@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
 
       - uses: actions/setup-java@v5
         with:
@@ -70,14 +72,25 @@ jobs:
           name: Nebula-test-apk
           path: Nebula.apk
 
+      - name: Release notes
+        if: steps.sign.outputs.signed == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          {
+            echo '**Install on your phone:** tap **Nebula.apk** below, open it, and allow installing from your browser if asked.'
+            echo
+            echo "**What's new**"
+            git log -8 --no-merges --pretty='- %s' | grep -v '^- WIP' | head -6
+            echo
+            echo "Built from ${{ github.sha }}."
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Publish release
         if: steps.sign.outputs.signed == 'true' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v2.0.${{ github.run_number }}
           name: Nebula 2.0.${{ github.run_number }}
-          body: |
-            **Install on your phone:** tap **Nebula.apk** below, open it, and allow installing from your browser if asked.
-            Built from ${{ github.sha }}.
+          body_path: release-notes.md
           files: Nebula.apk
           make_latest: true

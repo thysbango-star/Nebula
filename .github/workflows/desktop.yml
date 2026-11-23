@@ -61,6 +61,7 @@ jobs:
           ls -la dist
           test -f dist/Nebula-Setup.exe
           test -f dist/Nebula-Portable.exe
+          node -e "require('fs').writeFileSync('dist/latest.json', JSON.stringify({version: require('./package.json').version, notes: process.argv[1]}))" "$(git log -1 --pretty=%s)"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,16 +75,18 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: desktop
-          name: Nebula for Windows
+          name: Nebula for Windows and Linux
           make_latest: false
           body: |
-            **Install on your PC:** download **Nebula-Setup.exe** and run it.
+            **Windows:** download **Nebula-Setup.exe** and run it.
             Windows may say "Windows protected your PC" because the app isn't code-signed: click **More info → Run anyway**.
             Or use **Nebula-Portable.exe** to run it without installing.
+            **Linux:** download **Nebula-Linux.AppImage** (make it executable and run it) or install **Nebula-Linux.deb**. For music in the island, install `playerctl`.
             Built from ${{ github.sha }}.
           files: |
             desktop/dist/Nebula-Setup.exe
             desktop/dist/Nebula-Portable.exe
+            desktop/dist/latest.json
 
   linux:
     runs-on: ubuntu-latest

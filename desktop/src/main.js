@@ -20,7 +20,9 @@ const { Agent } = require('./agent');
 
 // Never interrupt the user with crash dialogs: log quietly and keep running.
 const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
+const support = require('./support');
 function log(...a) {
+  try { if (a.some((x) => x instanceof Error) || /error|fail/i.test(String(a[0]))) support.note(a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ')); } catch { /* */ }
   try {
     const line = `[${new Date().toISOString()}] ${a.map((x) => (x instanceof Error ? x.stack : typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`;
     const f = LOG(); if (fs.existsSync(f) && fs.statSync(f).size > 512 * 1024) fs.renameSync(f, f + '.old');
@@ -74,6 +76,7 @@ const DEFAULTS = {
   sportsOn: true,        // live scores in the island while your teams play
   sportsGoals: true,     // the goal animation + cheer
   sportsEvents: true,    // cards (with rugby timers), substitution boards and scorers
+  skipUpdate: '',        // a version the user chose to skip
   sportsTeams: [],       // [{league, id, abbr, name, color}]
 };
 let configData = { ...DEFAULTS };
@@ -413,6 +416,13 @@ const session = {
   listening: 0, lastEnd: 0, endTimer: null, token: 0,
 };
 const timer = { endsAt: 0, label: '', handle: null };
+
+// ------------------------------------------------------------------ updates & reports
+let update = null; let notifiedUpdate = ''; let lastCrash = '';
+process.on('uncaughtException', (e) => {
+  try { fs.writeFileSync(path.join(app.getPath('userData'), 'last-crash.txt'), `${e && e.stack || e}`.slice(0, 4000)); } catch { /* */ }
+  log('uncaught', e);
+});
 
 // ------------------------------------------------------------------ now playing
 const { findCover, cleanArtist } = require('./covers');
@@ -810,6 +820,7 @@ function settingsPayload() {
     groqExtraEnc: undefined, keyCount: allKeys().length, activeKeyNumber: allKeys().length ? ((configData.activeKey || 0) % allKeys().length) + 1 : 0,
     dark: configData.theme === 'dark' || (configData.theme !== 'light' && nativeTheme.shouldUseDarkColors), platform: process.platform,
     version: app.getVersion(),
+    update, lastCrash: lastCrash ? lastCrash.split('\n')[0].slice(0, 160) : '',
   };
 }
 
@@ -914,6 +925,20 @@ function wireIpc() {
   });
   ipcMain.handle('settings:foreground', async () => (process.platform === 'win32' ? helper.foreground() : { exe: '', fullscreen: false }));
   ipcMain.handle('sports:leagues', () => LEAGUES);
+  ipcMain.on('support:report', (_e, r) => {
+    const crash = r && r.crash ? lastCrash : '';
+    shell.openExternal(support.issueUrl(app.getVersion(), crash ? `Crash: ${crash.split('\n')[0].slice(0, 120)}` : (r && r.what) || 'Problem: (describe what went wrong)', crash || (r && r.detail) || ''));
+    if (crash) lastCrash = '';
+    broadcastSettings();
+  });
+  ipcMain.on('support:update', (_e, act) => {
+    if (!update) return;
+    if (act === 'open') shell.openExternal(update.url);
+    if (act === 'skip') config.set('skipUpdate', update.version);
+    if (act === 'skip' || act === 'later') update = null;
+    broadcastSettings();
+  });
+  ipcMain.on('support:dismissCrash', () => { lastCrash = ''; broadcastSettings(); });
   ipcMain.handle('sports:teams', async (_e, path) => { try { return await sportsTeamList(path); } catch (e) { return { error: e.message }; } });
   ipcMain.on('sports:demo', (_e, kind) => sports.demo(kind));
   ipcMain.on('settings:preview', () => {
@@ -943,6 +968,22 @@ app.whenReady().then(() => {
   initWake();
   sports.start();
   setTimeout(pollMedia, 6000);
+  // Is there a newer Nebula? On launch and every 12 hours; one notification per version.
+  const updateCheck = async () => {
+    try {
+      const u = await support.checkUpdate(app.getVersion());
+      update = u && u.version !== configData.skipUpdate ? u : null;
+      if (update && notifiedUpdate !== update.version && Notification.isSupported()) {
+        notifiedUpdate = update.version;
+        const n = new Notification({ title: 'A Nebula update is ready', body: `Version ${update.version} — recommended, but you can skip it.` });
+        n.on('click', () => openApp()); n.show();
+      }
+      broadcastSettings();
+    } catch (e) { log('update check', e.message); }
+  };
+  setTimeout(updateCheck, 20000); setInterval(updateCheck, 12 * 3600000);
+  // Crashed last time? Offer to report it.
+  try { const f = path.join(app.getPath('userData'), 'last-crash.txt'); if (fs.existsSync(f)) { lastCrash = fs.readFileSync(f, 'utf8'); fs.unlinkSync(f); } } catch { /* */ }
   ear.webContents.on('did-finish-load', () => { earRunning = false; connectEarPort(); updateEar(); });
 
   screen.on('display-metrics-changed', repositionWindows);
