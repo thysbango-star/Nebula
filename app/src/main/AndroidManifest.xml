@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Hearing "Hey Nebula" and your questions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- live audio bars on the music card (android.media.audiofx.Visualizer) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Keeping the wake word listener alive in the background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

@@ -79,6 +79,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -389,7 +390,7 @@ private fun accentFor(mode: Mode, v: VoiceState.Session, t: NebulaTask?, call: N
     Mode.VOICE -> when (v.phase) { VoiceState.Phase.ERROR -> Red; VoiceState.Phase.LISTENING -> Sky; else -> Flame }
     Mode.CALL -> if (call?.ringing == true) Mint else Mint
     Mode.MESSAGE -> Sky
-    Mode.MUSIC_OPEN -> Violet
+    Mode.MUSIC_OPEN -> Color.Transparent // the song's own colours
     Mode.R3CKET, Mode.GAME -> Lime
     Mode.SPORTS_OPEN, Mode.GOAL -> Color.Transparent // the score card brings its own team colours
     Mode.TASK -> when (t?.status) { TaskStatus.COMPLETED -> Mint; TaskStatus.FAILED -> Red; else -> Ember }
@@ -479,7 +480,12 @@ private fun TaskView(t: NebulaTask, h: Dp) {
 }
 
 @Composable
-private fun MusicCompact(m: NotchBus.Media, h: Dp) = Compact({ Art(m, h - 12.dp, 7.dp) }, { Equalizer(m.playing, Modifier.size(width = 20.dp, height = 13.dp)) })
+private fun MusicCompact(m: NotchBus.Media, h: Dp) = Box(Modifier.fillMaxSize()) {
+    val th = MusicTheme.of(m.art)
+    val c by animateColorAsState(th.blobs.first(), tween(900), label = "mc")
+    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to c.copy(alpha = 0.45f), 0.35f to Color.Transparent, 0.65f to Color.Transparent, 1f to c.copy(alpha = 0.45f))))
+    Compact({ Art(m, h - 12.dp, 7.dp) }, { Equalizer(m.playing, Modifier.size(width = 20.dp, height = 13.dp)) })
+}
 
 /** R3cket HUD: game time on the left, ping + temperature on the right. Tap for the panel. */
 @Composable
@@ -1361,37 +1367,113 @@ private fun MessageView(m: NotchBus.Message, dismiss: () -> Unit) {
     }
 }
 
+/**
+ * The open music card, themed by the song's album art (see [MusicTheme]): a lighter slab holding the cover on
+ * the left, a big title and the artist on the right, a play button and a hairline progress track with diamond ends.
+ * Each theme has its own living background, the bars along the bottom move with the real audio, and a new track
+ * flips its cover in while the colours melt across.
+ */
 @Composable
 private fun MusicOpen(m: NotchBus.Media) {
     val tc = m.controller?.transportControls
-    Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Art(m, 54.dp, 13.dp)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(m.title, color = Color.White, style = label().copy(fontSize = 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(m.artist, color = Dim, style = label(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val th = MusicTheme.of(m.art)
+    val spec = tween<Color>(900)
+    val bg1 by animateColorAsState(th.bg1, spec, label = "bg1"); val bg2 by animateColorAsState(th.bg2, spec, label = "bg2")
+    val text by animateColorAsState(th.text, spec, label = "tx"); val sub by animateColorAsState(th.sub, spec, label = "sub")
+    val accent by animateColorAsState(th.accent, spec, label = "ac")
+    val flip = remember(m.title) { Animatable(0f) }
+    LaunchedEffect(m.title) { flip.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 220f)) }
+    val inf = rememberInfiniteTransition(label = "music")
+    val drift by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(12000, easing = LinearEasing)), label = "d")
+    val beat by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "b")
+    DisposableEffect(m.playing) {
+        val on = m.playing && MusicTheme.startBars()
+        onDispose { if (on) MusicTheme.stopBars() }
+    }
+    val bands by MusicTheme.bands.collectAsState()
+    val smooth = remember { FloatArray(16) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(250); now = System.currentTimeMillis() } }
+    val pos = if (m.playing) m.position + (now - m.updatedAt) else m.position
+    val frac = if (m.duration > 0) (pos.toFloat() / m.duration).coerceIn(0f, 1f) else 0f
+
+    Box(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height
+            drawRect(Brush.linearGradient(listOf(bg1, bg2), Offset(0f, 0f), Offset(w, h)))
+            val a = (drift * 2 * Math.PI).toFloat()
+            when (th.style) {
+                "mono" -> { // brushed silver: a spotlight sliding across and a little film grain
+                    val sx = ((drift * 2) % 1f) * (w + 300f) - 150f
+                    drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent), Offset(sx - 120f, 0f), Offset(sx + 120f, h)))
+                    val rnd = java.util.Random((beat * 30).toLong() + (drift * 1000).toLong())
+                    repeat(90) { drawCircle((if (th.text == Color.White) Color.White else Color.Black).copy(alpha = 0.05f), 0.8f, Offset(rnd.nextFloat() * w, rnd.nextFloat() * h)) }
+                }
+                "vivid" -> th.blobs.forEachIndexed { i, c -> // the cover's colours drifting like lava
+                    val o = Offset(w * (0.3f + 0.45f * sin(a + i * 2.1f).let { (it + 1) / 2 }), h * (0.5f + 0.35f * cos(a * 1.3f + i)))
+                    val r = w * (0.38f + 0.05f * i) * (1f + if (m.playing) 0.06f * sin(beat * 6.283f) else 0f)
+                    drawCircle(Brush.radialGradient(listOf(c.copy(alpha = 0.45f), Color.Transparent), o, r), r, o)
+                }
+                else -> { // night: a glow behind the cover and specks of light rising
+                    val o = Offset(w * 0.17f, h * 0.55f); val r = h * (0.9f + if (m.playing) 0.08f * sin(beat * 6.283f) else 0f)
+                    drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.45f), Color.Transparent), o, r), r, o)
+                    for (i in 0 until 18) {
+                        val p = ((drift * 3 + i * 0.137f) % 1f)
+                        drawCircle(accent.copy(alpha = 0.35f * (1f - p)), (1 + (i % 3)).dp.toPx(), Offset(w * ((i * 0.618f) % 1f), h * (1f - p)))
+                    }
+                }
             }
-            Equalizer(m.playing, Modifier.size(width = 22.dp, height = 16.dp))
-        }
-        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-        LaunchedEffect(Unit) { while (true) { delay(500); now = System.currentTimeMillis() } }
-        val pos = if (m.playing) m.position + (now - m.updatedAt) else m.position
-        val frac = if (m.duration > 0) (pos.toFloat() / m.duration).coerceIn(0f, 1f) else 0f
-        Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(clock(pos), color = Faint, style = label().copy(fontSize = 10.sp))
-            Box(Modifier.weight(1f).padding(horizontal = 8.dp).height(4.dp).clip(CircleShape).background(Color(0x33FFFFFF))) {
-                Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(CircleShape).background(Color.White))
+            // live audio bars along the bottom
+            val n = 16; val x0 = w * 0.34f; val step = (w * 0.63f) / n; val bw = step * 0.55f
+            for (i in 0 until n) {
+                smooth[i] += ((if (m.playing) bands[i] else 0f) - smooth[i]) * 0.35f
+                val bh = 3.dp.toPx() + smooth[i] * h * 0.22f
+                drawRoundRect(accent.copy(alpha = 0.28f), Offset(x0 + i * step, h - bh), Size(bw, bh), CornerRadius(bw / 2))
             }
-            Text("-" + clock((m.duration - pos).coerceAtLeast(0)), color = Faint, style = label().copy(fontSize = 10.sp))
         }
-        Spacer(Modifier.weight(1f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconTap(Icons.Rounded.SkipPrevious, 30.dp) { tc?.skipToPrevious() }
-            IconTap(if (m.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 40.dp) { if (m.playing) tc?.pause() else tc?.play() }
-            IconTap(Icons.Rounded.SkipNext, 30.dp) { tc?.skipToNext() }
+        Row(Modifier.fillMaxSize()) {
+            // the slab with the cover
+            Box(Modifier.width(126.dp).fillMaxHeight().clip(RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp)).background(th.slab), contentAlignment = Alignment.Center) {
+                Box(Modifier.padding(top = 18.dp).graphicsLayer {
+                    val f = flip.value; rotationY = (1f - f) * -80f; cameraDistance = 12f * density; val k = 0.7f + 0.3f * f; scaleX = k; scaleY = k; alpha = f.coerceIn(0f, 1f)
+                    val pulse = if (m.playing) 1f + 0.015f * sin(beat * 6.283f) else 1f; scaleX *= pulse; scaleY *= pulse
+                }.shadowLite()) { Art(m, 96.dp, 22.dp) }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = 16.dp, end = 18.dp, top = 30.dp, bottom = 14.dp), verticalArrangement = Arrangement.Center) {
+                AnimatedContent(m.title, transitionSpec = { (slideInVertically(tween(380)) { it / 2 } + fadeIn(tween(300))) togetherWith (slideOutVertically(tween(240)) { -it / 2 } + fadeOut(tween(200))) },
+                    label = "title") { t ->
+                    Text(t, color = text, maxLines = 1, modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                        style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp))
+                }
+                Text(m.artist, color = sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp))
+                Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTap(Icons.Rounded.SkipPrevious, 22.dp, text) { tc?.skipToPrevious() }
+                    IconTap(if (m.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 34.dp, text) { if (m.playing) tc?.pause() else tc?.play() }
+                    IconTap(Icons.Rounded.SkipNext, 22.dp, text) { tc?.skipToNext() }
+                    Spacer(Modifier.width(8.dp))
+                    // hairline track with diamond ends and a knob riding along
+                    Canvas(Modifier.weight(1f).height(16.dp)) {
+                        val y = size.height / 2; val d = 3.5.dp.toPx(); val x0 = d; val x1 = size.width - d
+                        drawLine(text.copy(alpha = 0.35f), Offset(x0, y), Offset(x1, y), 1.5.dp.toPx())
+                        drawLine(text, Offset(x0, y), Offset(x0 + (x1 - x0) * frac, y), 1.5.dp.toPx())
+                        for (x in listOf(x0, x1)) {
+                            val dia = androidx.compose.ui.graphics.Path().apply { moveTo(x, y - d); lineTo(x + d, y); lineTo(x, y + d); lineTo(x - d, y); close() }
+                            drawPath(dia, text, style = Stroke(1.3.dp.toPx()))
+                        }
+                        drawCircle(text, 4.dp.toPx(), Offset(x0 + (x1 - x0) * frac, y))
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(start = 86.dp)) {
+                    Text(clock(pos), color = sub, style = label().copy(fontSize = 9.sp))
+                    Spacer(Modifier.weight(1f))
+                    Text("-" + clock((m.duration - pos).coerceAtLeast(0)), color = sub, style = label().copy(fontSize = 9.sp))
+                }
+            }
         }
     }
 }
+
+private fun Modifier.shadowLite() = this.graphicsLayer { shadowElevation = 14.dp.toPx(); shape = RoundedCornerShape(22.dp); clip = false }
 
 @Composable
 private fun DeviceView(d: NotchBus.Device, h: Dp) {
@@ -1532,8 +1614,8 @@ private fun CloseDot(onClick: () -> Unit) {
 }
 
 @Composable
-private fun IconTap(icon: ImageVector, size: Dp, onClick: () -> Unit) =
-    Icon(icon, null, tint = Color.White, modifier = Modifier.size(size + 12.dp).clip(CircleShape).clickable(onClick = onClick).padding(6.dp))
+private fun IconTap(icon: ImageVector, size: Dp, tint: Color = Color.White, onClick: () -> Unit) =
+    Icon(icon, null, tint = tint, modifier = Modifier.size(size + 12.dp).clip(CircleShape).clickable(onClick = onClick).padding(6.dp))
 
 private fun label() = TextStyle(fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp)
 private fun big(size: Int) = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = size.sp, lineHeight = (size * 1.15f).sp)
