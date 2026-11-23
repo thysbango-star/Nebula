@@ -841,6 +841,30 @@ object Sports {
                 g to listOf(Score(g, true, "1", "GOAL", "B. Saka 67'"))
             }
         }
+        // Previews use the real ESPN logos (and competition logo), same as a live game.
+        val withLogos = runCatching { withContext(Dispatchers.IO) { demoLogos(which) } }.getOrDefault(emptyMap())
+        fun fixSide(sd: Side) = if (sd.logo.isNotEmpty()) sd else withLogos[norm(sd.name)]?.let { sd.copy(logo = it) } ?: sd
+        fun fixGame(x: Game) = x.copy(home = fixSide(x.home), away = fixSide(x.away), leagueLogo = x.leagueLogo.ifEmpty { withLogos["league"].orEmpty() })
+        val gg = fixGame(g)
+        return demoRun(which, gg, moments.map { it.copy(game = fixGame(it.game)) }, now)
+    }
+
+    private suspend fun demoLogos(which: String): Map<String, String> {
+        val path = if (which in setOf("try", "tmo", "lineup")) "rugby/289234" else if (which == "six") return emptyMap() else "soccer/eng.1"
+        val out = HashMap<String, String>()
+        runCatching {
+            val arr = get(BASE + path + "/teams").optJSONArray("sports")?.optJSONObject(0)?.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("teams")
+            if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.optJSONObject("team")?.let { t ->
+                val l = logoOf(t); if (l.isNotBlank()) for (n in listOf(t.optString("displayName"), t.optString("shortDisplayName"), t.optString("name"))) if (n.isNotBlank()) out.putIfAbsent(norm(n), l)
+            }
+        }
+        runCatching {
+            get(BASE + path + "/scoreboard").optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("logos")?.optJSONObject(0)?.optString("href")?.takeIf { it.isNotBlank() }?.let { out["league"] = it }
+        }
+        return out
+    }
+
+    private suspend fun demoRun(which: String, g: Game, moments: List<Score>, now: Long) {
         val first = moments.first()
         val start = g.copy(home = g.home.copy(text = if (first.home) first.before else g.home.text), away = g.away.copy(text = if (!first.home) first.before else g.away.text))
         demoUntil = now + if (which == "lineup") 50_000 else 40_000

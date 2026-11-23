@@ -423,6 +423,21 @@ function lineupsFrom(g, j, mine) {
   return out;
 }
 
+async function demoLogos(which) {
+  if (which === 'six') return {};
+  const path = ['try', 'tmo', 'lineup'].includes(which) ? 'rugby/289234' : 'soccer/eng.1';
+  const out = {};
+  try {
+    const j = await get(BASE + path + '/teams');
+    for (const x of ((((j.sports || [])[0] || {}).leagues || [])[0] || {}).teams || []) {
+      const t = x.team; const l = t && logoOf(t); if (!l) continue;
+      for (const n of [t.displayName, t.shortDisplayName, t.name]) if (n && !out[norm(n)]) out[norm(n)] = l;
+    }
+  } catch { /* offline: colour badges */ }
+  try { const j = await get(BASE + path + '/scoreboard'); const l = (((j.leagues || [])[0] || {}).logos || [])[0]; if (l && l.href) out.league = l.href; } catch { /* */ }
+  return out;
+}
+
 // ---------------------------------------------------------------- watcher
 class Sports {
   /** onChange({games}) whenever the list changes; onGoal(score) when one of your teams scores. */
@@ -636,6 +651,10 @@ class Sports {
       g = { ...base, league: epl, clock: "67'", lastPlay: "B. Saka 67'", home: ars, away: che, stats };
       ms = [{ game: g, home: true, before: '1', label: 'GOAL', who: "B. Saka 67'" }];
     }
+    // Previews use the real ESPN logos (and competition logo), same as a live game.
+    const logos = await demoLogos(which).catch(() => ({}));
+    const fix = (x) => { for (const sd of [x.home, x.away]) if (!sd.logo && logos[norm(sd.name)]) sd.logo = logos[norm(sd.name)]; if (!x.leagueLogo && logos.league) x.leagueLogo = logos.league; return x; };
+    fix(g); ms.forEach((m) => fix(m.game));
     const first = ms[0];
     const start = { ...g, cards: [], home: { ...g.home, text: first.home ? first.before : g.home.text }, away: { ...g.away, text: !first.home ? first.before : g.away.text } };
     this.demoUntil = now + (which === 'lineup' ? 50000 : 40000);
