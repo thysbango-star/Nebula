@@ -1,5 +1,6 @@
 package com.nebula.assistant.notch
 
+import kotlinx.coroutines.launch
 import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
@@ -67,11 +68,20 @@ class NebulaNotificationListener : NotificationListenerService() {
         val st = c.playbackState
         val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
         if (title.isBlank()) return NotchBus.setMedia(null)
+        val rawArtist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty()
+        val artist = CoverFinder.cleanArtist(rawArtist)
         val art = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) ?: CoverFinder.cached(title, rawArtist)
+        // No cover from the app (YouTube, a browser…): go and find it, then show it when it arrives.
+        if (art == null && lookingUp != "$title|$rawArtist") {
+            lookingUp = "$title|$rawArtist"
+            val uris = listOfNotNull(md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI), md?.getString(MediaMetadata.METADATA_KEY_ART_URI),
+                md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)).filter { it.isNotBlank() }
+            lookupScope.launch { if (CoverFinder.find(applicationContext, title, rawArtist, uris) != null && lookingUp == "$title|$rawArtist") publish() }
+        }
         NotchBus.setMedia(NotchBus.Media(
             title = title,
-            artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty(),
+            artist = artist,
             art = art?.let { scale(it) },
             playing = st?.state == PlaybackState.STATE_PLAYING,
             position = st?.position ?: 0, duration = md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0,
@@ -79,6 +89,9 @@ class NebulaNotificationListener : NotificationListenerService() {
             updatedAt = st?.lastPositionUpdateTime?.takeIf { it > 0 }?.let { System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - it) } ?: System.currentTimeMillis(), pkg = c.packageName, controller = c,
         ))
     }
+
+    private var lookingUp = ""
+    private val lookupScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
 
     private fun scale(b: Bitmap): Bitmap = if (b.width <= 160) b else Bitmap.createScaledBitmap(b, 160, 160 * b.height / b.width, true)
 

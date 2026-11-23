@@ -52,6 +52,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
@@ -1535,68 +1536,71 @@ private fun MusicOpen(m: NotchBus.Media) {
             val sx = drift * (w + 400f) - 200f
             drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.12f), Color.Transparent), Offset(sx - 140f, 0f), Offset(sx + 60f, h)))
             // fine waveform behind the controls
-            val n = 16; val path = androidx.compose.ui.graphics.Path(); val base = h * 0.86f
+            // fine waveform tucked along the very bottom edge, never over the text
+            val n = 16; val path = androidx.compose.ui.graphics.Path(); val base = h - 6.dp.toPx()
             for (i in 0 until n) smooth[i] += ((if (m.playing) bands[i] else 0f) - smooth[i]) * 0.3f
             for (k in 0..64) {
-                val x = w * 0.30f + (w * 0.66f) * k / 64f
+                val x = w * 0.33f + (w * 0.62f) * k / 64f
                 val bi = (k / 64f * (n - 1)); val i0 = bi.toInt().coerceAtMost(n - 2); val f = bi - i0
-                val amp = (smooth[i0] * (1 - f) + smooth[i0 + 1] * f) * h * 0.11f + 1.2f
+                val amp = ((smooth[i0] * (1 - f) + smooth[i0 + 1] * f) * 3.5f + 0.8f).dp.toPx()
                 val y = base + sin(k * 0.55f + drift * 40f) * amp
                 if (k == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
-            drawPath(path, accent.copy(alpha = if (m.playing) 0.55f else 0.2f), style = Stroke(1.6.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(path, accent.copy(alpha = if (m.playing) 0.42f else 0.15f), style = Stroke(1.3.dp.toPx(), cap = StrokeCap.Round))
         }
-        Row(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 32.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             // 3. the cover on its own floating glass tile
-            Box(Modifier.size(100.dp).graphicsLayer {
+            Box(Modifier.size(86.dp).graphicsLayer {
                 val b = bloom.value; val k = 0.86f + 0.14f * b; scaleX = k; scaleY = k; alpha = b
                 rotationY = 6f * sin(float * 6.283f); rotationX = 4f * cos(float * 6.283f); cameraDistance = 16f * density
                 translationY = -2.dp.toPx() * sin(float * 6.283f)
-                shadowElevation = 18.dp.toPx(); shape = RoundedCornerShape(24.dp); clip = true
-            }.border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))), RoundedCornerShape(24.dp))) {
+                shadowElevation = 14.dp.toPx(); shape = RoundedCornerShape(20.dp); clip = true
+            }.border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))), RoundedCornerShape(20.dp))) {
                 if (art != null) Image(art, m.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
                     .then(if (Build.VERSION.SDK_INT >= 31 && bloom.value < 0.99f) Modifier.blur((14 * (1f - bloom.value)).dp) else Modifier))
-                else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(th.bg1, th.bg2))))
+                else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(th.bg1, th.bg2))), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(30.dp)) // while the cover is found
+                }
                 Canvas(Modifier.fillMaxSize()) { // glare on the tile
                     drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.28f), Color.Transparent), Offset.Zero, Offset(size.width * 0.6f, size.height * 0.6f)))
                 }
             }
-            Spacer(Modifier.width(18.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 AnimatedContent(m.title, transitionSpec = { (fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 3 }) togetherWith fadeOut(tween(200)) }, label = "title") { t ->
                     Text(t, color = ink, maxLines = 1, modifier = Modifier.fadeEdges().basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2200, repeatDelayMillis = 2500,
                         spacing = androidx.compose.foundation.MarqueeSpacing(40.dp), velocity = 28.dp),
-                        style = TextStyle(fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 21.sp, lineHeight = 25.sp, letterSpacing = (-0.2).sp))
+                        style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 21.sp, letterSpacing = (-0.1).sp))
                 }
-                Text(m.artist, color = inkSub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 13.sp))
-                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconTap(Icons.Rounded.SkipPrevious, 24.dp, ink) { tc?.skipToPrevious() }
-                    Spacer(Modifier.width(10.dp))
+                Text(m.artist, color = inkSub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 12.sp))
+                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTap(Icons.Rounded.SkipPrevious, 22.dp, ink) { tc?.skipToPrevious() }
+                    Spacer(Modifier.width(14.dp))
                     // play/pause on a frosted glass disc, the icon morphing between states
-                    Box(Modifier.size(40.dp).clip(CircleShape).background(ink.copy(alpha = 0.14f))
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(ink.copy(alpha = 0.14f))
                         .border(1.dp, Brush.verticalGradient(listOf(ink.copy(alpha = 0.45f), ink.copy(alpha = 0.06f))), CircleShape)
                         .clickable { if (m.playing) tc?.pause() else tc?.play() }, contentAlignment = Alignment.Center) {
                         AnimatedContent(m.playing, transitionSpec = { (scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f), 0.4f) + fadeIn()) togetherWith (scaleOut(tween(120), 0.4f) + fadeOut(tween(120))) },
                             label = "pp") { playing ->
-                            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = ink, modifier = Modifier.size(24.dp))
+                            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = ink, modifier = Modifier.size(22.dp))
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
-                    IconTap(Icons.Rounded.SkipNext, 24.dp, ink) { tc?.skipToNext() }
+                    Spacer(Modifier.width(14.dp))
+                    IconTap(Icons.Rounded.SkipNext, 22.dp, ink) { tc?.skipToNext() }
                 }
                 // a slim glass track with a glowing knob
-                Canvas(Modifier.fillMaxWidth().padding(top = 10.dp).height(10.dp)) {
-                    val y = size.height / 2; val r = 2.dp.toPx(); val x1 = size.width
+                Canvas(Modifier.fillMaxWidth().padding(top = 8.dp).height(10.dp)) {
+                    val y = size.height / 2; val r = 1.75.dp.toPx(); val x1 = size.width
                     drawRoundRect(ink.copy(alpha = 0.18f), Offset(0f, y - r), Size(x1, r * 2), CornerRadius(r))
                     drawRoundRect(Brush.horizontalGradient(listOf(ink.copy(alpha = 0.7f), ink)), Offset(0f, y - r), Size(x1 * fracA, r * 2), CornerRadius(r))
                     val kx = x1 * fracA
-                    drawCircle(accent.copy(alpha = 0.35f), 8.dp.toPx(), Offset(kx, y))
-                    drawCircle(ink, 4.5.dp.toPx(), Offset(kx, y))
+                    drawCircle(accent.copy(alpha = 0.3f), 7.dp.toPx(), Offset(kx, y))
+                    drawCircle(ink, 4.dp.toPx(), Offset(kx, y))
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
-                    Text(clock(pos), color = inkSub, style = label().copy(fontSize = 10.sp))
+                    Text(clock(pos), color = inkSub, style = label().copy(fontSize = 9.5.sp))
                     Spacer(Modifier.weight(1f))
-                    if (m.duration > 0) Text("-" + clock(m.duration - pos), color = inkSub, style = label().copy(fontSize = 10.sp))
+                    if (m.duration > 0) Text("-" + clock(m.duration - pos), color = inkSub, style = label().copy(fontSize = 9.5.sp))
                 }
             }
         }
