@@ -1603,11 +1603,11 @@ private fun MusicOpen(m: NotchBus.Media) {
     }
 }
 
-/** Fades a scrolling line out at both ends instead of chopping letters. */
+/** Fades a long line out at its right edge instead of chopping a letter in half. */
 private fun Modifier.fadeEdges() = this.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithContent {
     drawContent()
     val f = 18.dp.toPx() / size.width
-    drawRect(Brush.horizontalGradient(0f to Color.Transparent, f to Color.Black, 1f - f to Color.Black, 1f to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+    drawRect(Brush.horizontalGradient(0f to Color.Black, 1f - f to Color.Black, 1f to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
 }
 
 
