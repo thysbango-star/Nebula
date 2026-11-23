@@ -86,18 +86,64 @@ object Sports {
         val lastPlay: String,
         val start: Long,
         val note: String = "",      // e.g. rugby: "Conversion to come" / "Conversion missed"
+        val feed: String = "",      // the ESPN league path this game came from (for its key events)
+        val cards: List<Card> = emptyList(),
     ) {
         val live get() = state == "in"
     }
-    /** A big moment. [before] is the scorer's old board text, so the number can roll up. [chant] plays first, if any. */
+    /**
+     * A card shown in the game. Rugby: a yellow is 10 minutes in the sin bin; a 20-minute red lets a replacement
+     * come on after 20 minutes (World Rugby's elite trial); a permanent red is off for the match. [until] is the
+     * wall-clock time the timer runs out (0 = no timer).
+     */
+    data class Card(val home: Boolean, val player: String, val kind: String, val minute: String, val until: Long = 0)
+
+    /**
+     * A big moment. [kind]: "score" (goal, try, six…), "yellow", "red", "red20", "sub". [before] is the scorer's old
+     * board text, so the number can roll up. [chant] plays first, if any. [subs] = (on, off) pairs for the board.
+     */
     data class Score(val game: Game, val home: Boolean, val before: String, val label: String, val who: String,
-                     val chant: String = "", val at: Long = System.currentTimeMillis())
+                     val chant: String = "", val at: Long = System.currentTimeMillis(), val kind: String = "score",
+                     val minute: String = "", val until: Long = 0, val subs: List<Pair<String, String>> = emptyList(),
+                     val motif: String = "")
+
+    /** A key event from the match summary: a scorer, a card or a substitution. */
+    data class KeyEvent(val id: String, val kind: String, val teamId: String, val player: String, val player2: String, val minute: String)
 
     private val _games = MutableStateFlow<List<Game>>(emptyList())
     val games: StateFlow<List<Game>> = _games
     private val _goal = MutableStateFlow<Score?>(null)
     val goal: StateFlow<Score?> = _goal
-    fun clearGoal() { _goal.value = null }
+    private val queue = ArrayDeque<Score>()
+    /** The current moment is done: play the next one waiting (two subs and a card in the same minute, say). */
+    fun clearGoal() { _goal.value = synchronized(queue) { queue.removeFirstOrNull()?.copy(at = System.currentTimeMillis()) } }
+    private fun show(m: Score) {
+        val withMotif = if (m.motif.isEmpty()) m.copy(motif = motif(m)) else m
+        synchronized(queue) { if (_goal.value == null) _goal.value = withMotif else if (queue.size < 4) queue.addLast(withMotif) }
+    }
+
+    /**
+     * Club moments, drawn by us (not copied from any broadcast): Arsenal fire a battery of cannons, Brighton get a
+     * flock of seagulls, Newcastle magpies, Crystal Palace eagles; rugby nations get the cinematic treatment
+     * (letterbox, their logo looming from the corner). Everyone else: their logo tiled through the colour wipe.
+     */
+    private fun motif(m: Score): String {
+        if (m.kind != "score") return ""
+        val s = if (m.home) m.game.home else m.game.away
+        val n = s.name.lowercase()
+        return when {
+            m.game.league.kind == Kind.SOCCER && n.contains("arsenal") -> "cannons"
+            m.game.league.kind == Kind.SOCCER && n.contains("brighton") -> "gulls"
+            m.game.league.kind == Kind.SOCCER && n.contains("newcastle") -> "magpies"
+            m.game.league.kind == Kind.SOCCER && n.contains("crystal palace") -> "eagles"
+            m.game.league.kind == Kind.RUGBY -> "cinematic"
+            else -> "logos"
+        }
+    }
+
+    private val seenEvents = HashMap<String, MutableSet<String>>()
+    private val cardsByGame = HashMap<String, MutableList<Card>>()
+    private val cardBase = HashMap<String, Pair<Int, Long>>() // card key → (minutes left when seen, when)
 
     private val last = HashMap<String, Game>()
     /** Rugby: tries waiting for their conversion kick, by "gameId|home"/"gameId|away" → when we saw the try. */
@@ -149,13 +195,26 @@ object Sports {
 
         for (g in filled) {
             val prev = last[g.id]
-            if (prev != null) moment(prev, g, now)?.let { _goal.value = it }
+            // Names behind the numbers: scorers, cards and substitutions from the match summary.
+            val fresh = if (g.live && prefs.sportsEvents && g.league.kind != Kind.CRICKET && g.feed.isNotEmpty())
+                runCatching { newEvents(g, now) }.getOrDefault(emptyList()) else emptyList()
+            if (prev != null) moment(prev, g, now)?.let { m ->
+                val scorer = fresh.lastOrNull { it.kind in setOf("goal", "try", "conversion", "penalty", "drop", "pentry") && it.teamId == (if (m.home) g.home.id else g.away.id) }
+                show(if (scorer != null && scorer.player.isNotBlank()) m.copy(who = scorerLine(m, scorer)) else m)
+            }
+            // Cards straight away; substitutions grouped per team onto boards of two (a double change = one board).
+            val moments = fresh.mapNotNull { eventMoment(g, it, now) }
+            moments.filter { it.kind != "sub" }.forEach(::show)
+            moments.filter { it.kind == "sub" }.groupBy { it.home }.forEach { (_, subs) ->
+                subs.flatMap { it.subs }.chunked(2).forEach { pair -> show(subs.first().copy(subs = pair, minute = subs.last().minute)) }
+            }
             if (prev?.state == "in" && g.state == "post") finishedAt[g.id] = now
             last[g.id] = g
         }
         // Rugby conversions: a try with no kick by the end of the window means it was missed (or not taken).
         for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
-        val annotated = filled.map { g ->
+        val annotated = filled.map { gg ->
+            val g = gg.copy(cards = liveCards(gg, now))
             if (g.league.kind != Sports.Kind.RUGBY) return@map g
             val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
                 ?: return@map g
@@ -171,6 +230,107 @@ object Sports {
             found.any { it.live } -> if (found.any { it.live && it.league.kind == Kind.CRICKET }) 15_000 else 20_000
             found.any { it.state == "pre" && it.start - now < 30 * 60_000L } -> 60_000
             else -> 10 * 60_000
+        }
+    }
+
+    // ------------------------------------------------------------------ key events (cards, subs, scorers)
+
+    private fun minuteOf(s: String): Int? = Regex("(\\d+)").find(s)?.groupValues?.get(1)?.toIntOrNull()
+
+    /** Events we haven't seen yet for this game. The first look only learns what already happened (no replays). */
+    private suspend fun newEvents(g: Game, now: Long): List<KeyEvent> {
+        val all = keyEvents(g)
+        val seen = seenEvents[g.id]
+        if (seen == null) {
+            seenEvents[g.id] = all.map { it.id }.toMutableSet()
+            all.filter { it.kind in setOf("yellow", "red", "red20") }.forEach { addCard(g, it, now) } // cards already running
+            return emptyList()
+        }
+        val fresh = all.filter { it.id !in seen }
+        seen += fresh.map { it.id }
+        fresh.filter { it.kind in setOf("yellow", "red", "red20") }.forEach { addCard(g, it, now) }
+        return fresh
+    }
+
+    private suspend fun keyEvents(g: Game): List<KeyEvent> {
+        val j = get(BASE + g.feed + "/summary?event=" + g.id)
+        val arr = j.optJSONArray("keyEvents") ?: j.optJSONObject("header")?.optJSONArray("competitions")?.optJSONObject(0)?.optJSONArray("details") ?: return emptyList()
+        val out = ArrayList<KeyEvent>()
+        for (i in 0 until arr.length()) {
+            val x = arr.optJSONObject(i) ?: continue
+            val type = x.optJSONObject("type")?.optString("text").orEmpty()
+            val text = x.optString("text")
+            val t = (type + " " + x.optString("shortText")).lowercase()
+            val scoring = x.optBoolean("scoringPlay")
+            val kind = when {
+                t.contains("yellow") || x.optBoolean("yellowCard") -> "yellow"
+                t.contains("red card") || x.optBoolean("redCard") ->
+                    if (g.league.kind == Kind.RUGBY && !text.contains("permanent", true) && !g.league.path.contains("270559")) "red20" else "red"
+                t.contains("substitut") || t.contains("replacement") -> "sub"
+                t.contains("penalty try") -> "pentry"
+                t.contains("conversion") && !t.contains("miss") -> "conversion"
+                t.contains("drop") && (scoring || g.league.kind == Kind.RUGBY) && !t.contains("miss") -> "drop"
+                t.contains("try") -> "try"
+                t.contains("penalty") && scoring -> "penalty"
+                t.contains("goal") && scoring -> "goal"
+                else -> continue
+            }
+            val names = ArrayList<String>()
+            x.optJSONArray("participants")?.let { a -> for (k in 0 until a.length()) a.optJSONObject(k)?.optJSONObject("athlete")?.optString("displayName")?.takeIf { it.isNotBlank() }?.let(names::add) }
+            x.optJSONArray("athletesInvolved")?.let { a -> for (k in 0 until a.length()) a.optJSONObject(k)?.optString("displayName")?.takeIf { it.isNotBlank() }?.let(names::add) }
+            var p1 = names.getOrNull(0).orEmpty(); var p2 = names.getOrNull(1).orEmpty()
+            if (kind == "sub") Regex("([^.,]+?) replaces ([^.,]+)").find(text)?.let { p1 = it.groupValues[1].trim().substringAfterLast(". ").trim(); p2 = it.groupValues[2].trim() }
+            val minute = x.optJSONObject("clock")?.optString("displayValue").orEmpty()
+            val tid = x.optJSONObject("team")?.optString("id").orEmpty()
+            out += KeyEvent(x.optString("id").ifBlank { "$type|$minute|$tid|$p1" }, kind, tid, p1, p2, minute)
+        }
+        return out
+    }
+
+    private fun cardKey(g: Game, e: KeyEvent) = g.id + "|" + e.id
+
+    private fun addCard(g: Game, e: KeyEvent, now: Long) {
+        val home = e.teamId == g.home.id
+        val dur = if (g.league.kind == Kind.RUGBY) when (e.kind) { "yellow" -> 10; "red20" -> 20; else -> 0 } else 0
+        val list = cardsByGame.getOrPut(g.id) { mutableListOf() }
+        if (list.any { it.player == e.player && it.kind == e.kind && it.minute == e.minute }) return
+        // Minutes left by the match clock (playing time); between looks we count down by the wall clock.
+        val left = if (dur > 0) { val cm = minuteOf(g.clock); val em = minuteOf(e.minute); if (cm != null && em != null) (em + dur - cm).coerceAtLeast(0) else dur } else 0
+        val until = if (dur > 0) now + left * 60_000L else 0
+        if (dur > 0) cardBase[cardKey(g, e)] = left to now
+        list += Card(home, e.player, e.kind, e.minute, until)
+    }
+
+    /** Cards worth showing: running sin-bin / 20-minute timers, and football reds (off for the match). */
+    private fun liveCards(g: Game, now: Long): List<Card> = cardsByGame[g.id].orEmpty().filter {
+        (it.until > 0 && it.until > now - 30_000) || it.kind == "red" || (g.league.kind == Kind.SOCCER && it.kind == "yellow")
+    }.takeLast(6)
+
+    private fun scorerLine(m: Score, e: KeyEvent): String {
+        val min = e.minute.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+        return when (e.kind) {
+            "conversion" -> "${e.player} converts$min"
+            "pentry" -> "Penalty try$min · 7 points, no kick needed"
+            "drop" -> "${e.player} drop goal$min"
+            "penalty" -> "${e.player} penalty$min"
+            "try" -> "${e.player}$min" + if (m.who.contains("Converted")) " · Converted" else ""
+            else -> "${e.player}$min" + if (m.who.contains("(pen)")) " (pen)" else ""
+        }
+    }
+
+    /** Cards and substitutions get their own moments. */
+    private fun eventMoment(g: Game, e: KeyEvent, now: Long): Score? {
+        val home = e.teamId == g.home.id
+        if (e.teamId.isNotEmpty() && !home && e.teamId != g.away.id) return null
+        val side = if (home) g.home else g.away
+        return when (e.kind) {
+            "yellow" -> Score(g, home, side.text, "YELLOW CARD", e.player, kind = "yellow", minute = e.minute,
+                until = cardsByGame[g.id]?.lastOrNull { it.player == e.player && it.kind == "yellow" }?.until ?: 0)
+            "red", "red20" -> Score(g, home, side.text, "RED CARD", e.player, kind = e.kind, minute = e.minute,
+                until = cardsByGame[g.id]?.lastOrNull { it.player == e.player && it.kind == e.kind }?.until ?: 0)
+            "sub" -> Score(g, home, side.text, if (g.league.kind == Kind.RUGBY) "REPLACEMENT" else "SUBSTITUTION", "", kind = "sub",
+                minute = e.minute, subs = listOf(e.player to e.player2))
+            else -> null
         }
     }
 
@@ -298,7 +458,7 @@ object Sports {
             return out
         }
         val events = get(BASE + feed + "/scoreboard").optJSONArray("events") ?: return emptyList()
-        return (0 until events.length()).mapNotNull { i -> runCatching { parse(lg, events.getJSONObject(i)) }.getOrNull() }
+        return (0 until events.length()).mapNotNull { i -> runCatching { parse(lg, events.getJSONObject(i))?.copy(feed = feed) }.getOrNull() }
     }
 
     private val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -489,37 +649,60 @@ object Sports {
     // ------------------------------------------------------------------ demo
 
     private val demoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main)
-    /** Settings → Sports → Preview: a pretend game of the chosen sport, then its big moment. */
-    fun startDemo(kind: Kind = Kind.SOCCER) { demoScope.launch { demo(kind) } }
+    /** Settings → Sports → Preview: a pretend game, then its moments. */
+    fun startDemo(which: String = "goal") { demoScope.launch { demo(which) } }
+    fun startDemo(kind: Kind) = startDemo(when (kind) { Kind.RUGBY -> "try"; Kind.CRICKET -> "six"; else -> "goal" })
 
-    suspend fun demo(kind: Kind = Kind.SOCCER) {
-        val (g, g2, s) = when (kind) {
-            Kind.RUGBY -> {
-                val lg = League("demo", "Nations Championship", Kind.RUGBY, "Rugby", "International")
-                val g = Game("demo", lg, Side("1", "RSA", "South Africa", 10, 0xFF00704A), Side("2", "ENG", "England", 14, 0xFFC8102E), "in", "44'", "", 0)
-                val g2 = g.copy(home = g.home.copy(score = 15, text = "15"), clock = "47'", lastPlay = "C. Kolbe 47'")
-                Triple(g, g2, Score(g2, true, "10", "TRY", "C. Kolbe 47'", "BOKKE"))
+    suspend fun demo(which: String = "goal") {
+        val epl = League("demo", "Premier League", Kind.SOCCER, "Football", "England")
+        val tests = League("demo", "Nations Championship", Kind.RUGBY, "Rugby", "International")
+        if (which == "try") runCatching { withContext(Dispatchers.IO) { nationLogos() } }
+        val now = System.currentTimeMillis()
+        val (g, moments) = when (which) {
+            "try" -> {
+                val g = Game("demo", tests, Side("1", "RSA", "South Africa", 15, 0xFF00704A, logo = nations?.get("southafrica").orEmpty()),
+                    Side("2", "ENG", "England", 14, 0xFFC8102E, logo = nations?.get("england").orEmpty()), "in", "47'", "C. Kolbe 47'", 0)
+                val g2 = g.copy(home = g.home.copy(score = 17, text = "17"), clock = "48'", lastPlay = "H. Pollard converts 48'")
+                val yellowUntil = now + 2600 + 8000 + 10 * 60_000L
+                g to listOf(
+                    Score(g, true, "10", "TRY", "C. Kolbe 47'", "BOKKE"),
+                    Score(g2, true, "15", "CONVERTED", "H. Pollard converts 48'"),
+                    Score(g2, false, "14", "YELLOW CARD", "M. Itoje", kind = "yellow", minute = "49'", until = yellowUntil),
+                )
             }
-            Kind.CRICKET -> {
+            "six" -> {
                 val lg = League("demo", "T20I · 2nd T20I", Kind.CRICKET, "Cricket", "International")
-                val g = Game("demo", lg, Side("1", "SA", "South Africa", 161, 0xFF00843D, "161/5", 5, "17.4 ov"), Side("2", "AUS", "Australia", 182, 0xFFF2B51C, "182/7", 7, "20 ov"),
-                    "in", "17.4 ov", "South Africa need 22 runs from 14 balls", 0)
-                val g2 = g.copy(home = g.home.copy(score = 167, text = "167/5", sub = "17.5 ov"), clock = "17.5 ov", lastPlay = "South Africa need 16 runs from 13 balls")
-                Triple(g, g2, Score(g2, true, "161/5", "SIX", "South Africa need 16 runs from 13 balls", "PROTEAS"))
+                val g = Game("demo", lg, Side("1", "SA", "South Africa", 167, 0xFF00843D, "167/5", 5, "17.5 ov", cricLogo(3)),
+                    Side("2", "AUS", "Australia", 182, 0xFFF2B51C, "182/7", 7, "20 ov", cricLogo(2)), "in", "17.5 ov", "South Africa need 16 runs from 13 balls", 0)
+                g to listOf(Score(g, true, "161/5", "SIX", g.lastPlay, "PROTEAS"))
             }
-            else -> {
-                val lg = League("demo", "Premier League", Kind.SOCCER, "Football", "England")
-                val g = Game("demo", lg, Side("1", "JHB", "Lions", 1, 0xFFF2B01E), Side("2", "CPT", "Comets", 0, 0xFF2F6BFF), "in", "64'", "T. Mokoena 38'", 0)
-                val g2 = g.copy(away = g.away.copy(score = 1, text = "1"), clock = "67'", lastPlay = "S. Dlamini 67'")
-                Triple(g, g2, Score(g2, false, "0", "GOAL", g2.lastPlay))
+            "gulls" -> {
+                val g = Game("demo", epl, Side("1", "BHA", "Brighton", 2, 0xFF0057B8), Side("2", "NEW", "Newcastle", 1, 0xFF3A3A3A), "in", "71'", "K. Mitoma 71'", 0)
+                g to listOf(Score(g, true, "1", "GOAL", "K. Mitoma 71'"))
+            }
+            "cards" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 1, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "78'", "", 0)
+                g to listOf(Score(g, false, "1", "RED CARD", "M. Caicedo", kind = "red", minute = "78'"))
+            }
+            "sub" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "64'", "", 0)
+                g to listOf(Score(g, true, "2", "SUBSTITUTION", "", kind = "sub", minute = "64'",
+                    subs = listOf("G. Martinelli" to "L. Trossard", "M. Merino" to "J. Jorginho")))
+            }
+            else -> { // goal: Arsenal's cannons
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "in", "67'", "B. Saka 67'", 0)
+                g to listOf(Score(g, true, "1", "GOAL", "B. Saka 67'"))
             }
         }
-        demoUntil = System.currentTimeMillis() + 22_000
-        _games.value = listOf(g)
+        val first = moments.first()
+        val start = g.copy(home = g.home.copy(text = if (first.home) first.before else g.home.text), away = g.away.copy(text = if (!first.home) first.before else g.away.text))
+        demoUntil = now + 40_000
+        _games.value = listOf(start)
         delay(2600)
-        _games.value = listOf(g2)
-        _goal.value = s
-        delay(19_000)
+        val withCards = moments.lastOrNull { it.kind == "yellow" }?.let { y -> g.copy(cards = listOf(Card(y.home, y.who, "yellow", y.minute, y.until))) } ?: g
+        _games.value = listOf(withCards)
+        moments.forEach { show(it.copy(at = System.currentTimeMillis())) }
+        delay(30_000)
         _games.value = emptyList(); demoUntil = 0
     }
 }

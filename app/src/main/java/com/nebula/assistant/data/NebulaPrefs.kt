@@ -106,6 +106,7 @@ class NebulaPrefs(context: Context) {
     // Sports notch
     var sportsOn: Boolean get() = bool("sports_on", true); set(v) = setBool("sports_on", v)
     var sportsGoals: Boolean get() = bool("sports_goals", true); set(v) = setBool("sports_goals", v)
+    var sportsEvents: Boolean get() = bool("sports_events", true); set(v) = setBool("sports_events", v)
     var sportsTeams: Set<String> get() = sp.getStringSet("sports_teams", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("sports_teams", v).apply()
     var gamePackages: Set<String> get() = sp.getStringSet("game_pkgs", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("game_pkgs", v).apply()
 
