@@ -868,7 +868,7 @@ function wireIpc() {
   ipcMain.handle('settings:foreground', async () => (process.platform === 'win32' ? helper.foreground() : { exe: '', fullscreen: false }));
   ipcMain.handle('sports:leagues', () => LEAGUES);
   ipcMain.handle('sports:teams', async (_e, path) => { try { return await sportsTeamList(path); } catch (e) { return { error: e.message }; } });
-  ipcMain.on('sports:demo', () => sports.demo());
+  ipcMain.on('sports:demo', (_e, kind) => sports.demo(kind));
   ipcMain.on('settings:preview', () => {
     startSession('preview');
   });

@@ -153,6 +153,7 @@
   .board .team span { color: var(--dim); font: 600 12px/1 "Segoe UI", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; }
   .board .big { font-size: 54px; line-height: 1; margin: 0 14px; min-width: 32px; text-align: center; }
   .board .big.lose { color: var(--dim); }
+  .board .big.smallbig { font-size: 40px; margin: 0 8px; }
   .board .mid { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .board .mid b { font: 600 18px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; }
   .board .mid i { font: 700 9.5px/1 "Segoe UI", sans-serif; letter-spacing: 1px; color: var(--faint); font-style: normal; display: flex; align-items: center; gap: 5px; }
@@ -166,23 +167,28 @@
   .rollbox > span { display: flex; flex-direction: column; transition: transform .6s cubic-bezier(.3, 1.5, .5, 1); }
   .rollbox > span > b { height: 1em; font-weight: inherit; }
   .rollbox.go > span { transform: translateY(-1em); }
-  /* the goal moment */
-  #goal .flood { position: absolute; top: 55%; width: 1500px; height: 1500px; margin: -750px; border-radius: 50%; transform: scale(0); opacity: 1; }
-  #goal.on .flood { animation: flood .75s cubic-bezier(.2, .8, .2, 1) forwards, floodOut .55s ease 2.45s forwards; }
-  #goal .flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
-  #goal.on .flash { animation: flash .55s ease .14s; }
-  #goal .shine { position: absolute; top: 0; bottom: 0; width: 140px; opacity: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent); }
-  #goal.on .shine { animation: shine .8s ease .05s; }
-  #goal .wordwrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-  #goal.on .wordwrap { animation: leave .42s cubic-bezier(.4, 0, .2, 1) 2.3s forwards; }
-  #goal .who-team { font: 700 11.5px/1 "Segoe UI", sans-serif; letter-spacing: 2.4px; opacity: 0; }
-  #goal .goalword { font-size: 74px; line-height: 1; letter-spacing: 2px; display: flex; margin: 6px 0 4px; }
-  #goal .goalword span { display: inline-block; opacity: 0; transform: translateY(30px) scale(.4); }
-  #goal.on .goalword span { animation: letter .7s cubic-bezier(.3, 1.6, .5, 1) forwards; }
-  #goal .scorer { font: 600 14px/1.2 "Segoe UI", sans-serif; opacity: 0; }
-  #goal.on .who-team, #goal.on .scorer { animation: rise .4s ease .52s forwards; }
-  #goal .board { opacity: 0; transform: translateY(18px); }
-  #goal.on .board { animation: boardIn .52s cubic-bezier(.2, .8, .2, 1) 2.42s forwards; }
+  /* the score moment (Premier League broadcast style) */
+  #goal canvas.fx { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #goal .ride { position: absolute; inset: 0; }
+  #goal .gbadge { position: absolute; top: 50%; margin-top: -30px; opacity: 0; transform: scale(2.4) rotate(-12deg); }
+  #goal .gbadge .badge { box-shadow: 0 0 0 3px rgba(255,255,255,.9), 0 8px 24px rgba(0,0,0,.35); }
+  #goal.on .gbadge { animation: slam .6s cubic-bezier(.3, 1.7, .5, 1) .32s forwards; }
+  #goal .words { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #goal .who-team { font: 700 11.5px/1 "Segoe UI", sans-serif; letter-spacing: 2.6px; opacity: 0; }
+  #goal .chant { position: absolute; font-style: italic; letter-spacing: 3px; white-space: nowrap; opacity: 0; }
+  #goal .goalword { line-height: 1; letter-spacing: 2px; display: flex; margin: 6px 0 4px; }
+  #goal .goalword > span { position: relative; display: inline-block; overflow: hidden; padding: 0 1px; }
+  #goal .goalword i, #goal .goalword em { display: inline-block; font-style: normal; transform: translateY(105%); }
+  #goal .goalword em { position: absolute; left: 1px; top: 0; color: transparent; -webkit-text-stroke: 1.5px var(--light); opacity: .9; }
+  #goal.on .goalword i { animation: rise .6s cubic-bezier(.3, 1.55, .5, 1) forwards; }
+  #goal.on .goalword em { animation: echo .7s cubic-bezier(.2, .8, .2, 1) forwards; }
+  #goal .scorer { font: 600 14px/1.2 "Segoe UI", sans-serif; opacity: 0; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes slam { 0% { opacity: 0; transform: scale(2.4) rotate(-12deg); } 30% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+  @keyframes rise { to { transform: none; } }
+  @keyframes echo { 0% { transform: translateY(120%); opacity: .9; } 60% { opacity: .6; } 100% { transform: translateY(-30%); opacity: 0; } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: .92; transform: none; } }
+  @keyframes chantFly { 0% { opacity: 0; transform: translateX(calc(var(--dir) * -260px)) scaleX(1.3); } 30%, 62% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateX(calc(var(--dir) * 260px)) scaleX(1.3); } }
+  @keyframes rideOut { to { opacity: 0; transform: translateX(calc(var(--dir) * 90px)); } }
   /* preview only (?phone): the phone's compact layout, clock beside the right score so the camera stays clear */
   body.phone #island.score { width: 406px; height: 54px; border-radius: 27px; top: 6px; }
   body.phone #island.card, body.phone #island.goal { top: 6px; border-radius: 48px; }
@@ -384,65 +390,136 @@ const badge = (side, px) => `<div class="badge" style="width:${px}px;height:${px
 // A number that can roll from `from` to its value.
 const num = (v, from, cls = '') => from != null && from !== v
   ? `<span class="num rollbox ${cls}"><span><b>${from}</b><b>${v}</b></span></span>` : `<span class="num ${cls}">${v}</span>`;
+const txt = (side) => (side.text != null ? side.text : String(side.score));
 const shown = {}; // last numbers on screen, so live changes roll too
 function rollKey(k, v) { const f = shown[k]; shown[k] = v; return f != null && f !== v ? f : null; }
 function kickRolls(root, delay) { setTimeout(() => root.querySelectorAll('.rollbox').forEach((r) => r.classList.add('go')), delay); }
 
 function renderScore() {
   const g = liveGame(); if (!g) return;
-  const key = `${g.id}|${g.home.score}|${g.away.score}|${g.clock}`;
+  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}`;
   if ($('score').dataset.k === key) return; $('score').dataset.k = key;
   const bs = PHONE ? 34 : 22;
-  $('score').innerHTML = `${badge(g.home, bs)}${num(g.home.score, rollKey('s' + g.id + 'h', g.home.score))}
+  $('score').innerHTML = `${badge(g.home, bs)}${num(txt(g.home), rollKey('s' + g.id + 'h', txt(g.home)))}
     <div class="clk">${g.live ? '<span class="live"></span>' : ''}${esc(g.clock)}</div>
-    ${num(g.away.score, rollKey('s' + g.id + 'a', g.away.score))}${badge(g.away, bs)}`;
+    ${num(txt(g.away), rollKey('s' + g.id + 'a', txt(g.away)))}${badge(g.away, bs)}`;
   kickRolls($('score'), 60);
 }
 function boardHTML(g, roll, count = 0, idx = 0) {
   const done = g.state === 'post';
   const from = (home) => (roll && roll.home === home ? roll.before : null);
-  const lose = (a, b) => (done && a < b ? 'big lose' : 'big');
+  const cricket = g.league.kind === 'cricket';
+  const lose = (a, b) => (done && a < b && !cricket ? 'big lose' : 'big');
+  const bigc = cricket ? ' smallbig' : '';
   return `<div class="board"><div class="bg" style="background:linear-gradient(90deg,${g.home.color}e6,#0d0d10 50%,${g.away.color}e6)"></div><div class="shade"></div>
     <div class="in"><div class="lg">${esc(g.league.name)}</div>
       <div class="row">
-        <div class="team">${badge(g.home, 44)}<span>${esc(g.home.name)}</span></div>
-        ${num(g.home.score, from(true), lose(g.home.score, g.away.score))}
+        <div class="team">${badge(g.home, 44)}<span>${esc(g.home.name)}</span>${g.home.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.home.sub)}</small>` : ''}</div>
+        ${num(txt(g.home), from(true), lose(g.home.score, g.away.score) + bigc)}
         <div class="mid"><span class="lg2">${esc(g.league.name)}</span><b>${esc(g.clock)}</b>${g.live ? '<i><span class="live"></span>LIVE</i>' : g.state === 'pre' ? '<i>KICK-OFF</i>' : ''}</div>
-        ${num(g.away.score, from(false), lose(g.away.score, g.home.score))}
-        <div class="team">${badge(g.away, 44)}<span>${esc(g.away.name)}</span></div>
+        ${num(txt(g.away), from(false), lose(g.away.score, g.home.score) + bigc)}
+        <div class="team">${badge(g.away, 44)}<span>${esc(g.away.name)}</span>${g.away.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.away.sub)}</small>` : ''}</div>
       </div>
-      ${g.lastPlay ? `<div class="play">${g.league.kind === 'soccer' ? '⚽&nbsp;' : ''}${esc(g.lastPlay)}</div>` : ''}
+      ${g.lastPlay ? `<div class="play">${({ soccer: '⚽&nbsp;', rugby: '🏉&nbsp;', cricket: '🏏&nbsp;' })[g.league.kind] || ''}${esc(g.lastPlay)}</div>` : ''}
       ${count > 1 ? `<div class="dots">${Array.from({ length: Math.min(6, count) }, (_, i) => `<u class="${i === idx ? 'on' : ''}"></u>`).join('')}</div>` : ''}
     </div></div>`;
 }
 function renderCard() {
   const g = liveGame(); if (!g) return;
   const n = (state.sports || []).length;
-  const key = `${g.id}|${g.home.score}|${g.away.score}|${g.clock}|${g.lastPlay}|${n}`;
+  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${g.lastPlay}|${n}`;
   if ($('card').dataset.k === key) return; $('card').dataset.k = key;
   $('card').innerHTML = boardHTML(g, null, n, gameIdx % Math.max(1, n)) +
     `<div class="chip link" id="askChip" style="position:absolute;right:14px;top:10px">Ask Nebula</div>`;
   $('askChip').onclick = (e) => { e.stopPropagation(); askMode = true; render(); };
 }
+/**
+ * The score moment, built like a Premier League broadcast graphic (~7 s), for every sport:
+ * neon glitch → the scorer's colour wipes across with a jagged edge (halftone dots + speed streaks) → badge slams in
+ * with a shockwave → supporters' word flies through (BOKKE, COYS…) → GOAL / TRY / SIX / WICKET rises letter by
+ * letter with echo outlines → the colour wipes off the far side, the card is back and the score rolls up.
+ */
+function mix(hex, to, k) { const n = parseInt((hex || '#555555').slice(1), 16); const t = to === 'w' ? 255 : 0; const f = (v) => Math.round(v + (t - v) * k); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
+let fxRaf = 0;
 function playGoal(s) {
   const side = s.home ? s.game.home : s.game.away;
+  const dir = s.home ? 1 : -1;
+  const chant = s.chant || '';
+  const wordAt = chant ? 1.5 : 0.64;             // seconds
+  const outAt = wordAt + 2.1, total = (chant ? 7.6 : 6.8);
+  const light = mix(side.color, 'w', .4);
   const el = $('goal');
   el.classList.remove('on'); void el.offsetWidth;
-  el.innerHTML = `${boardHTML(s.game, s)}
-    <div class="flood" style="left:${s.home ? '0' : '100%'};background:radial-gradient(circle, ${side.color} 0, ${side.color}cc 38%, ${side.color}00 70%)"></div>
-    <div class="shine" style="--from:${s.home ? '-140px' : '600px'};--to:${s.home ? '600px' : '-140px'}"></div>
-    <div class="flash"></div>
-    <div class="wordwrap"><div class="who-team">${esc(side.name.toUpperCase())}</div>
-      <div class="goalword" style="font-size:${s.label.length > 6 ? 54 : 74}px">${[...s.label].map((c, i) => `<span style="animation-delay:${160 + i * 55}ms">${esc(c)}</span>`).join('')}</div>
-      ${s.who ? `<div class="scorer">${esc(s.who)}</div>` : ''}</div>`;
-  // the card sits on black until the flood clears
-  el.querySelector('.board').insertAdjacentHTML('beforebegin', '<div style="position:absolute;inset:0;background:#0d0d10"></div>');
+  const fs = s.label.length > 9 ? 40 : s.label.length > 6 ? 54 : 76;
+  el.style.setProperty('--dir', dir); el.style.setProperty('--light', light);
+  el.innerHTML = `${boardHTML(s.game, s)}<canvas class="fx"></canvas>
+    <div class="ride" style="animation: rideOut .52s cubic-bezier(.4,0,.2,1) ${outAt}s forwards">
+      <div class="gbadge" style="${s.home ? 'left:38px' : 'right:38px'}">${badge(side, 60)}</div>
+      <div class="words" style="${s.home ? 'padding-left:90px' : 'padding-right:90px'}">
+        <div class="who-team" style="animation: fadeUp .4s ease ${wordAt + .3}s forwards">${esc(side.name.toUpperCase())}</div>
+        ${chant ? `<div class="chant num" style="font-size:${chant.length > 8 ? 46 : 64}px;animation: chantFly .9s cubic-bezier(.2,.8,.2,1) .56s forwards">${esc(chant)}</div>` : ''}
+        <div class="goalword num" style="font-size:${fs}px">${[...s.label].map((c, i) => c === ' ' ? '<span>&nbsp;</span>'
+          : `<span><i style="animation-delay:${(wordAt + i * .055).toFixed(3)}s">${esc(c)}</i><em style="animation-delay:${(wordAt + i * .055).toFixed(3)}s">${esc(c)}</em></span>`).join('')}</div>
+        ${s.who ? `<div class="scorer" style="animation: fadeUp .4s ease ${wordAt + .32}s forwards">${esc(s.who)}</div>` : ''}
+      </div></div>`;
   goal = s; clearTimeout(goalTimer);
   render();
   el.classList.add('on');
-  kickRolls(el, 2750);
+  kickRolls(el.querySelector('.board'), (wordAt + 2.5) * 1000);
   playSound('goal');
-  goalTimer = setTimeout(() => { goal = null; render(); }, 6800);
+  // canvas: glitch, jagged wipe with halftone + streaks, shockwave ring
+  const cv = el.querySelector('canvas.fx'); const g = cv.getContext('2d');
+  const W = 600, H = 176; cv.width = W * 2; cv.height = H * 2; g.setTransform(2, 0, 0, 2, 0, 0);
+  const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+  const t0 = performance.now(); let seed = 1;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  cancelAnimationFrame(fxRaf);
+  const draw = (now) => {
+    const t = (now - t0) / 1000;
+    g.clearRect(0, 0, W, H);
+    const zig = 16, teeth = 7, span = W + zig * 2;
+    const lead = ease((t - 0.12) / 0.46) * span - zig, tail = ease((t - outAt) / 0.52) * span - zig;
+    const X = (v) => (dir > 0 ? v : W - v);
+    if (lead > tail) {
+      g.save(); g.beginPath(); g.moveTo(X(tail), 0);
+      for (let i = 0; i <= teeth; i++) g.lineTo(X(tail + (i % 2 ? zig : 0)), H * i / teeth);
+      for (let i = teeth; i >= 0; i--) g.lineTo(X(lead + (i % 2 ? zig : 0)), H * i / teeth);
+      g.closePath(); g.clip();
+      const gr = g.createLinearGradient(X(0), H, X(W), 0);
+      gr.addColorStop(0, mix(side.color, 'b', .5)); gr.addColorStop(.5, side.color); gr.addColorStop(1, light);
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      const step = 13, pan = (t / 1.4 % 1) * step;
+      g.fillStyle = light; g.globalAlpha = .28;
+      for (let y = -step, row = 0; y < H + step; y += step * .86, row++) {
+        for (let x = -step + pan + (row % 2 ? step / 2 : 0); x < W + step; x += step) {
+          const k = Math.min(1, Math.max(0, (dir > 0 ? x : W - x) / W));
+          g.beginPath(); g.arc(x, y, .8 + 3.2 * k, 0, Math.PI * 2); g.fill();
+        }
+      }
+      g.globalAlpha = .2; g.strokeStyle = '#fff'; g.lineWidth = 2; g.lineCap = 'round';
+      for (let i = 0; i < 4; i++) {
+        const y = H * (.18 + i * .21), x = X((((t / 1.4) + i * .27) % 1) * (W + 160) - 80);
+        g.beginPath(); g.moveTo(x - 70 * dir, y); g.lineTo(x + 70 * dir, y); g.stroke();
+      }
+      g.restore(); g.globalAlpha = 1;
+    }
+    if (t < 0.26) { // neon glitch slices
+      seed = 1 + Math.floor(t / 0.03) * 7919;
+      for (let i = 0; i < 7; i++) {
+        g.globalAlpha = .55 * (1 - t / .26); g.fillStyle = rnd() > .5 ? '#38ffe1' : '#b8ff3d';
+        g.fillRect((rnd() - .5) * 60, rnd() * H, W, 4 + rnd() * 14);
+      }
+      g.globalAlpha = 1;
+    }
+    const rp = (t - .36) / .76; // shockwave ring around the badge
+    if (rp > 0 && rp < 1) {
+      g.strokeStyle = `rgba(255,255,255,${.7 * (1 - rp)})`; g.lineWidth = 3 * (1 - rp) + .5;
+      g.beginPath(); g.arc(s.home ? 68 : W - 68, H * .5, 26 + 120 * ease(rp), 0, Math.PI * 2); g.stroke();
+    }
+    if (t < outAt + 0.7 && goal === s) fxRaf = requestAnimationFrame(draw);
+  };
+  fxRaf = requestAnimationFrame(draw);
+  goalTimer = setTimeout(() => { goal = null; render(); }, total * 1000);
 }
 $('score').onclick = () => { hovering = true; render(); };
 $('card').onclick = () => { const n = (state.sports || []).length; if (n > 1) { gameIdx++; $('card').dataset.k = ''; render(); } };
@@ -663,7 +740,16 @@ if (q.has('demo')) {
     home: { abbr: 'JHB', name: 'Lions', score: 1, color: '#f2b01e' }, away: { abbr: 'CPT', name: 'Comets', score: 1, color: '#2f6bff' } };
   if (d === 'score' || d === 'card' || d === 'goal') state.sports = [demoGame];
   if (d === 'card') hovering = true;
-  if (d === 'goal') setTimeout(() => playGoal({ game: demoGame, home: false, before: 0, label: q.get('label') || 'GOAL', who: demoGame.lastPlay, at: Date.now() }), 300);
+  const demoRugby = { id: 'dr', league: { name: 'Nations Championship', kind: 'rugby' }, state: 'in', live: true, clock: "47'", lastPlay: "C. Kolbe 47'",
+    home: { abbr: 'RSA', name: 'South Africa', score: 15, text: '15', color: '#00704a' }, away: { abbr: 'ENG', name: 'England', score: 14, text: '14', color: '#c8102e' } };
+  const demoCricket = { id: 'dc', league: { name: 'T20I · 2nd T20I', kind: 'cricket' }, state: 'in', live: true, clock: '17.5 ov', lastPlay: 'South Africa need 16 runs from 13 balls',
+    home: { abbr: 'SA', name: 'South Africa', score: 167, text: '167/5', sub: '17.5 ov', color: '#00843d' }, away: { abbr: 'AUS', name: 'Australia', score: 182, text: '182/7', sub: '20 ov', color: '#f2b51c' } };
+  if (d === 'try' || d === 'trycard') state.sports = [demoRugby];
+  if (d === 'six' || d === 'sixcard') state.sports = [demoCricket];
+  if (d === 'trycard' || d === 'sixcard') hovering = true;
+  if (d === 'goal') setTimeout(() => playGoal({ game: demoGame, home: false, before: '0', label: q.get('label') || 'GOAL', who: demoGame.lastPlay, chant: q.get('chant') || '', at: Date.now() }), 300);
+  if (d === 'try') setTimeout(() => playGoal({ game: demoRugby, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE', at: Date.now() }), 300);
+  if (d === 'six') setTimeout(() => playGoal({ game: demoCricket, home: true, before: '161/5', label: 'SIX', who: demoCricket.lastPlay, chant: 'PROTEAS', at: Date.now() }), 300);
 }
 render();
 </script>

@@ -570,10 +570,10 @@ function renderSettings() {
     <p class="sub" style="margin-top:10px">Some online games ban auto-clickers and can suspend accounts. Use it where it's allowed.</p></div>
 
   <div class="group"><h3>Sports <small style="color:var(--ok)">${(d.sportsTeams || []).length ? `${d.sportsTeams.length} team${d.sportsTeams.length === 1 ? '' : 's'}` : ''}</small></h3>
-    <p class="sub">Follow your teams and their live score sits in the island while they play. Hover it for the full card. When they score, the island plays the goal moment.</p>
+    <p class="sub">Football, rugby and cricket (plus US sports). Follow your teams and their live score sits in the island while they play; hover it for the full card. Goals, tries, sixes and wickets get their own moment.</p>
     ${toggle('sSports', 'Live scores in the island', 'Only while one of your teams is playing.', d.sportsOn !== false)}
     ${toggle('sGoals', 'Goal moments', 'The goal animation and a cheer when your team scores.', d.sportsGoals !== false)}
-    <div class="row"><button class="pill press" id="sGoalDemo">Preview a goal</button></div>
+    <div class="row"><button class="pill press" id="sGoalDemo">Preview a goal</button><button class="pill press" id="sTryDemo">A try</button><button class="pill press" id="sSixDemo">A six</button></div>
     <div id="sportsPick"></div></div>
 
   <div class="group"><h3>Shortcut & startup</h3>
@@ -637,7 +637,9 @@ function renderSettings() {
   coach.render();
   on('sSports', 'onchange', (e) => setS({ sportsOn: e.target.checked }));
   on('sGoals', 'onchange', (e) => setS({ sportsGoals: e.target.checked }));
-  on('sGoalDemo', 'onclick', () => api.send('sports:demo'));
+  on('sGoalDemo', 'onclick', () => api.send('sports:demo', 'soccer'));
+  on('sTryDemo', 'onclick', () => api.send('sports:demo', 'rugby'));
+  on('sSixDemo', 'onclick', () => api.send('sports:demo', 'cricket'));
   sportsUi.render();
   on('sQuiet', 'onchange', (e) => setS({ r3cketQuiet: e.target.checked }));
   on('sClick', 'oninput', (e) => { $('sClickV').textContent = speedLabel(fromSlider(+e.target.value)); });
@@ -649,7 +651,7 @@ function renderSettings() {
 }
 // ------------------------------------------------------------ sports teams
 const sportsUi = {
-  league: null, query: '', teams: {}, leagues: null,
+  sport: null, country: null, league: null, query: '', teams: {}, leagues: null,
   dot(t) { return `<span style="display:inline-grid;place-items:center;width:28px;height:28px;border-radius:14px;background:${t.color};color:#fff;font:800 9px/1 sans-serif;flex:none">${esc((t.abbr || '').slice(0, 3))}</span>`; },
   async render() {
     const el = $('sportsPick'); if (!el) return;
@@ -657,26 +659,38 @@ const sportsUi = {
     const mine = S.sportsTeams || [];
     const row = (t, right, attr) => `<div ${attr} style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer">${this.dot(t)}<div style="flex:1">${esc(t.name)}</div>${right}</div>`;
     let h = '';
-    if (mine.length) h += `<div class="slider">Following</div>` + mine.map((t, i) => row(t, '<span style="color:var(--faint)">✕</span>', `data-unfollow="${i}"`)).join('');
-    h += `<div class="slider">Add a team</div><div class="chiprow">${this.leagues.map((l) => `<button class="chip press ${this.league === l.path ? 'on' : ''}" data-league="${l.path}">${esc(l.name)}</button>`).join('')}</div>`;
+    const lname = (t) => { const l = this.leagues.find((x) => x.path === t.league); return l ? `${l.sport} · ${l.name}` : ''; };
+    if (mine.length) h += `<div class="slider">Following</div>` + mine.map((t, i) => row({ ...t, name: t.name }, `<small style="color:var(--faint);margin-right:10px">${esc(lname(t))}</small><span style="color:var(--faint)">✕</span>`, `data-unfollow="${i}"`)).join('');
+    const chips = (items, sel, attr) => `<div class="chiprow">${items.map((x) => `<button class="chip press ${sel === x ? 'on' : ''}" ${attr}="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+    h += `<div class="slider">Add a team</div>` + chips([...new Set(this.leagues.map((l) => l.sport))], this.sport, 'data-sport');
+    if (this.sport) {
+      h += `<div class="slider">Country</div>` + chips([...new Set(this.leagues.filter((l) => l.sport === this.sport).map((l) => l.country))], this.country, 'data-country');
+      const ls = this.leagues.filter((l) => l.sport === this.sport && l.country === this.country);
+      if (ls.length > 1) h += `<div class="slider">League</div><div class="chiprow">${ls.map((l) => `<button class="chip press ${this.league === l.path ? 'on' : ''}" data-league="${l.path}">${esc(l.name)}</button>`).join('')}</div>`;
+      else if (ls.length === 1) h += `<p class="sub" style="margin-top:8px">${esc(ls[0].name)}</p>`;
+    }
     if (this.league) {
       const list = this.teams[this.league];
       h += `<input class="field" id="sTeamQ" placeholder="Search" value="${esc(this.query)}" spellcheck="false" style="margin-top:10px">`;
       if (!list) h += '<p class="sub">Loading teams…</p>';
       else if (list.error || !list.length) h += `<p class="sub" style="color:var(--warn)">Couldn't load teams. Check your connection.</p>`;
       else h += list.filter((t) => !this.query || (t.name + ' ' + t.abbr).toLowerCase().includes(this.query.toLowerCase())).slice(0, 40)
-        .map((t) => { const on = mine.some((m) => m.league === t.league && m.id === t.id); return row(t, `<span style="font-size:20px;color:${on ? 'var(--flame)' : 'var(--faint)'}">${on ? '★' : '☆'}</span>`, `data-team="${esc(t.id)}"`); }).join('');
+        .map((t) => { const on = mine.some((m) => m.league === t.league && (m.id || m.name) === (t.id || t.name)); return row(t, `<span style="font-size:20px;color:${on ? 'var(--flame)' : 'var(--faint)'}">${on ? '★' : '☆'}</span>`, `data-team="${esc(t.id || t.name)}"`); }).join('');
     }
     el.innerHTML = h;
     el.querySelectorAll('[data-unfollow]').forEach((b) => (b.onclick = () => this.save(mine.filter((_, i) => i !== +b.dataset.unfollow))));
-    el.querySelectorAll('[data-league]').forEach((b) => (b.onclick = async () => {
-      this.league = this.league === b.dataset.league ? null : b.dataset.league; this.query = ''; this.render();
-      if (this.league && !this.teams[this.league]) { const lg = this.league; this.teams[lg] = await api.invoke('sports:teams', lg); this.render(); }
+    const load = async () => { this.render(); if (this.league && !this.teams[this.league]) { const lg = this.league; this.teams[lg] = await api.invoke('sports:teams', lg); this.render(); } };
+    el.querySelectorAll('[data-sport]').forEach((b) => (b.onclick = () => { this.sport = this.sport === b.dataset.sport ? null : b.dataset.sport; this.country = null; this.league = null; this.query = ''; load(); }));
+    el.querySelectorAll('[data-country]').forEach((b) => (b.onclick = () => {
+      this.country = this.country === b.dataset.country ? null : b.dataset.country; this.query = '';
+      const ls = this.leagues.filter((l) => l.sport === this.sport && l.country === this.country);
+      this.league = ls.length === 1 ? ls[0].path : null; load();
     }));
+    el.querySelectorAll('[data-league]').forEach((b) => (b.onclick = () => { this.league = this.league === b.dataset.league ? null : b.dataset.league; this.query = ''; load(); }));
     el.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => {
-      const t = (this.teams[this.league] || []).find((x) => x.id === b.dataset.team); if (!t) return;
-      const on = mine.some((m) => m.league === t.league && m.id === t.id);
-      this.save(on ? mine.filter((m) => !(m.league === t.league && m.id === t.id)) : [...mine, t]);
+      const t = (this.teams[this.league] || []).find((x) => (x.id || x.name) === b.dataset.team); if (!t) return;
+      const same = (m) => m.league === t.league && (m.id || m.name) === (t.id || t.name);
+      this.save(mine.some(same) ? mine.filter((m) => !same(m)) : [...mine, t]);
     }));
     const q = $('sTeamQ'); if (q) q.oninput = (e) => { this.query = e.target.value; const pos = e.target.selectionStart; this.render().then(() => { const n = $('sTeamQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
   },

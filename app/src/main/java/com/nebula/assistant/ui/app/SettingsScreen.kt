@@ -470,8 +470,9 @@ private fun SportsGroup(prefs: NebulaPrefs) {
                 teams!!.isEmpty() -> Text("Couldn't load teams. Check your connection.", style = MaterialTheme.typography.bodySmall, color = p.warn, modifier = Modifier.padding(top = 8.dp))
                 else -> Column(Modifier.padding(top = 6.dp)) {
                     teams!!.filter { query.isBlank() || it.name.contains(query, true) || it.abbr.contains(query, true) }.take(40).forEach { t ->
-                        val on = following.any { it.league == t.league && it.id == t.id }
-                        Row(Modifier.fillMaxWidth().pressable(onClick = { save(if (on) following.filterNot { it.league == t.league && it.id == t.id } else following + t) })
+                        val same = { x: com.nebula.assistant.sports.Sports.Team -> x.league == t.league && x.id.ifEmpty { x.name } == t.id.ifEmpty { t.name } }
+                        val on = following.any(same)
+                        Row(Modifier.fillMaxWidth().pressable(onClick = { save(if (on) following.filterNot(same) else following + t) })
                             .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             TeamDot(t)
                             Text(t.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp))
