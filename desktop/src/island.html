@@ -478,6 +478,9 @@ function playGoal(s) {
   const cv = el.querySelector('canvas.fx'); const g = cv.getContext('2d');
   const W = 600, H = 176; cv.width = W * 2; cv.height = H * 2; g.setTransform(2, 0, 0, 2, 0, 0);
   const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+  // The club's own ESPN logo drives its motif: tiled through the wipe and trailing as it slams in.
+  let logo = null;
+  if (side.logo) { const im = new Image(); im.onload = () => { logo = im; }; im.src = side.logo; }
   const t0 = performance.now(); let seed = 1;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   cancelAnimationFrame(fxRaf);
@@ -495,6 +498,14 @@ function playGoal(s) {
       const gr = g.createLinearGradient(X(0), H, X(W), 0);
       gr.addColorStop(0, mix(side.color, 'b', .5)); gr.addColorStop(.5, side.color); gr.addColorStop(1, light);
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      if (logo) {
+        const ts = 44, gap = 78, drift = ((t / 1.4) % 1) * gap * dir;
+        g.globalAlpha = .16;
+        for (let y = -gap * .4, row = 0; y < H + gap; y += gap * .62, row++) {
+          for (let x = -gap + drift + (row % 2 ? gap / 2 : 0); x < W + gap; x += gap) g.drawImage(logo, x - ts / 2, y - ts / 2, ts, ts);
+        }
+        g.globalAlpha = 1;
+      }
       const step = 13, pan = (t / 1.4 % 1) * step;
       g.fillStyle = light; g.globalAlpha = .28;
       for (let y = -step, row = 0; y < H + step; y += step * .86, row++) {
@@ -516,6 +527,12 @@ function playGoal(s) {
         g.globalAlpha = .55 * (1 - t / .26); g.fillStyle = rnd() > .5 ? '#38ffe1' : '#b8ff3d';
         g.fillRect((rnd() - .5) * 60, rnd() * H, W, 4 + rnd() * 14);
       }
+      g.globalAlpha = 1;
+    }
+    const bp = Math.min(1, Math.max(0, (t - .32) / .45)); // motion trail behind the logo as it slams in
+    if (logo && bp > 0 && bp < 1) {
+      const cx = s.home ? 68 : W - 68, cy = H * .5, bs = 43;
+      for (let i = 1; i <= 3; i++) { g.globalAlpha = .32 * (1 - bp) / i; g.drawImage(logo, cx - dir * i * 34 * (1 - bp) - bs / 2, cy - bs / 2, bs, bs); }
       g.globalAlpha = 1;
     }
     const rp = (t - .36) / .76; // shockwave ring around the badge
@@ -754,6 +771,7 @@ if (q.has('demo')) {
   if (d === 'try' || d === 'trycard') state.sports = [demoRugby];
   if (d === 'six' || d === 'sixcard') state.sports = [demoCricket];
   if (d === 'trycard' || d === 'sixcard') hovering = true;
+  if (q.get('logo')) demoGame.away.logo = q.get('logo');
   if (d === 'goal') setTimeout(() => playGoal({ game: demoGame, home: false, before: '0', label: q.get('label') || 'GOAL', who: demoGame.lastPlay, chant: q.get('chant') || '', at: Date.now() }), 300);
   if (d === 'try') setTimeout(() => playGoal({ game: demoRugby, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE', at: Date.now() }), 300);
   if (d === 'six') setTimeout(() => playGoal({ game: demoCricket, home: true, before: '161/5', label: 'SIX', who: demoCricket.lastPlay, chant: 'PROTEAS', at: Date.now() }), 300);

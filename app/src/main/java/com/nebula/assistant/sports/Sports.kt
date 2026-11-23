@@ -130,12 +130,24 @@ object Sports {
                 .filter { g -> teams.any { t -> t.league == lg.path && (matches(t, g.home) || matches(t, g.away)) } }
         }.distinctBy { it.id }
 
+        // Games whose feed has no logo: use the national logos we know.
+        val natAll = nations.orEmpty()
+        fun fill(sd: Side) = if (sd.logo.isNotEmpty()) sd else (natAll[norm(sd.name)] ?: CRICKET_TEAMS.firstOrNull { norm(it.name) == norm(sd.name) && it.logo.isNotEmpty() }?.logo)
+            ?.let { sd.copy(logo = it) } ?: sd
+        val filled = found.map { g -> if (g.home.logo.isNotEmpty() && g.away.logo.isNotEmpty()) g else g.copy(home = fill(g.home), away = fill(g.away)) }
         // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
         val sides = found.flatMap { listOf(it.home, it.away) }
-        val learned = teams.map { t -> if (t.logo.isNotEmpty()) t else sides.firstOrNull { matches(t, it) && it.logo.isNotEmpty() }?.let { t.copy(logo = it.logo) } ?: t }
+        val nat = if (teams.any { it.logo.isEmpty() && it.league == RUGBY_TESTS }) runCatching { nationLogos() }.getOrDefault(emptyMap()) else emptyMap()
+        val learned = teams.map { t ->
+            if (t.logo.isNotEmpty()) t
+            else sides.firstOrNull { matches(t, it) && it.logo.isNotEmpty() }?.let { t.copy(logo = it.logo) }
+                ?: nat[norm(t.name)]?.let { t.copy(logo = it) }
+                ?: CRICKET_TEAMS.firstOrNull { it.league == t.league && it.name == t.name && it.logo.isNotEmpty() }?.let { t.copy(logo = it.logo) }
+                ?: t
+        }
         if (learned != teams) prefs.sportsTeams = learned.map { it.encode() }.toSet()
 
-        for (g in found) {
+        for (g in filled) {
             val prev = last[g.id]
             if (prev != null) moment(prev, g, now)?.let { _goal.value = it }
             if (prev?.state == "in" && g.state == "post") finishedAt[g.id] = now
@@ -143,7 +155,7 @@ object Sports {
         }
         // Rugby conversions: a try with no kick by the end of the window means it was missed (or not taken).
         for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
-        val annotated = found.map { g ->
+        val annotated = filled.map { g ->
             if (g.league.kind != Sports.Kind.RUGBY) return@map g
             val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
                 ?: return@map g
@@ -401,7 +413,7 @@ object Sports {
     /** Teams you can pick in a league. Cricket and the national rugby sides come from lists; the rest from ESPN. */
     suspend fun teams(lg: League): List<Team> {
         if (lg.kind == Kind.CRICKET) return CRICKET_TEAMS.filter { it.league == lg.path }
-        if (lg.path == RUGBY_TESTS) return RUGBY_NATIONS.map { Team(lg.path, "", it.abbr, it.name, it.color) }
+        if (lg.path == RUGBY_TESTS) { val logos = nationLogos(); return RUGBY_NATIONS.map { Team(lg.path, "", it.abbr, it.name, it.color, logos[norm(it.name)].orEmpty()) } }
         val arr = get(BASE + lg.path + "/teams").optJSONArray("sports")?.optJSONObject(0)?.optJSONArray("leagues")
             ?.optJSONObject(0)?.optJSONArray("teams") ?: return emptyList()
         return (0 until arr.length()).mapNotNull { i ->
@@ -411,7 +423,26 @@ object Sports {
         }.sortedBy { it.name }
     }
 
-    private fun t(league: String, abbr: String, name: String, color: Long) = Team(league, "", abbr, name, color)
+    private fun t(league: String, abbr: String, name: String, color: Long, logo: String = "") = Team(league, "", abbr, name, color, logo)
+
+    /** National rugby logos, read from ESPN's own Test-rugby team lists (no guessing at ids). Fetched once. */
+    @Volatile private var nations: Map<String, String>? = null
+    suspend fun nationLogos(): Map<String, String> {
+        nations?.let { return it }
+        val out = HashMap<String, String>()
+        for (feed in listOf("rugby/289234", "rugby/17567", "rugby/244293", "rugby/180659", "rugby/164205")) runCatching {
+            val arr = get(BASE + feed + "/teams").optJSONArray("sports")?.optJSONObject(0)?.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("teams")
+            if (arr != null) for (i in 0 until arr.length()) {
+                val tm = arr.optJSONObject(i)?.optJSONObject("team") ?: continue
+                val logo = logoOf(tm); if (logo.isBlank()) continue
+                for (n in listOf(tm.optString("displayName"), tm.optString("shortDisplayName"), tm.optString("name"))) if (n.isNotBlank()) out.putIfAbsent(norm(n), logo)
+            }
+        }
+        if (out.isNotEmpty()) nations = out
+        return out
+    }
+    /** ESPN serves cricket logos by ESPNcricinfo team id. */
+    private fun cricLogo(id: Int) = "https://a.espncdn.com/i/teamlogos/cricket/500/$id.png"
     private val RUGBY_NATIONS = listOf(
         t("", "RSA", "South Africa", 0xFF00704A), t("", "NZ", "New Zealand", 0xFF3A3A3A), t("", "AUS", "Australia", 0xFFF2B51C),
         t("", "ARG", "Argentina", 0xFF5DA9E9), t("", "ENG", "England", 0xFFC8102E), t("", "IRE", "Ireland", 0xFF169B62),
@@ -421,12 +452,12 @@ object Sports {
         t("", "USA", "United States", 0xFF27457A), t("", "CAN", "Canada", 0xFFD52B1E),
     )
     private val CRICKET_TEAMS = listOf(
-        t("cricket/intl", "SA", "South Africa", 0xFF00843D), t("cricket/intl", "AUS", "Australia", 0xFFF2B51C),
-        t("cricket/intl", "ENG", "England", 0xFF1C3D7A), t("cricket/intl", "IND", "India", 0xFF1F5BB5),
-        t("cricket/intl", "NZ", "New Zealand", 0xFF3A3A3A), t("cricket/intl", "PAK", "Pakistan", 0xFF11703A),
-        t("cricket/intl", "SL", "Sri Lanka", 0xFF1B3F94), t("cricket/intl", "WI", "West Indies", 0xFF7B1E3A),
-        t("cricket/intl", "BAN", "Bangladesh", 0xFF006A4E), t("cricket/intl", "AFG", "Afghanistan", 0xFF2563B8),
-        t("cricket/intl", "ZIM", "Zimbabwe", 0xFFCE1126), t("cricket/intl", "IRE", "Ireland", 0xFF169B62),
+        t("cricket/intl", "SA", "South Africa", 0xFF00843D, cricLogo(3)), t("cricket/intl", "AUS", "Australia", 0xFFF2B51C, cricLogo(2)),
+        t("cricket/intl", "ENG", "England", 0xFF1C3D7A, cricLogo(1)), t("cricket/intl", "IND", "India", 0xFF1F5BB5, cricLogo(6)),
+        t("cricket/intl", "NZ", "New Zealand", 0xFF3A3A3A, cricLogo(5)), t("cricket/intl", "PAK", "Pakistan", 0xFF11703A, cricLogo(7)),
+        t("cricket/intl", "SL", "Sri Lanka", 0xFF1B3F94, cricLogo(8)), t("cricket/intl", "WI", "West Indies", 0xFF7B1E3A, cricLogo(4)),
+        t("cricket/intl", "BAN", "Bangladesh", 0xFF006A4E, cricLogo(25)), t("cricket/intl", "AFG", "Afghanistan", 0xFF2563B8, cricLogo(40)),
+        t("cricket/intl", "ZIM", "Zimbabwe", 0xFFCE1126, cricLogo(9)), t("cricket/intl", "IRE", "Ireland", 0xFF169B62, cricLogo(29)),
         t("cricket/sa20", "DSG", "Durban's Super Giants", 0xFF00A3C4), t("cricket/sa20", "JSK", "Joburg Super Kings", 0xFFF5B800),
         t("cricket/sa20", "MICT", "MI Cape Town", 0xFF1F5FAD), t("cricket/sa20", "PR", "Paarl Royals", 0xFFE5157F),
         t("cricket/sa20", "PC", "Pretoria Capitals", 0xFF2E5BA8), t("cricket/sa20", "SEC", "Sunrisers Eastern Cape", 0xFFF26522),

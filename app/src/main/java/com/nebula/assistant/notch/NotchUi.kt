@@ -642,6 +642,12 @@ private fun GoalView(s: Sports.Score) {
     }
     val inf = rememberInfiniteTransition(label = "pan")
     val pan by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "pan")
+    // The club's own ESPN logo drives its motif: tiled through the wipe and trailing as it slams in.
+    val ctx = LocalContext.current
+    val logoBmp by androidx.compose.runtime.produceState(com.nebula.assistant.sports.Logos.cached(side.logo), side.logo) {
+        if (value == null && side.logo.isNotBlank()) value = com.nebula.assistant.sports.Logos.get(ctx, side.logo)
+    }
+    val logoImg = remember(logoBmp) { logoBmp?.asImageBitmap() }
     val dir = if (s.home) 1f else -1f // the colour travels away from the scorer's side
 
     Box(Modifier.fillMaxSize()) {
@@ -664,6 +670,21 @@ private fun GoalView(s: Sports.Score) {
                 }
                 clipPath(path) {
                     drawRect(Brush.linearGradient(listOf(deep, tc, light), Offset(x(0f), h), Offset(x(w), 0f)))
+                    // The crest motif: the club's logo tiled at an angle, sliding with the wipe.
+                    logoImg?.let { img ->
+                        val ts = 40.dp.toPx(); val gap = 68.dp.toPx(); val drift = (pan * gap) * dir
+                        var row = 0; var yy = -gap * 0.4f
+                        while (yy < h + gap) {
+                            var xx = -gap + drift + if (row % 2 == 0) 0f else gap / 2
+                            while (xx < w + gap) {
+                                drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset.Zero, srcSize = androidx.compose.ui.unit.IntSize(img.width, img.height),
+                                    dstOffset = androidx.compose.ui.unit.IntOffset((xx - ts / 2).toInt(), (yy - ts / 2).toInt()),
+                                    dstSize = androidx.compose.ui.unit.IntSize(ts.toInt(), ts.toInt()), alpha = 0.16f)
+                                xx += gap
+                            }
+                            yy += gap * 0.62f; row++
+                        }
+                    }
                     // Halftone dots, bigger toward the leading edge, drifting.
                     val step = 13.dp.toPx(); val off = pan * step
                     var yy = -step
@@ -694,6 +715,19 @@ private fun GoalView(s: Sports.Score) {
                     val y = rnd.nextFloat() * h; val sh = (4 + rnd.nextInt(14)).dp.toPx()
                     val dx = (rnd.nextFloat() - 0.5f) * 60.dp.toPx()
                     drawRect(if (rnd.nextBoolean()) Color(0xFF38FFE1) else Color(0xFFB8FF3D), Offset(dx, y), Size(w, sh), alpha = 0.55f * (1f - glitch.value))
+                }
+            }
+            // Motion trail behind the logo as it slams in.
+            logoImg?.let { img ->
+                val b = badge.value.coerceIn(0f, 1f)
+                if (b < 0.98f) {
+                    val bs = (56 * 0.72f).dp.toPx(); val cx = if (s.home) 58.dp.toPx() else w - 58.dp.toPx(); val cy = 26.dp.toPx() + (h - 26.dp.toPx()) / 2
+                    for (i in 1..3) {
+                        val x = cx - dir * i * 30.dp.toPx() * (1f - b)
+                        drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset.Zero, srcSize = androidx.compose.ui.unit.IntSize(img.width, img.height),
+                            dstOffset = androidx.compose.ui.unit.IntOffset((x - bs / 2).toInt(), (cy - bs / 2).toInt()),
+                            dstSize = androidx.compose.ui.unit.IntSize(bs.toInt(), bs.toInt()), alpha = 0.32f * (1f - b) / i)
+                    }
                 }
             }
             // Shockwave around the badge.

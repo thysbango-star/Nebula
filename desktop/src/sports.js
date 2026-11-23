@@ -38,7 +38,10 @@ const LEAGUES = [
   L('hockey/nhl', 'NHL', 'hockey', 'US sports', 'USA'),
   L('baseball/mlb', 'MLB', 'baseball', 'US sports', 'USA'),
 ];
-const T = (league, abbr, name, color) => ({ league, id: '', abbr, name, color });
+const T = (league, abbr, name, color, logo = '') => ({ league, id: '', abbr, name, color, logo });
+// ESPN serves cricket logos by ESPNcricinfo team id.
+const CRIC_IDS = { 'South Africa': 3, Australia: 2, England: 1, India: 6, 'New Zealand': 5, Pakistan: 7, 'Sri Lanka': 8, 'West Indies': 4, Bangladesh: 25, Afghanistan: 40, Zimbabwe: 9, Ireland: 29 };
+const cricLogo = (name) => (CRIC_IDS[name] ? `https://a.espncdn.com/i/teamlogos/cricket/500/${CRIC_IDS[name]}.png` : '');
 const RUGBY_NATIONS = [['RSA', 'South Africa', '#00704a'], ['NZ', 'New Zealand', '#3a3a3a'], ['AUS', 'Australia', '#f2b51c'], ['ARG', 'Argentina', '#5da9e9'],
   ['ENG', 'England', '#c8102e'], ['IRE', 'Ireland', '#169b62'], ['FRA', 'France', '#1e3a8a'], ['SCO', 'Scotland', '#1f3b73'], ['WAL', 'Wales', '#d30731'],
   ['ITA', 'Italy', '#0057b8'], ['FIJ', 'Fiji', '#2f80c8'], ['JPN', 'Japan', '#d7263d'], ['SAM', 'Samoa', '#1d3c8f'], ['GEO', 'Georgia', '#b3132a'],
@@ -46,7 +49,7 @@ const RUGBY_NATIONS = [['RSA', 'South Africa', '#00704a'], ['NZ', 'New Zealand',
 const CRICKET_TEAMS = [
   ...[['SA', 'South Africa', '#00843d'], ['AUS', 'Australia', '#f2b51c'], ['ENG', 'England', '#1c3d7a'], ['IND', 'India', '#1f5bb5'], ['NZ', 'New Zealand', '#3a3a3a'],
     ['PAK', 'Pakistan', '#11703a'], ['SL', 'Sri Lanka', '#1b3f94'], ['WI', 'West Indies', '#7b1e3a'], ['BAN', 'Bangladesh', '#006a4e'], ['AFG', 'Afghanistan', '#2563b8'],
-    ['ZIM', 'Zimbabwe', '#ce1126'], ['IRE', 'Ireland', '#169b62']].map(([a, n, c]) => T('cricket/intl', a, n, c)),
+    ['ZIM', 'Zimbabwe', '#ce1126'], ['IRE', 'Ireland', '#169b62']].map(([a, n, c]) => T('cricket/intl', a, n, c, cricLogo(n))),
   ...[['DSG', "Durban's Super Giants", '#00a3c4'], ['JSK', 'Joburg Super Kings', '#f5b800'], ['MICT', 'MI Cape Town', '#1f5fad'], ['PR', 'Paarl Royals', '#e5157f'],
     ['PC', 'Pretoria Capitals', '#2e5ba8'], ['SEC', 'Sunrisers Eastern Cape', '#f26522']].map(([a, n, c]) => T('cricket/sa20', a, n, c)),
   ...[['CSK', 'Chennai Super Kings', '#f5c400'], ['MI', 'Mumbai Indians', '#1f5fad'], ['RCB', 'Royal Challengers Bengaluru', '#d1141b'], ['KKR', 'Kolkata Knight Riders', '#5b2a86'],
@@ -176,10 +179,30 @@ async function fetchFeed(feed, lg) {
 }
 async function scoreboard(lg) { return (await Promise.all(lg.feeds.map((f) => fetchFeed(f, lg).catch(() => [])))).flat(); }
 
+/** National rugby logos, read from ESPN's own Test-rugby team lists (no guessing at ids). Fetched once. */
+let nations = null;
+async function nationLogos() {
+  if (nations) return nations;
+  const out = {};
+  for (const feed of ['rugby/289234', 'rugby/17567', 'rugby/244293', 'rugby/180659', 'rugby/164205']) {
+    try {
+      const j = await get(BASE + feed + '/teams');
+      const list = ((((j.sports || [])[0] || {}).leagues || [])[0] || {}).teams || [];
+      for (const x of list) {
+        const t = x.team; const logo = t && logoOf(t); if (!logo) continue;
+        for (const n of [t.displayName, t.shortDisplayName, t.name]) if (n && !out[norm(n)]) out[norm(n)] = logo;
+      }
+    } catch { /* try the next list */ }
+  }
+  if (Object.keys(out).length) nations = out;
+  return out;
+}
+const knownLogo = (name) => (nations && nations[norm(name)]) || (CRICKET_TEAMS.find((t) => norm(t.name) === norm(name) && t.logo) || {}).logo || '';
+
 async function teams(path) {
   const lg = league(path); if (!lg) return [];
   if (lg.kind === 'cricket') return CRICKET_TEAMS.filter((t) => t.league === lg.path);
-  if (lg.path === RUGBY_TESTS) return RUGBY_NATIONS;
+  if (lg.path === RUGBY_TESTS) { const logos = await nationLogos(); return RUGBY_NATIONS.map((t) => ({ ...t, logo: logos[norm(t.name)] || '' })); }
   const j = await get(BASE + lg.path + '/teams');
   const list = (((j.sports || [])[0] || {}).leagues || [])[0];
   return ((list && list.teams) || []).map((x) => x.team).filter(Boolean).map((t) => ({
@@ -303,14 +326,18 @@ class Sports {
         if (mine.some((t) => t.league === lg.path && (matches(t, g.home) || matches(t, g.away)))) { seen.add(g.id); found.push(g); }
       }
     }
+    // Games whose feed has no logo: use the national logos we know.
+    for (const g of found) for (const sd of [g.home, g.away]) if (!sd.logo) sd.logo = knownLogo(sd.name);
     // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
+    if (mine.some((t) => !t.logo && t.league === RUGBY_TESTS)) await nationLogos().catch(() => {});
     if (this.onLearn) {
       const sides = found.flatMap((g) => [g.home, g.away]);
       let changed = false;
       const learned = (this.getTeams() || []).map((t) => {
         if (t.logo) return t;
         const s = sides.find((x) => matches(t, x) && x.logo);
-        if (!s) return t; changed = true; return { ...t, logo: s.logo };
+        const logo = (s && s.logo) || knownLogo(t.name);
+        if (!logo) return t; changed = true; return { ...t, logo };
       });
       if (changed) this.onLearn(learned);
     }
