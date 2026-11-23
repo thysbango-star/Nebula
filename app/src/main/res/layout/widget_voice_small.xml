@@ -1,0 +1,10 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass" android:padding="8dp">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glow"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center">
+        <FrameLayout android:id="@+id/w_orb" android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/w_orb">
+            <ImageView android:layout_width="26dp" android:layout_height="26dp" android:layout_gravity="center" android:src="@drawable/ic_w_mic_white" android:contentDescription="Ask Nebula"/>
+        </FrameLayout>
+        <TextView android:id="@+id/w_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Ask Nebula"
+            android:textColor="@color/w_text" android:textSize="12sp" android:textStyle="bold" android:maxLines="1"/>
+    </LinearLayout>
+</FrameLayout>

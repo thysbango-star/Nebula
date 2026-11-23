@@ -37,7 +37,7 @@ object Store {
         _conversations.value = load("conversations.json") { ModelJson.conversation(it) }.sortedByDescending { it.updatedAt }
         // Anything still "in progress" from a previous run was interrupted.
         _tasks.value = load("tasks.json") { ModelJson.task(it) }.map {
-            if (it.status == TaskStatus.IN_PROGRESS) it.copy(status = TaskStatus.FAILED,
+            if (it.status == TaskStatus.IN_PROGRESS && !it.isReminder) it.copy(status = TaskStatus.FAILED,
                 summary = it.summary.ifBlank { "Interrupted before it finished (the app was closed)." }) else it
         }.sortedByDescending { it.updatedAt }
         _files.value = load("files.json") { ModelJson.file(it) }.filter { File(it.path).exists() }.sortedByDescending { it.updatedAt }

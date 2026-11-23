@@ -116,6 +116,38 @@ class NebulaPrefs(context: Context) {
     var notchCalls: Boolean get() = bool("notch_calls", true); set(v) = setBool("notch_calls", v)
     var notchMessages: Boolean get() = bool("notch_messages", true); set(v) = setBool("notch_messages", v)
     var notchLive: Boolean get() = bool("notch_live", true); set(v) = setBool("notch_live", v)
+    // Rovian Intelligence — Voice Interrupt
+    var interruptOn: Boolean get() = bool("interrupt_on", true); set(v) = setBool("interrupt_on", v)
+    /** 0 = relaxed (needs clear, loud speech), 1 = eager. */
+    var interruptSens: Float get() = sp.getFloat("interrupt_sens", 0.5f); set(v) = sp.edit().putFloat("interrupt_sens", v.coerceIn(0f, 1f)).apply()
+    var interruptHaptics: Boolean get() = bool("interrupt_haptics", true); set(v) = setBool("interrupt_haptics", v)
+    /** Nebula starts its new answer with a quick natural acknowledgement ("Got you — …"). */
+    var interruptAck: Boolean get() = bool("interrupt_ack", true); set(v) = setBool("interrupt_ack", v)
+    /** Only listen for interruptions when headphones are connected (no speaker echo at all). */
+    var interruptHeadphonesOnly: Boolean get() = bool("interrupt_hp_only", false); set(v) = setBool("interrupt_hp_only", v)
+    // Rovian Intelligence — Calendar
+    var calOn: Boolean get() = bool("cal_on", false); set(v) = setBool("cal_on", v)
+    /** Calendars Nebula may read (ids). Empty = all visible calendars. */
+    var calIds: Set<String> get() = sp.getStringSet("cal_ids", emptySet()) ?: emptySet(); set(v) = sp.edit().putStringSet("cal_ids", v).apply()
+    /** "full" = titles and places, "times" = only busy/free times. */
+    var calDetail: String get() = sp.getString("cal_detail", "full") ?: "full"; set(v) = sp.edit().putString("cal_detail", v).apply()
+    var calNotify: Boolean get() = bool("cal_notify", true); set(v) = setBool("cal_notify", v)
+    /** Minutes before an event (0 = at the start time). */
+    var calLead: Int get() = sp.getInt("cal_lead", 10); set(v) = sp.edit().putInt("cal_lead", v.coerceIn(0, 24 * 60)).apply()
+    /** Skip events that already have their own calendar reminder (no double alerts). */
+    var calUseOwn: Boolean get() = bool("cal_use_own", true); set(v) = setBool("cal_use_own", v)
+    var calFreeAlerts: Boolean get() = bool("cal_free_alerts", false); set(v) = setBool("cal_free_alerts", v)
+    var briefMorning: Boolean get() = bool("brief_morning", true); set(v) = setBool("brief_morning", v)
+    var briefTime: Int get() = sp.getInt("brief_time", 7 * 60 + 30); set(v) = sp.edit().putInt("brief_time", v.coerceIn(0, 24 * 60 - 1)).apply()
+    var briefAfternoon: Boolean get() = bool("brief_afternoon", false); set(v) = setBool("brief_afternoon", v)
+    var briefTomorrow: Boolean get() = bool("brief_tomorrow", false); set(v) = setBool("brief_tomorrow", v)
+    var notifyReminders: Boolean get() = bool("notify_reminders", true); set(v) = setBool("notify_reminders", v)
+    /** Alarms Nebula has scheduled (key → time) and alerts already shown, so nothing is ever sent twice. */
+    var intelScheduled: String get() = sp.getString("intel_scheduled", "{}") ?: "{}"; set(v) = sp.edit().putString("intel_scheduled", v).apply()
+    var intelSent: String get() = sp.getString("intel_sent", "{}") ?: "{}"; set(v) = sp.edit().putString("intel_sent", v).apply()
+    // Rovian Intelligence — Widgets
+    /** How often the Sports and Daily widgets refresh on their own, in minutes (events also refresh them). */
+    var widgetRefresh: Int get() = sp.getInt("widget_refresh", 30); set(v) = sp.edit().putInt("widget_refresh", v.coerceIn(15, 180)).apply()
     // Nebula Beam
     var beamDoubleTap: Boolean get() = bool("beam_double_tap", true); set(v) = setBool("beam_double_tap", v)
     var beamHaptics: Boolean get() = bool("beam_haptics", true); set(v) = setBool("beam_haptics", v)

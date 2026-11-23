@@ -3,6 +3,9 @@
 
     <!-- Talking to the AI brain (Groq) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Rovian Intelligence: calendar (asked only when you connect it), and re-planning reminders after a restart -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Nebula Beam: find nearby Nebula devices on the same Wi-Fi (mDNS) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -93,6 +96,50 @@
             android:noHistory="true"
             android:taskAffinity="com.nebula.assistant.talk"
             android:theme="@style/Theme.Nebula.Invisible" />
+
+        <!-- Rovian Intelligence: home-screen widgets -->
+        <receiver android:name=".widgets.VoiceWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_voice" />
+        </receiver>
+        <receiver android:name=".widgets.MusicWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_music" />
+        </receiver>
+        <receiver android:name=".widgets.AskWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_ask" />
+        </receiver>
+        <receiver android:name=".widgets.TasksWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_tasks" />
+        </receiver>
+        <receiver android:name=".widgets.SportsWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sports" />
+        </receiver>
+        <receiver android:name=".widgets.DailyWidget" android:exported="true" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_daily" />
+        </receiver>
+        <receiver android:name=".widgets.WidgetReceiver" android:exported="false" />
+        <activity
+            android:name=".widgets.AskActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.nebula.assistant.ask"
+            android:windowSoftInputMode="adjustResize|stateVisible"
+            android:theme="@style/Theme.Nebula.Invisible" />
+
+        <!-- Rovian Intelligence: event reminders, briefings and reminders (re-planned after boot / clock changes) -->
+        <receiver android:name=".intel.IntelReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Nebula Beam: choose what to send (system photo/file pickers) -->
         <activity

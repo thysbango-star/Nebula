@@ -1,0 +1,6 @@
+<resources>
+    <color name="w_text">#FFFFFF</color>
+    <color name="w_dim">#A4AABB</color>
+    <color name="w_accent">#5FD8FF</color>
+    <color name="w_chip">#1AFFFFFF</color>
+</resources>

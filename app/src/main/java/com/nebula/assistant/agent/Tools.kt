@@ -85,6 +85,13 @@ object ToolDefs {
         put(fn("get_document", "Get the full spec of a file Nebula made, before editing it.", JSONObject().put("file_id", s("File id")), listOf("file_id")))
         put(fn("update_document", "Replace a file's content with an edited spec (same schema as create_document).",
             JSONObject().put("file_id", s("File id")).put("spec", obj("Complete edited spec")), listOf("file_id", "spec")))
+        put(fn("calendar", "Read the user's real calendar (Calendar Intelligence): events, free windows, conflicts and the next event for a range of days. " +
+            "Use for anything about their schedule ('what am I doing tomorrow', 'am I free this afternoon', 'next meeting'). Never guess events.",
+            JSONObject().put("from_day", i("0 = today, 1 = tomorrow, -1 = yesterday")).put("days", i("How many days, 1-14 (default 1)"))
+                .put("day_end_hour", i("When the day ends for free-time purposes, default 22")), emptyList()))
+        put(fn("remind", "Save a reminder in Nebula (it appears in Tasks and sends a notification). Give exactly one of: at, minutes_from_now, minutes_before_next_event.",
+            JSONObject().put("text", s("What to remind them about")).put("at", s("Local time 'HH:mm' or 'yyyy-MM-dd HH:mm'"))
+                .put("minutes_from_now", i("e.g. 20")).put("minutes_before_next_event", i("e.g. 10 = ten minutes before their next calendar event")), listOf("text")))
         put(fn("ask_user", "Ask the user a question with tappable options when you need information or a choice. Pauses the task.",
             JSONObject().put("question", s("Question")).put("options", arr("2-6 options")).put("multiple", b("Allow several choices")), listOf("question")))
         put(fn("finish_task", "End the task and report the real result. Only say 'completed' if your tools confirmed success.",
@@ -210,6 +217,16 @@ class ToolExecutor(private val context: Context, private val prefs: NebulaPrefs,
                     if (list.isEmpty()) "No contact found" else list.first().let { "${it.name} · ${it.number}" }))
         }
         "send_sms", "send_whatsapp", "call" -> sensitiveSend(name, a, callId)
+        "calendar" -> {
+            val out = com.nebula.assistant.intel.CalendarIntel.tool(context, a)
+            val ok = JSONObject(out).optBoolean("ok")
+            ToolOutcome(out, step("Check your calendar", ok, ok, if (ok) "${JSONObject(out).optInt("count")} event(s)" else "Calendar not connected"))
+        }
+        "remind" -> {
+            val out = com.nebula.assistant.intel.Reminders.tool(context, a)
+            val ok = JSONObject(out).optBoolean("ok")
+            ToolOutcome(out, step("Set a reminder", ok, ok, JSONObject(out).optString("result")))
+        }
         "set_timer" -> phone.setTimer(a.optInt("seconds"), a.optString("label")).let {
             ToolOutcome(result(it.ok, it.verified, it.message), step("Set timer", it.ok, it.verified, it.message)) }
         "set_alarm" -> phone.setAlarm(a.optInt("hour"), a.optInt("minute"), a.optString("label")).let {

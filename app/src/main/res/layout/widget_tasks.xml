@@ -1,0 +1,41 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass" android:orientation="vertical" android:padding="14dp">
+    <LinearLayout android:id="@+id/w_head" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="NEBULA TASKS" android:textColor="@color/w_accent" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.15"/>
+            <TextView android:id="@+id/w_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="18sp" android:textStyle="bold" android:maxLines="1"/>
+        </LinearLayout>
+        <FrameLayout android:id="@+id/w_add" android:layout_width="36dp" android:layout_height="36dp" android:background="@drawable/w_orb">
+            <ImageView android:layout_width="20dp" android:layout_height="20dp" android:layout_gravity="center" android:src="@drawable/ic_w_add" android:tint="#FFFFFF" android:contentDescription="Add a reminder"/>
+        </FrameLayout>
+    </LinearLayout>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="8dp"/>
+    <LinearLayout android:id="@+id/w_row1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp" android:visibility="gone">
+        <ImageView android:id="@+id/w_check1" android:layout_width="26dp" android:layout_height="26dp" android:padding="2dp" android:src="@drawable/ic_w_circle" android:contentDescription="Mark done"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="10dp">
+            <TextView android:id="@+id/w_text1" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_sub1" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_row2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp" android:visibility="gone">
+        <ImageView android:id="@+id/w_check2" android:layout_width="26dp" android:layout_height="26dp" android:padding="2dp" android:src="@drawable/ic_w_circle" android:contentDescription="Mark done"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="10dp">
+            <TextView android:id="@+id/w_text2" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_sub2" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_row3" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp" android:visibility="gone">
+        <ImageView android:id="@+id/w_check3" android:layout_width="26dp" android:layout_height="26dp" android:padding="2dp" android:src="@drawable/ic_w_circle" android:contentDescription="Mark done"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="10dp">
+            <TextView android:id="@+id/w_text3" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_sub3" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_row4" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp" android:visibility="gone">
+        <ImageView android:id="@+id/w_check4" android:layout_width="26dp" android:layout_height="26dp" android:padding="2dp" android:src="@drawable/ic_w_circle" android:contentDescription="Mark done"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="10dp">
+            <TextView android:id="@+id/w_text4" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_sub4" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+    <TextView android:id="@+id/w_empty" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="All clear. Tap + to add a reminder." android:textColor="@color/w_dim" android:textSize="13sp" android:visibility="gone"/>
+</LinearLayout>

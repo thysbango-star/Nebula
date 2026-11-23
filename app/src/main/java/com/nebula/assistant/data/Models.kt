@@ -48,7 +48,10 @@ data class NebulaTask(
     val kind: String = "general",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    /** Reminders (kind = "reminder"): when it's due (0 = no time). */
+    val dueAt: Long = 0,
 ) {
+    val isReminder get() = kind == "reminder"
     val isActive get() = status == TaskStatus.IN_PROGRESS || status == TaskStatus.REQUIRES_INPUT
     val progress: Float
         get() = when {
@@ -119,13 +122,13 @@ internal object ModelJson {
     fun task(t: NebulaTask) = JSONObject().put("id", t.id).put("title", t.title).put("conversationId", t.conversationId)
         .put("status", t.status.name).put("plan", JSONArray(t.plan)).put("steps", JSONArray(t.steps.map { step(it) }))
         .put("summary", t.summary).put("fileIds", JSONArray(t.fileIds)).put("input", t.input?.let { input(it) } ?: JSONObject.NULL)
-        .put("kind", t.kind).put("createdAt", t.createdAt).put("updatedAt", t.updatedAt)
+        .put("kind", t.kind).put("createdAt", t.createdAt).put("updatedAt", t.updatedAt).put("dueAt", t.dueAt)
 
     fun task(o: JSONObject) = NebulaTask(o.optString("id"), o.optString("title"), o.optString("conversationId"),
         runCatching { TaskStatus.valueOf(o.optString("status")) }.getOrDefault(TaskStatus.FAILED),
         strings(o.optJSONArray("plan")), objs(o.optJSONArray("steps")).map { step(it) }, o.optString("summary"),
         strings(o.optJSONArray("fileIds")), o.optJSONObject("input")?.let { input(it) }, o.optString("kind", "general"),
-        o.optLong("createdAt"), o.optLong("updatedAt"))
+        o.optLong("createdAt"), o.optLong("updatedAt"), o.optLong("dueAt"))
 
     fun message(m: ChatMessage) = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text)
         .put("taskId", m.taskId ?: JSONObject.NULL).put("fileIds", JSONArray(m.fileIds))

@@ -13,6 +13,7 @@ import com.nebula.assistant.game.R3cket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -63,24 +64,58 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
             var followUp = false
             var asked = false
             var quietEnd = false
+            // Voice Interrupt: what you said over Nebula, and what Nebula was saying when you cut in.
+            var interrupted: Utterance? = null
+            var cutOn = ""
             while (again && coroutineContext.isActive && !stopRequested) {
                 again = false
-                VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f, followUp = followUp) }
-                if (followUp) delay(250) // let the last word of Nebula's voice fade before listening
-                // A follow-up only waits a few seconds for you to start talking (longer if Nebula asked you something).
-                // First turn: the wake sound is still ringing for ~1.2 s, so don't treat it as you talking.
-                val u = record(if (!followUp) 7 else if (asked) 8 else 5, ignoreMs = if (!followUp) 1200 else 0) ?: break
-                if (u.empty) { if (followUp) { quietEnd = true; break } else { fail("I didn't catch that."); return } }
+                val fromInterrupt = interrupted != null
+                val u = interrupted ?: run {
+                    Interrupt.state = Interrupt.State.LISTENING
+                    VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f, followUp = followUp) }
+                    if (followUp) delay(250) // let the last word of Nebula's voice fade before listening
+                    // A follow-up only waits a few seconds for you to start talking (longer if Nebula asked you something).
+                    // First turn: the wake sound is still ringing for ~1.2 s, so don't treat it as you talking.
+                    record(if (!followUp) 7 else if (asked) 8 else 5, ignoreMs = if (!followUp) 1200 else 0)
+                } ?: break
+                interrupted = null
+                if (u.empty) {
+                    if (fromInterrupt) { clarify(); again = true; followUp = true; asked = true; continue }
+                    if (followUp) { quietEnd = true; break } else { fail("I didn't catch that."); return }
+                }
                 Sounds.play(context, NebulaSound.LISTEN_END)
                 VoiceState.update { it.copy(phase = VoiceState.Phase.THINKING, level = 0f, followUp = false) }
+                Interrupt.state = if (fromInterrupt) Interrupt.State.PROCESSING_INTERRUPT else Interrupt.State.THINKING
                 Sounds.play(context, NebulaSound.THINKING)
-                val text = try { Hearing.transcribe(prefs, u.wav()) } catch (e: Exception) { fail(e.message ?: "I couldn't hear that."); return }
-                if (text.isBlank() || text.trim('.', ' ').isEmpty()) { fail("I didn't catch that."); return }
+                val text = try { Hearing.transcribe(prefs, u.wav()) } catch (e: Exception) {
+                    if (fromInterrupt) { clarify(); again = true; followUp = true; asked = true; continue }
+                    fail(e.message ?: "I couldn't hear that."); return
+                }
+                val unclear = text.isBlank() || text.trim('.', ' ').isEmpty() || (fromInterrupt && text.trim(' ', '.', '!').lowercase() in WHISPER_NOISE)
+                if (unclear) {
+                    if (fromInterrupt) { clarify(); again = true; followUp = true; asked = true; continue }
+                    fail("I didn't catch that."); return
+                }
                 val heard = Names.fixHeard(prefs, text)
                 VoiceState.update { it.copy(transcript = heard) }
-                val reply = brain.respond(heard)
+                var input = heard
+                if (fromInterrupt) {
+                    val kind = Interrupt.classify(heard)
+                    if (kind == Interrupt.Kind.STOP) {
+                        // "Stop." — stop, and don't carry on talking.
+                        Interrupt.state = Interrupt.State.CANCELLED
+                        VoiceState.update { it.copy(phase = VoiceState.Phase.DONE, reply = "Okay.", level = 0f) }
+                        quietEnd = true; break
+                    }
+                    input = Interrupt.followUp(kind, heard, cutOn, prefs.interruptAck)
+                    Interrupt.state = Interrupt.State.RESUMING
+                }
+                val reply = brain.respond(input)
                 VoiceState.update { it.copy(phase = VoiceState.Phase.SPEAKING, reply = reply.text, sources = reply.sources, taskId = reply.taskId) }
-                if (prefs.speakReplies) speaker.speak(Names.forSpeech(prefs, reply.text)) { VoiceState.level(it) }
+                if (prefs.speakReplies) {
+                    val cut = speakOrInterrupt(Names.forSpeech(prefs, reply.text))
+                    if (cut != null) { interrupted = cut; cutOn = speaker.saying; again = true; followUp = true; asked = false; continue }
+                }
                 // Conversation mode: keep listening for a follow-up instead of needing a button.
                 asked = reply.expectsAnswer
                 again = asked || prefs.followUps
@@ -91,8 +126,42 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
             // You already had time to read while Nebula listened for a follow-up, so close soon after silence.
             delay(if (quietEnd) 900L else (5000L + VoiceState.session.value.reply.length * 35L).coerceAtMost(20_000L))
         } finally {
+            Interrupt.state = Interrupt.State.IDLE
             if (!stopRequested) end()
         }
+    }
+
+    /** Speaks, while listening (lightly) for you talking over it. Returns your interruption, or null if Nebula finished. */
+    private suspend fun speakOrInterrupt(text: String): Utterance? {
+        Interrupt.state = Interrupt.State.SPEAKING
+        if (!Interrupt.enabled(context, prefs)) { speaker.speak(text) { VoiceState.level(it) }; return null }
+        return kotlinx.coroutines.coroutineScope {
+            val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+            val talk = launch { try { speaker.speak(text) { VoiceState.level(it) } } finally { finished.set(true) } }
+            val heard = async {
+                Interrupt.listen(context, prefs, done = { finished.get() }, stopped = { stopRequested }) {
+                    // The moment you start talking: Nebula stops (no overlap, nothing more is spoken) and listens.
+                    speaker.stop(); talk.cancel()
+                    if (prefs.interruptHaptics) buzz()
+                    VoiceState.update { it.copy(phase = VoiceState.Phase.LISTENING, transcript = "", level = 0f, followUp = false) }
+                }
+            }
+            talk.join()
+            heard.await()
+        }
+    }
+
+    /** Couldn't make out the interruption: stop and ask briefly, instead of carrying on with the old answer. */
+    private suspend fun clarify() {
+        val q = "Sorry — what was that?"
+        VoiceState.update { it.copy(phase = VoiceState.Phase.SPEAKING, reply = q, level = 0f) }
+        if (prefs.speakReplies) speaker.speak(q) { VoiceState.level(it) }
+    }
+
+    private fun buzz() = runCatching {
+        val v = if (android.os.Build.VERSION.SDK_INT >= 31) context.getSystemService(android.os.VibratorManager::class.java).defaultVibrator
+            else @Suppress("DEPRECATION") context.getSystemService(android.os.Vibrator::class.java)
+        v?.vibrate(android.os.VibrationEffect.createOneShot(25, 120))
     }
 
     private suspend fun fail(msg: String) {
@@ -127,4 +196,9 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
     }
 
     fun release() { speaker.release() }
+
+    companion object {
+        /** What Whisper tends to "hear" in noise — not a real interruption. */
+        private val WHISPER_NOISE = setOf("you", "thank you", "thanks", "thanks for watching", "bye", "uh", "um", "hmm", "mm", "oh")
+    }
 }

@@ -136,6 +136,7 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
         R3cketGroup(prefs)
         SportsGroup(prefs)
         BeamGroup(prefs)
+        RovianGroup(prefs)
 
         Group("Vibrance glow") {
             Text("The light that wraps the screen when Nebula wakes.", style = MaterialTheme.typography.bodySmall, color = p.dim)
@@ -499,6 +500,156 @@ private fun SportsGroup(prefs: NebulaPrefs) {
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- Rovian Intelligence
+
+@Composable
+private fun SubHead(t: String) = Text(t, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp))
+
+@Composable
+private fun RovianGroup(prefs: NebulaPrefs) {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    var granted by remember { mutableStateOf(com.nebula.assistant.intel.CalendarIntel.granted(ctx)) }
+    val askCal = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        granted = ok; if (ok) { prefs.calOn = true; com.nebula.assistant.intel.Planner.init(ctx) }; tick++
+    }
+    val askNotify = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { tick++ }
+    var sens by remember { mutableFloatStateOf(prefs.interruptSens) }
+    var showWidgets by remember { mutableStateOf(false) }
+    val connected = prefs.calOn && granted
+    val replan = { com.nebula.assistant.intel.Planner.replan(ctx) }
+    Group("Rovian Intelligence", "New", p.flame) {
+        Text("Widgets on your home screen, talking over Nebula to steer it, and a Nebula that knows your calendar and reminds you before things start.",
+            style = MaterialTheme.typography.bodySmall, color = p.dim)
+
+        SubHead("Widgets")
+        Text(if (showWidgets) "Hide widget gallery ›" else "Widget gallery ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+            modifier = Modifier.padding(top = 4.dp).pressable(onClick = { showWidgets = !showWidgets }))
+        if (showWidgets) {
+            com.nebula.assistant.widgets.Widgets.all.forEach { w ->
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp).clip(RoundedCornerShape(18.dp)).background(p.surface2).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(w.title, style = MaterialTheme.typography.bodyMedium)
+                        Text(w.description, style = MaterialTheme.typography.bodySmall, color = p.dim)
+                    }
+                    Btn("Add") {
+                        if (!com.nebula.assistant.widgets.Widgets.pin(ctx, w.kind))
+                            android.widget.Toast.makeText(ctx, "Long-press your home screen → Widgets → Nebula → ${w.title}", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            Text("“Add” asks your home screen to place it (you confirm). Or long-press an empty spot on your home screen → Widgets → Nebula, and drag one out. Most can be resized.",
+                style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 8.dp))
+        }
+        Text("Sports & Daily refresh", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
+        val rates = listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 180 to "3 hours")
+        Keyed(tick) { ChipRow(rates.map { it.second }, rates.firstOrNull { it.first == prefs.widgetRefresh }?.second) { l ->
+            prefs.widgetRefresh = rates.first { it.second == l }.first; com.nebula.assistant.widgets.Widgets.schedule(ctx); tick++ } }
+        Text("Music, Tasks and Voice update the moment something changes; scores refresh faster while your team is playing.",
+            style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 6.dp))
+
+        SubHead("Voice Interrupt")
+        Keyed(tick) {
+            Toggle("Talk over Nebula", "Just start talking while Nebula is speaking — it stops and listens. “Shorter”, “Show me”, “Wait, why?”, “Stop”…", prefs.interruptOn) { prefs.interruptOn = it; tick++ }
+            Toggle("Only with headphones", "No speaker echo at all, so it never cuts itself off. Leave off to use it on the speaker too.", prefs.interruptHeadphonesOnly) { prefs.interruptHeadphonesOnly = it; tick++ }
+            Toggle("Haptics", "A small tap when Nebula hears you cut in.", prefs.interruptHaptics) { prefs.interruptHaptics = it; tick++ }
+            Toggle("Quick acknowledgement", "Nebula starts its new answer naturally — “Got you — the short version is…”.", prefs.interruptAck) { prefs.interruptAck = it; tick++ }
+        }
+        SliderRow("Sensitivity", if (sens < 0.34f) "Relaxed" else if (sens > 0.66f) "Eager" else "Balanced", sens, 0f..1f, { sens = it }, { prefs.interruptSens = sens })
+        Text("Relaxed ignores TV, music and people nearby better; Eager reacts to quieter voices. On the speaker it's always a little stricter so Nebula's own voice doesn't trigger it.",
+            style = MaterialTheme.typography.bodySmall, color = p.faint)
+
+        SubHead("Calendar Intelligence")
+        Keyed(tick) {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(if (connected) "Calendar connected" else "Calendar not connected", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (connected) "Nebula can read your schedule to answer and remind you. It never changes your calendar." else "Ask “What's my day looking like?” and get real answers.",
+                        style = MaterialTheme.typography.bodySmall, color = p.dim)
+                }
+                Btn(if (connected) "Disconnect" else "Connect", primary = !connected) {
+                    if (connected) { prefs.calOn = false; replan(); tick++ }
+                    else if (granted) { prefs.calOn = true; com.nebula.assistant.intel.Planner.init(ctx); tick++ }
+                    else askCal.launch(android.Manifest.permission.READ_CALENDAR)
+                }
+            }
+            if (connected) {
+                val cals = remember(tick) { com.nebula.assistant.intel.CalendarIntel.calendars(ctx) }
+                Text("Calendars Nebula can read", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                val chosen = prefs.calIds
+                cals.forEach { c ->
+                    val on = chosen.isEmpty() || c.id.toString() in chosen
+                    Toggle(c.name, c.account, on) { v ->
+                        val cur = (if (chosen.isEmpty()) cals.map { it.id.toString() }.toSet() else chosen).toMutableSet()
+                        if (v) cur += c.id.toString() else cur -= c.id.toString()
+                        prefs.calIds = if (cur.size == cals.size) emptySet() else cur; replan(); tick++
+                    }
+                }
+                if (cals.isEmpty()) Text("No calendars on this phone yet.", style = MaterialTheme.typography.bodySmall, color = p.faint)
+                Text("What Nebula can see", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
+                ChipRow(listOf("Titles, times & places", "Only busy times"), if (prefs.calDetail == "full") "Titles, times & places" else "Only busy times") {
+                    prefs.calDetail = if (it.startsWith("Titles")) "full" else "times"; tick++ }
+
+                Toggle("Event notifications", "A heads-up before each event.", prefs.calNotify) { prefs.calNotify = it; replan(); tick++ }
+                if (prefs.calNotify) {
+                    Text("Remind me", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp))
+                    val leads = listOf(0 to "At start", 5 to "5 min", 10 to "10 min", 15 to "15 min", 30 to "30 min", 60 to "1 hour")
+                    ChipRow(leads.map { it.second } + "Custom", leads.firstOrNull { it.first == prefs.calLead }?.second ?: "Custom") { l ->
+                        prefs.calLead = leads.firstOrNull { it.second == l }?.first ?: prefs.calLead.let { if (it in leads.map { x -> x.first }) 20 else it }; replan(); tick++ }
+                    if (prefs.calLead !in listOf(0, 5, 10, 15, 30, 60)) {
+                        var lead by remember { mutableFloatStateOf(prefs.calLead.toFloat()) }
+                        SliderRow("Custom", "${lead.toInt()} min before", lead, 1f..180f, { lead = it }, { prefs.calLead = lead.toInt(); replan(); tick++ })
+                    }
+                    Toggle("Use the calendar's own reminders", "If an event already has a reminder, Nebula doesn't add another.", prefs.calUseOwn) { prefs.calUseOwn = it; replan(); tick++ }
+                    Toggle("Free-time heads-ups", "“You have 30 minutes free before your next commitment.”", prefs.calFreeAlerts) { prefs.calFreeAlerts = it; replan(); tick++ }
+                }
+                Toggle("Morning briefing", "Your day in a few lines: first event, free windows, when you finish.", prefs.briefMorning) { prefs.briefMorning = it; replan(); tick++ }
+                if (prefs.briefMorning) {
+                    val t = prefs.briefTime
+                    Text("Briefing time · %02d:%02d ›".format(t / 60, t % 60), style = MaterialTheme.typography.labelLarge, color = p.flame,
+                        modifier = Modifier.padding(top = 6.dp).pressable(onClick = {
+                            android.app.TimePickerDialog(ctx, { _, h, m -> prefs.briefTime = h * 60 + m; replan(); tick++ }, t / 60, t % 60, true).show()
+                        }))
+                }
+                Toggle("Afternoon check-in", "At 13:00: what's left today.", prefs.briefAfternoon) { prefs.briefAfternoon = it; replan(); tick++ }
+                Toggle("Tomorrow's preview", "At 20:00: when tomorrow starts.", prefs.briefTomorrow) { prefs.briefTomorrow = it; replan(); tick++ }
+            }
+            Toggle("Reminder notifications", "Reminders you ask Nebula for (“remind me at 5 to call Mom”), with Done and Snooze.", prefs.notifyReminders) { prefs.notifyReminders = it; replan(); tick++ }
+            val notifOk = android.os.Build.VERSION.SDK_INT < 33 || androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!notifOk) Text("Notifications are off for Nebula — allow them ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+                modifier = Modifier.padding(top = 8.dp).pressable(onClick = { if (android.os.Build.VERSION.SDK_INT >= 33) askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS) }))
+            Text("Notification categories (sound, Do Not Disturb, on/off) ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+                modifier = Modifier.padding(top = 8.dp).pressable(onClick = {
+                    runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }))
+            Text("Android decides exactly when background alerts are delivered; in deep sleep one can arrive a minute or two late.",
+                style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 6.dp))
+
+            SubHead("Privacy")
+            val n = if (connected) prefs.calIds.size.takeIf { it > 0 } ?: com.nebula.assistant.intel.CalendarIntel.calendars(ctx).size else 0
+            Text(when {
+                !granted -> "Calendar access: not granted. Nebula can't read any calendar."
+                !connected -> "Calendar access: granted to the app, but Calendar Intelligence is off — nothing is read."
+                else -> "Calendar access: on · $n calendar${if (n == 1) "" else "s"} · ${if (prefs.calDetail == "full") "titles, times and places" else "busy times only"}. Read on demand, only for what you ask; nothing is stored except which alerts were already sent."
+            }, style = MaterialTheme.typography.bodySmall, color = p.dim)
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("Clear alert history") { com.nebula.assistant.intel.Planner.clearHistory(ctx); android.widget.Toast.makeText(ctx, "Cleared", android.widget.Toast.LENGTH_SHORT).show() }
+                Btn("Clear calendar cache") { prefs.intelScheduled = "{}"; replan(); android.widget.Toast.makeText(ctx, "Cleared", android.widget.Toast.LENGTH_SHORT).show() }
+            }
+            Text("Revoke calendar permission ›", style = MaterialTheme.typography.labelLarge, color = p.flame,
+                modifier = Modifier.padding(top = 10.dp).pressable(onClick = {
+                    prefs.calOn = false; replan()
+                    if (android.os.Build.VERSION.SDK_INT >= 33 && granted) { ctx.revokeSelfPermissionOnKill(android.Manifest.permission.READ_CALENDAR)
+                        android.widget.Toast.makeText(ctx, "Calendar access will be removed when Nebula next closes.", android.widget.Toast.LENGTH_LONG).show() }
+                    else runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    tick++
+                }))
         }
     }
 }

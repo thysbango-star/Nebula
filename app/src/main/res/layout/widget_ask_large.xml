@@ -1,0 +1,17 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass" android:orientation="vertical" android:padding="10dp">
+    <LinearLayout android:id="@+id/w_field" android:layout_width="match_parent" android:layout_height="48dp" android:background="@drawable/w_field" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="5dp">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@mipmap/ic_launcher" android:contentDescription="Nebula"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:text="Ask Nebula anything…" android:textColor="@color/w_dim" android:textSize="15sp" android:maxLines="1"/>
+        <FrameLayout android:id="@+id/w_mic" android:layout_width="38dp" android:layout_height="38dp" android:background="@drawable/w_orb">
+            <ImageView android:layout_width="20dp" android:layout_height="20dp" android:layout_gravity="center" android:src="@drawable/ic_w_mic_white" android:contentDescription="Talk"/>
+        </FrameLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+        <TextView android:id="@+id/w_chip1" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_margin="3dp" android:background="@drawable/w_chip" android:gravity="center" android:text="What should I do today?" android:textColor="@color/w_text" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:paddingStart="8dp" android:paddingEnd="8dp"/>
+        <TextView android:id="@+id/w_chip2" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_margin="3dp" android:background="@drawable/w_chip" android:gravity="center" android:text="Explain something" android:textColor="@color/w_text" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:paddingStart="8dp" android:paddingEnd="8dp"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <TextView android:id="@+id/w_chip3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_margin="3dp" android:background="@drawable/w_chip" android:gravity="center" android:text="Summarise" android:textColor="@color/w_text" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:paddingStart="8dp" android:paddingEnd="8dp"/>
+        <TextView android:id="@+id/w_chip4" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_margin="3dp" android:background="@drawable/w_chip" android:gravity="center" android:text="Help me study" android:textColor="@color/w_text" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:paddingStart="8dp" android:paddingEnd="8dp"/>
+    </LinearLayout>
+</LinearLayout>

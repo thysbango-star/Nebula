@@ -1,0 +1,3 @@
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="57dp" android:minHeight="57dp" android:targetCellWidth="2" android:targetCellHeight="1"
+    android:minResizeWidth="57dp" android:minResizeHeight="57dp" android:resizeMode="horizontal|vertical" android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_voice_large" android:previewLayout="@layout/widget_voice_large" android:description="@string/w_desc_voice" android:widgetCategory="home_screen"/>

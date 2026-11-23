@@ -40,6 +40,8 @@ class NebulaApp : Application() {
                 description = "When a task finishes, fails or needs your answer."
             })
         watchTasks()
+        com.nebula.assistant.intel.Planner.init(this)
+        com.nebula.assistant.widgets.Widgets.watch(this)
         // Is there a newer Nebula? Checked on launch and every 12 hours; one notification per new version.
         scope.launch { while (true) { runCatching { com.nebula.assistant.support.Updates.check(this@NebulaApp, notify = true) }; kotlinx.coroutines.delay(12 * 3_600_000L) } }
     }
@@ -53,7 +55,7 @@ class NebulaApp : Application() {
                 for (t in list) {
                     val prev = last[t.id]
                     last[t.id] = t.status
-                    if (prev == null || prev == t.status) continue
+                    if (prev == null || prev == t.status || t.isReminder) continue
                     val worth = t.status == TaskStatus.COMPLETED || t.status == TaskStatus.FAILED || t.status == TaskStatus.REQUIRES_INPUT
                     val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                     if (worth && !foreground) notify(t.id, t.title, when (t.status) {

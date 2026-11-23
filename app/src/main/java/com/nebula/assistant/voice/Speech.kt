@@ -71,6 +71,8 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
     /** Last cloud-voice problem, shown in Settings so the user knows why it fell back. */
     var lastProblem: String? = null; private set
     @Volatile private var lastCode = 0
+    /** The sentence(s) being spoken right now — so an interruption knows what you cut in on. */
+    @Volatile var saying: String = ""; private set
 
     fun init() { if (tts == null) tts = TextToSpeech(context, this) }
     override fun onInit(status: Int) {
@@ -85,7 +87,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
 
     /** Speaks [text]; [onLevel] gets a gentle 0..1 pulse for animations. Returns when finished. */
     suspend fun speak(text: String, onLevel: (Float) -> Unit = {}) {
-        stopped = false
+        stopped = false; saying = ""
         if (text.isBlank()) return
         val engine = prefs.voiceEngine
         val ok = when (engine) {
@@ -104,6 +106,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
             if (stopped) return true
             val cur = next ?: return i > 0
             next = null
+            saying = chunks[i]
             val prefetch = if (i + 1 < chunks.size) kotlinx.coroutines.coroutineScope {
                 val d = async(Dispatchers.IO) { fetch(chunks[i + 1]) }
                 play(cur, onLevel); d.await()
@@ -179,6 +182,7 @@ class Speaker(private val context: Context) : TextToSpeech.OnInitListener {
         while (!ttsReady && waited < 3000) { delay(100); waited += 100 }
         val engine = tts ?: return
         if (!ttsReady) return
+        saying = text
         suspendCancellableCoroutine { cont ->
             val id = "n${System.nanoTime()}"
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {

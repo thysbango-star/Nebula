@@ -201,9 +201,9 @@ fun NotchUi(c: NotchController) {
         shownMessage = m.key; delay(5500); if (shownMessage == m.key) shownMessage = null
     }
     // A finished task shows its result briefly.
-    val active = tasks.firstOrNull { it.isActive }
+    val active = tasks.firstOrNull { it.isActive && !it.isReminder }
     var recentId by remember { mutableStateOf<String?>(null) }
-    val newest = tasks.firstOrNull { !it.isActive && System.currentTimeMillis() - it.updatedAt < 4000 }
+    val newest = tasks.firstOrNull { !it.isActive && !it.isReminder && System.currentTimeMillis() - it.updatedAt < 4000 }
     LaunchedEffect(newest?.id, newest?.updatedAt) { if (newest != null) { recentId = newest.id; delay(4000); recentId = null } }
     val recent = tasks.firstOrNull { it.id == recentId }
     var musicOpen by remember { mutableStateOf(false) }

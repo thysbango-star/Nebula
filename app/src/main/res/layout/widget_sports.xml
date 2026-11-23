@@ -1,0 +1,29 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass" android:orientation="vertical" android:padding="14dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="16dp" android:layout_height="16dp" android:src="@drawable/ic_w_ball" android:contentDescription="@null"/>
+        <TextView android:id="@+id/w_head" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="6dp" android:text="NEBULA SPORTS" android:textColor="@color/w_accent" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.15"/>
+        <TextView android:id="@+id/w_live" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="● LIVE" android:textColor="#FF4D5E" android:textSize="10sp" android:textStyle="bold" android:visibility="gone"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_fx1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp" android:paddingBottom="6dp" android:visibility="gone">
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/w_fxt1" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_fxs1" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+        <TextView android:id="@+id/w_fxr1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:textColor="@color/w_text" android:textSize="15sp" android:textStyle="bold" android:maxLines="1"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_fx2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp" android:paddingBottom="6dp" android:visibility="gone">
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/w_fxt2" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_fxs2" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+        <TextView android:id="@+id/w_fxr2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:textColor="@color/w_text" android:textSize="15sp" android:textStyle="bold" android:maxLines="1"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/w_fx3" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp" android:paddingBottom="6dp" android:visibility="gone">
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/w_fxt3" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/w_fxs3" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/w_dim" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+        <TextView android:id="@+id/w_fxr3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:textColor="@color/w_text" android:textSize="15sp" android:textStyle="bold" android:maxLines="1"/>
+    </LinearLayout>
+    <TextView android:id="@+id/w_empty" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:textColor="@color/w_dim" android:textSize="13sp" android:visibility="gone"/>
+</LinearLayout>

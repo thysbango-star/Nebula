@@ -1,0 +1,9 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass" android:padding="8dp">
+    <LinearLayout android:id="@+id/w_field" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_field" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="6dp">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@mipmap/ic_launcher" android:contentDescription="Nebula"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:text="Ask Nebula anything…" android:textColor="@color/w_dim" android:textSize="15sp" android:maxLines="1"/>
+        <FrameLayout android:id="@+id/w_mic" android:layout_width="38dp" android:layout_height="38dp" android:background="@drawable/w_orb">
+            <ImageView android:layout_width="20dp" android:layout_height="20dp" android:layout_gravity="center" android:src="@drawable/ic_w_mic_white" android:contentDescription="Talk"/>
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

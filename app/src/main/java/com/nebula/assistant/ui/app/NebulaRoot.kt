@@ -86,7 +86,7 @@ class Host(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun NebulaRoot(engine: TaskEngine, prefs: NebulaPrefs, perms: List<Perm>, host: Host, startTab: Int, startTask: String?) {
+fun NebulaRoot(engine: TaskEngine, prefs: NebulaPrefs, perms: List<Perm>, host: Host, startTab: Int, startTask: String?, startConv: String? = null) {
     val p = Pal
     val conversations by Store.conversations.collectAsState()
     val tasks by Store.tasks.collectAsState()
@@ -100,6 +100,7 @@ fun NebulaRoot(engine: TaskEngine, prefs: NebulaPrefs, perms: List<Perm>, host: 
     var convId by rememberSaveable { mutableStateOf(conversations.firstOrNull { System.currentTimeMillis() - it.updatedAt < 30 * 60_000 }?.id) }
     var hasKey by rememberSaveable { mutableStateOf(prefs.groqKey.isNotBlank()) }
     LaunchedEffect(startTab, startTask) { tab = startTab; if (startTask != null) { taskId = startTask; overlay = "task" } }
+    LaunchedEffect(startConv) { if (startConv != null) { convId = startConv; tab = 0; overlay = "" } }
 
     val fileMap = files.associateBy { it.id }
     val taskMap = tasks.associateBy { it.id }

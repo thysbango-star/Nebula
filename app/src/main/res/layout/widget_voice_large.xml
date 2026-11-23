@@ -1,0 +1,13 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glow"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="10dp">
+        <ImageView android:layout_width="30dp" android:layout_height="30dp" android:src="@mipmap/ic_launcher" android:contentDescription="Nebula"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="12dp">
+            <TextView android:id="@+id/w_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ask Nebula" android:textColor="@color/w_text" android:textSize="17sp" android:textStyle="bold" android:maxLines="1"/>
+            <TextView android:id="@+id/w_sub" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tap and talk" android:textColor="@color/w_dim" android:textSize="12sp" android:maxLines="1"/>
+        </LinearLayout>
+        <FrameLayout android:id="@+id/w_orb" android:layout_width="50dp" android:layout_height="50dp" android:background="@drawable/w_orb">
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/ic_w_mic_white" android:contentDescription="Talk"/>
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

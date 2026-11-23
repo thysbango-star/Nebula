@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private var theme by mutableStateOf("system")
     private var startTab by mutableIntStateOf(0)
     private var startTask by mutableStateOf<String?>(null)
+    private var startConv by mutableStateOf<String?>(null)
     private var afterGrant: (() -> Unit)? = null
     private var player: android.media.MediaPlayer? = null
 
@@ -89,7 +90,7 @@ class MainActivity : ComponentActivity() {
                         isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark
                     }
                 }
-                NebulaRoot(engine, prefs, perms, host, startTab, startTask)
+                NebulaRoot(engine, prefs, perms, host, startTab, startTask, startConv)
             }
         }
     }
@@ -114,6 +115,13 @@ class MainActivity : ComponentActivity() {
     private fun readIntent(i: Intent?) {
         when (i?.getStringExtra(EXTRA_TAB)) { "tasks" -> startTab = 1; "files" -> startTab = 2; "chat" -> startTab = 0 }
         i?.getStringExtra(EXTRA_TASK)?.let { startTask = it }
+        // From a widget or notification: ask straight away, in a fresh chat, with the question already sent.
+        i?.getStringExtra(EXTRA_PROMPT)?.trim()?.takeIf { it.isNotEmpty() }?.let { q ->
+            i?.removeExtra(EXTRA_PROMPT)
+            val conv = com.nebula.assistant.data.Store.newConversation()
+            TaskEngine.get(this).submit(conv.id, q.take(2000))
+            startTab = 0; startConv = conv.id
+        }
     }
 
     private fun refresh() { perms = Permissions.all(this) }
@@ -164,5 +172,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_TAB = "tab"
         const val EXTRA_TASK = "task"
+        const val EXTRA_PROMPT = "prompt"
     }
 }

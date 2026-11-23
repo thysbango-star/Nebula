@@ -83,12 +83,13 @@ fun TasksScreen(tasks: List<NebulaTask>, onAssign: (String) -> Unit, onOpen: (St
     var filter by remember { mutableStateOf("All") }
     var draft by remember { mutableStateOf("") }
     val shown = when (filter) {
-        "Active" -> tasks.filter { it.status == TaskStatus.IN_PROGRESS }
+        "Active" -> tasks.filter { it.status == TaskStatus.IN_PROGRESS && !it.isReminder }
+        "Reminders" -> tasks.filter { it.isReminder }.sortedBy { if (it.isActive) it.dueAt else Long.MAX_VALUE }
         "Needs you" -> tasks.filter { it.status == TaskStatus.REQUIRES_INPUT }
         "Done" -> tasks.filter { it.status == TaskStatus.COMPLETED }
         else -> tasks
     }
-    val running = tasks.count { it.status == TaskStatus.IN_PROGRESS }
+    val running = tasks.count { it.status == TaskStatus.IN_PROGRESS && !it.isReminder }
     val needs = tasks.count { it.status == TaskStatus.REQUIRES_INPUT }
 
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -124,7 +125,7 @@ fun TasksScreen(tasks: List<NebulaTask>, onAssign: (String) -> Unit, onOpen: (St
             }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(listOf("All", "Active", "Needs you", "Done")) { f -> Chip(f, filter == f) { filter = f } }
+                    items(listOf("All", "Active", "Needs you", "Reminders", "Done")) { f -> Chip(f, filter == f) { filter = f } }
                 }
             }
             if (shown.isEmpty()) item {
@@ -159,13 +160,16 @@ fun TaskRow(t: NebulaTask, onClick: () -> Unit) {
                     textDecoration = if (t.status == TaskStatus.COMPLETED) TextDecoration.LineThrough else null,
                     color = if (t.status == TaskStatus.COMPLETED) p.dim else p.text)
                 Spacer(Modifier.height(2.dp))
-                val sub = when (t.status) {
+                val sub = when {
+                    t.isReminder && t.isActive -> if (t.dueAt > 0) "Reminder · " + java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(t.dueAt)) else "Reminder"
+                    else -> null
+                } ?: when (t.status) {
                     TaskStatus.IN_PROGRESS -> t.steps.lastOrNull()?.label ?: "Starting…"
                     TaskStatus.REQUIRES_INPUT -> t.input?.question?.lineSequence()?.firstOrNull() ?: "Needs your input"
                     else -> t.summary.ifBlank { statusLabel(t.status) }
                 }
                 Text(sub, style = MaterialTheme.typography.bodySmall, color = p.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (t.status == TaskStatus.IN_PROGRESS) {
+                if (t.status == TaskStatus.IN_PROGRESS && !t.isReminder) {
                     val prog by animateFloatAsState(t.progress, tween(600), label = "prog")
                     Box(Modifier.padding(top = 8.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(p.surface2)) {
                         Box(Modifier.fillMaxWidth(prog).height(4.dp).clip(CircleShape).background(p.gradient))

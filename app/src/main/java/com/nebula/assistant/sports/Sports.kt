@@ -167,6 +167,41 @@ object Sports {
     private val finishedAt = HashMap<String, Long>()
     @Volatile private var demoUntil = 0L
 
+    // ------------------------------------------------------------------ fixtures (for the Sports and Daily widgets)
+
+    /** A followed team's next (or current, or last) game, from ESPN's own team schedule. Never made up. */
+    data class Fixture(val team: Team, val game: Game)
+    private val _fixtures = MutableStateFlow<List<Fixture>>(emptyList())
+    val fixtures: StateFlow<List<Fixture>> = _fixtures
+    @Volatile private var fixturesAt = 0L
+
+    /** Refreshes at most every [maxAgeMs]; live data from the score watcher always wins over the schedule. */
+    suspend fun refreshFixtures(prefs: NebulaPrefs, maxAgeMs: Long = 3 * 3_600_000L): List<Fixture> {
+        val now = System.currentTimeMillis()
+        val teams = prefs.sportsTeams.mapNotNull(Team::decode)
+        if (teams.isEmpty()) { _fixtures.value = emptyList(); return emptyList() }
+        if (now - fixturesAt < maxAgeMs && _fixtures.value.isNotEmpty()) return merged(_fixtures.value)
+        val out = ArrayList<Fixture>()
+        for (t in teams.take(6)) {
+            val lg = league(t.league) ?: continue
+            if (t.id.isEmpty() || lg.kind == Kind.CRICKET) continue // no team schedule feed for these
+            val j = runCatching { get(BASE + lg.path + "/teams/" + t.id + "/schedule") }.getOrNull() ?: continue
+            val events = j.optJSONArray("events") ?: continue
+            val games = (0 until events.length()).mapNotNull { runCatching { parse(lg, events.getJSONObject(it)) }.getOrNull() }
+            val pick = games.firstOrNull { it.live } ?: games.filter { it.state == "pre" && it.start > now - 3 * 3_600_000L }.minByOrNull { it.start }
+                ?: games.filter { it.state == "post" }.maxByOrNull { it.start }
+            if (pick != null) out += Fixture(t, pick)
+        }
+        fixturesAt = now
+        _fixtures.value = out.sortedBy { if (it.game.live) 0L else if (it.game.state == "pre") it.game.start else Long.MAX_VALUE }
+        return merged(_fixtures.value)
+    }
+    /** Swap in the live game from the score watcher when there is one (it's fresher than the schedule). */
+    fun merged(list: List<Fixture> = _fixtures.value): List<Fixture> {
+        val live = _games.value
+        return list.map { f -> live.firstOrNull { it.id == f.game.id }?.let { f.copy(game = it) } ?: f }
+    }
+
     suspend fun run(prefs: NebulaPrefs) {
         while (true) {
             val wait = runCatching { withContext(Dispatchers.Default) { poll(prefs) } }.getOrElse { 60_000L }
@@ -594,7 +629,7 @@ object Sports {
             val c = cs.getJSONObject(i); val t = c.optJSONObject("team") ?: continue
             val color = hex(t.optString("color")); val alt = hex(t.optString("alternateColor"))
             val s = Side(t.optString("id"), t.optString("abbreviation").ifBlank { t.optString("shortDisplayName").take(3).uppercase() },
-                t.optString("shortDisplayName").ifBlank { t.optString("displayName") }, c.optString("score").toDoubleOrNull()?.toInt() ?: 0,
+                t.optString("shortDisplayName").ifBlank { t.optString("displayName") }, (c.optJSONObject("score")?.optString("displayValue") ?: c.optString("score")).toDoubleOrNull()?.toInt() ?: 0,
                 readable(color, alt, t.optString("abbreviation")), logo = logoOf(t))
             if (c.optString("homeAway") == "home" || (home == null && i == 0 && c.optString("homeAway").isEmpty())) { home = s; homeAlt = alt } else { away = s; awayAlt = alt }
         }

@@ -1,0 +1,27 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glass">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/w_glow"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="14dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:id="@+id/w_day" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/w_accent" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.12"/>
+                <TextView android:id="@+id/w_date" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/w_text" android:textSize="24sp" android:textStyle="bold" android:maxLines="1"/>
+            </LinearLayout>
+            <FrameLayout android:id="@+id/w_mic" android:layout_width="44dp" android:layout_height="44dp" android:background="@drawable/w_orb">
+                <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center" android:src="@drawable/ic_w_mic_white" android:contentDescription="Ask Nebula"/>
+            </FrameLayout>
+        </LinearLayout>
+        <FrameLayout android:layout_width="match_parent" android:layout_height="6dp"/>
+        <LinearLayout android:id="@+id/w_event" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_w_event" android:contentDescription="@null"/>
+        <TextView android:id="@+id/w_event_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:textColor="@color/w_text" android:textSize="13sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+        <LinearLayout android:id="@+id/w_tasks" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_w_done" android:contentDescription="@null"/>
+        <TextView android:id="@+id/w_tasks_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:textColor="@color/w_text" android:textSize="13sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+        <LinearLayout android:id="@+id/w_sport" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_w_ball" android:contentDescription="@null"/>
+        <TextView android:id="@+id/w_sport_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:textColor="@color/w_text" android:textSize="13sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
