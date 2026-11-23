@@ -178,9 +178,13 @@ object Sports {
 
         // Games whose feed has no logo: use the national logos we know.
         val natAll = nations.orEmpty()
-        fun fill(sd: Side) = if (sd.logo.isNotEmpty()) sd else (natAll[norm(sd.name)] ?: CRICKET_TEAMS.firstOrNull { norm(it.name) == norm(sd.name) && it.logo.isNotEmpty() }?.logo)
-            ?.let { sd.copy(logo = it) } ?: sd
-        val filled = found.map { g -> if (g.home.logo.isNotEmpty() && g.away.logo.isNotEmpty()) g else g.copy(home = fill(g.home), away = fill(g.away)) }
+        // The right list for the sport: South Africa's rugby logo is not its cricket logo.
+        fun fill(sd: Side, kind: Kind) = if (sd.logo.isNotEmpty()) sd else when (kind) {
+            Kind.RUGBY -> natAll[norm(sd.name)]
+            Kind.CRICKET -> CRICKET_TEAMS.firstOrNull { norm(it.name) == norm(sd.name) && it.logo.isNotEmpty() }?.logo
+            else -> null
+        }?.let { sd.copy(logo = it) } ?: sd
+        val filled = found.map { g -> if (g.home.logo.isNotEmpty() && g.away.logo.isNotEmpty()) g else g.copy(home = fill(g.home, g.league.kind), away = fill(g.away, g.league.kind)) }
         // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
         val sides = found.flatMap { listOf(it.home, it.away) }
         val nat = if (teams.any { it.logo.isEmpty() && it.league == RUGBY_TESTS }) runCatching { nationLogos() }.getOrDefault(emptyMap()) else emptyMap()
@@ -279,7 +283,10 @@ object Sports {
             x.optJSONArray("participants")?.let { a -> for (k in 0 until a.length()) a.optJSONObject(k)?.optJSONObject("athlete")?.optString("displayName")?.takeIf { it.isNotBlank() }?.let(names::add) }
             x.optJSONArray("athletesInvolved")?.let { a -> for (k in 0 until a.length()) a.optJSONObject(k)?.optString("displayName")?.takeIf { it.isNotBlank() }?.let(names::add) }
             var p1 = names.getOrNull(0).orEmpty(); var p2 = names.getOrNull(1).orEmpty()
-            if (kind == "sub") Regex("([^.,]+?) replaces ([^.,]+)").find(text)?.let { p1 = it.groupValues[1].trim().substringAfterLast(". ").trim(); p2 = it.groupValues[2].trim() }
+            if (kind == "sub" && text.contains(" replaces ")) { // "Substitution, Man United. A. Garnacho replaces M. Mount."
+                val parts = text.replace(Regex("^[^,]*,[^.]*\\.\\s*"), "").split(" replaces ")
+                p1 = parts[0].trim(); p2 = parts.getOrNull(1).orEmpty().trim().removeSuffix(".")
+            }
             val minute = x.optJSONObject("clock")?.optString("displayValue").orEmpty()
             val tid = x.optJSONObject("team")?.optString("id").orEmpty()
             out += KeyEvent(x.optString("id").ifBlank { "$type|$minute|$tid|$p1" }, kind, tid, p1, p2, minute)

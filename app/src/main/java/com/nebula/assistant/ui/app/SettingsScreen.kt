@@ -415,13 +415,14 @@ private fun SportsGroup(prefs: NebulaPrefs) {
         Keyed(tick) {
             Toggle("Live scores in the notch", "Only while one of your teams is playing.", prefs.sportsOn) { prefs.sportsOn = it; tick++ }
             Toggle("Goal moments", "The goal animation, a buzz and a cheer when your team scores.", prefs.sportsGoals) { prefs.sportsGoals = it; tick++ }
+            Toggle("Cards & substitutions", "Yellow and red cards (with rugby's sin-bin and 20-minute timers), substitution boards, and who scored.", prefs.sportsEvents) { prefs.sportsEvents = it; tick++ }
         }
         Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            Btn("Preview a goal", primary = true) { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.SOCCER) }
-            Spacer(Modifier.size(8.dp))
-            Btn("A try") { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.RUGBY) }
-            Spacer(Modifier.size(8.dp))
-            Btn("A six") { com.nebula.assistant.sports.Sports.startDemo(com.nebula.assistant.sports.Sports.Kind.CRICKET) }
+            listOf("Arsenal goal" to "goal", "Seagulls" to "gulls", "Springbok try" to "try", "Red card" to "cards", "Substitution" to "sub", "A six" to "six")
+                .forEachIndexed { i, (label, which) ->
+                    if (i > 0) Spacer(Modifier.size(8.dp))
+                    Btn(label, primary = i == 0) { com.nebula.assistant.sports.Sports.startDemo(which) }
+                }
         }
         Text("Watch the top of your screen.", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.padding(top = 4.dp))
         if (following.isNotEmpty()) {

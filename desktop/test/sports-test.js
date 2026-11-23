@@ -20,7 +20,9 @@ const rugby = () => ({ events: [{ id: 'r1', date: '2026-11-23T15:00Z', competiti
 const cricket = () => ({ scores: [{ events: [{ id: 'c1', date: '2026-11-23T15:00Z', competitions: [{
   status: { type: { state: ck.state }, summary: ck.summary }, class: { generalClassCard: 'T20I' }, description: '2nd T20I',
   competitors: [{ score: ck.a, team: { id: '3', displayName: 'South Africa', abbreviation: 'SA' } }, { score: ck.b, team: { id: '2', displayName: 'Australia', abbreviation: 'AUS' } }] }] }] }] });
-global.fetch = async (url) => ({ ok: true, json: async () => (/cricket/.test(url) ? cricket() : /rugby/.test(url) ? (/289234/.test(url) ? rugby() : { events: [] }) : football()) });
+let fbEvents = [];
+const summary = () => ({ keyEvents: fbEvents });
+global.fetch = async (url) => ({ ok: true, json: async () => (/summary/.test(url) ? summary() : /cricket/.test(url) ? cricket() : /rugby/.test(url) ? (/289234/.test(url) ? rugby() : { events: [] }) : football()) });
 
 (async () => {
   // innings parsing
@@ -67,5 +69,18 @@ global.fetch = async (url) => ({ ok: true, json: async () => (/cricket/.test(url
   assert.ok(by('PENALTY TRY') && /no kick/.test(by('PENALTY TRY').who));
   moments.length = 0; rg.home = 50; rg.play = 'Etzebeth try'; await s.poll();
   assert.ok(by('TRY') && /Converted/.test(by('TRY').who), '+7 in one go = converted try');
+  // Key events: cards, a double substitution on one board, and the scorer's name.
+  moments.length = 0;
+  fbEvents = [
+    { id: 'e1', type: { text: 'Yellow Card' }, clock: { displayValue: "70'" }, team: { id: '2' }, participants: [{ athlete: { displayName: 'C. Casemiro' } }] },
+    { id: 'e2', type: { text: 'Substitution' }, text: 'Substitution, Man United. A. Garnacho replaces M. Mount.', clock: { displayValue: "71'" }, team: { id: '2' } },
+    { id: 'e3', type: { text: 'Substitution' }, text: 'Substitution, Man United. J. Zirkzee replaces R. Hojlund.', clock: { displayValue: "71'" }, team: { id: '2' } },
+    { id: 'e4', type: { text: 'Goal' }, scoringPlay: true, clock: { displayValue: "72'" }, team: { id: '2' }, participants: [{ athlete: { displayName: 'A. Garnacho' } }] }];
+  fb.away = 2; await s.poll();
+  assert.ok(by('YELLOW CARD') && by('YELLOW CARD').who === 'C. Casemiro');
+  const sub = moments.find((m) => m.kind === 'sub');
+  assert.ok(sub && sub.subs.length === 2 && sub.subs[0][0] === 'A. Garnacho' && sub.subs[0][1] === 'M. Mount', 'double change on one board');
+  assert.ok(by('GOAL') && by('GOAL').who.startsWith('A. Garnacho'), 'goal names the scorer');
+  assert.strictEqual(by('GOAL').motif, 'logos');
   console.log('Sports watcher OK:', ['GOAL', 'TRY', 'SIX', 'PENALTY', 'WICKET', 'DROP GOAL', 'WIN', 'CONVERTED', 'conversion missed', 'PENALTY TRY'].join(', '));
 })().catch((e) => { console.error(e); process.exit(1); });

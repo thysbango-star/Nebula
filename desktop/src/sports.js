@@ -175,7 +175,7 @@ async function fetchFeed(feed, lg) {
     return evs.map((e) => { try { return parseCricket(lg, e); } catch { return null; } }).filter(Boolean);
   }
   const j = await get(BASE + feed + '/scoreboard');
-  return (j.events || []).map((e) => { try { return parse(lg, e); } catch { return null; } }).filter(Boolean);
+  return (j.events || []).map((e) => { try { const g = parse(lg, e); if (g) g.feed = feed; return g; } catch { return null; } }).filter(Boolean);
 }
 async function scoreboard(lg) { return (await Promise.all(lg.feeds.map((f) => fetchFeed(f, lg).catch(() => [])))).flat(); }
 
@@ -197,7 +197,9 @@ async function nationLogos() {
   if (Object.keys(out).length) nations = out;
   return out;
 }
-const knownLogo = (name) => (nations && nations[norm(name)]) || (CRICKET_TEAMS.find((t) => norm(t.name) === norm(name) && t.logo) || {}).logo || '';
+// The right list for the sport: South Africa's rugby logo is not its cricket logo.
+const knownLogo = (name, kind) => (kind === 'rugby' ? (nations && nations[norm(name)]) || ''
+  : kind === 'cricket' ? (CRICKET_TEAMS.find((t) => norm(t.name) === norm(name) && t.logo) || {}).logo || '' : '');
 
 async function teams(path) {
   const lg = league(path); if (!lg) return [];
@@ -290,11 +292,76 @@ function moment(prev, g, now = Date.now(), kicks = { awaiting: new Map(), missed
   return null;
 }
 
+// ---------------------------------------------------------------- key events (cards, subs, scorers)
+// Rugby cards: a yellow is 10 minutes in the sin bin; a 20-minute red lets a replacement come on after 20 minutes
+// (World Rugby's elite trial; the French Top 14 doesn't use it); a permanent red is off for the match.
+const minuteOf = (x) => { const m = /(\d+)/.exec(String(x || '')); return m ? +m[1] : null; };
+async function keyEvents(g) {
+  const j = await get(`${BASE}${g.feed}/summary?event=${g.id}`);
+  const arr = j.keyEvents || (((j.header || {}).competitions || [])[0] || {}).details || [];
+  const out = [];
+  for (const x of arr) {
+    const type = (x.type && x.type.text) || ''; const text = x.text || '';
+    const t = `${type} ${x.shortText || ''}`.toLowerCase(); const scoring = !!x.scoringPlay;
+    let kind = null;
+    if (t.includes('yellow') || x.yellowCard) kind = 'yellow';
+    else if (t.includes('red card') || x.redCard) kind = g.league.kind === 'rugby' && !/permanent/i.test(text) && !String(g.league.path).includes('270559') ? 'red20' : 'red';
+    else if (t.includes('substitut') || t.includes('replacement')) kind = 'sub';
+    else if (t.includes('penalty try')) kind = 'pentry';
+    else if (t.includes('conversion') && !t.includes('miss')) kind = 'conversion';
+    else if (t.includes('drop') && (scoring || g.league.kind === 'rugby') && !t.includes('miss')) kind = 'drop';
+    else if (t.includes('try')) kind = 'try';
+    else if (t.includes('penalty') && scoring) kind = 'penalty';
+    else if (t.includes('goal') && scoring) kind = 'goal';
+    if (!kind) continue;
+    const names = [...(x.participants || []).map((p) => p && p.athlete && p.athlete.displayName), ...(x.athletesInvolved || []).map((a) => a && a.displayName)].filter(Boolean);
+    let p1 = names[0] || '', p2 = names[1] || '';
+    if (kind === 'sub' && / replaces /.test(text)) { // "Substitution, Man United. A. Garnacho replaces M. Mount."
+      const [on, off] = text.replace(/^[^,]*,[^.]*\.\s*/, '').split(' replaces ');
+      p1 = on.trim(); p2 = off.trim().replace(/\.$/, '');
+    }
+    const minute = (x.clock && x.clock.displayValue) || '';
+    const teamId = String((x.team && x.team.id) || '');
+    out.push({ id: String(x.id || `${type}|${minute}|${teamId}|${p1}`), kind, teamId, player: p1, player2: p2, minute });
+  }
+  return out;
+}
+
+function scorerLine(m, e) {
+  const min = e.minute ? ` ${e.minute}` : '';
+  switch (e.kind) {
+    case 'conversion': return `${e.player} converts${min}`;
+    case 'pentry': return `Penalty try${min} · 7 points, no kick needed`;
+    case 'drop': return `${e.player} drop goal${min}`;
+    case 'penalty': return `${e.player} penalty${min}`;
+    case 'try': return `${e.player}${min}${/Converted/.test(m.who) ? ' · Converted' : ''}`;
+    default: return `${e.player}${min}${/\(pen\)/.test(m.who) ? ' (pen)' : ''}`;
+  }
+}
+
+/**
+ * Club moments, drawn by Nebula (not copied from any broadcast): Arsenal fire a battery of cannons, Brighton get
+ * a flock of seagulls, Newcastle magpies, Crystal Palace eagles; rugby nations get the cinematic treatment
+ * (letterbox, their logo looming from the corner). Everyone else: their logo tiled through the colour wipe.
+ */
+function motifFor(m) {
+  if ((m.kind || 'score') !== 'score') return '';
+  const n = String((m.home ? m.game.home : m.game.away).name || '').toLowerCase(); const k = m.game.league.kind;
+  if (k === 'soccer' && n.includes('arsenal')) return 'cannons';
+  if (k === 'soccer' && n.includes('brighton')) return 'gulls';
+  if (k === 'soccer' && n.includes('newcastle')) return 'magpies';
+  if (k === 'soccer' && n.includes('crystal palace')) return 'eagles';
+  if (k === 'rugby') return 'cinematic';
+  return 'logos';
+}
+
 // ---------------------------------------------------------------- watcher
 class Sports {
   /** onChange({games}) whenever the list changes; onGoal(score) when one of your teams scores. */
-  constructor({ getTeams, enabled, onChange, onGoal, onLearn, log = () => {} }) {
-    Object.assign(this, { getTeams, enabled, onChange, onGoal, onLearn, log });
+  constructor({ getTeams, enabled, onChange, onGoal, onLearn, events = () => true, log = () => {} }) {
+    Object.assign(this, { getTeams, enabled, onChange, onLearn, events, log });
+    this.onGoal = (m) => onGoal({ kind: 'score', ...m, motif: m.motif || motifFor({ kind: 'score', ...m }) });
+    this.seenEvents = new Map(); this.cards = new Map();
     this.games = []; this.last = new Map(); this.finishedAt = new Map(); this.timer = null; this.demoUntil = 0;
     this.kicks = { awaiting: new Map(), missed: new Map() };
   }
@@ -327,7 +394,7 @@ class Sports {
       }
     }
     // Games whose feed has no logo: use the national logos we know.
-    for (const g of found) for (const sd of [g.home, g.away]) if (!sd.logo) sd.logo = knownLogo(sd.name);
+    for (const g of found) for (const sd of [g.home, g.away]) if (!sd.logo) sd.logo = knownLogo(sd.name, g.league.kind);
     // Teams picked from our own lists (national sides, SA20…) learn their ESPN logo the first time they play.
     if (mine.some((t) => !t.logo && t.league === RUGBY_TESTS)) await nationLogos().catch(() => {});
     if (this.onLearn) {
@@ -336,14 +403,31 @@ class Sports {
       const learned = (this.getTeams() || []).map((t) => {
         if (t.logo) return t;
         const s = sides.find((x) => matches(t, x) && x.logo);
-        const logo = (s && s.logo) || knownLogo(t.name);
+        const lg = league(t.league);
+        const logo = (s && s.logo) || knownLogo(t.name, lg && lg.kind);
         if (!logo) return t; changed = true; return { ...t, logo };
       });
       if (changed) this.onLearn(learned);
     }
     for (const g of found) {
       const prev = this.last.get(g.id);
-      if (prev) { const m = moment(prev, g, now, this.kicks); if (m) this.onGoal(m); }
+      // Names behind the numbers: scorers, cards and substitutions from the match summary.
+      const fresh = g.live && g.feed && g.league.kind !== 'cricket' && this.events() ? await this.newEvents(g, now).catch(() => []) : [];
+      if (prev) {
+        const m = moment(prev, g, now, this.kicks);
+        if (m) {
+          const tid = (m.home ? g.home : g.away).id;
+          const sc = [...fresh].reverse().find((e) => ['goal', 'try', 'conversion', 'penalty', 'drop', 'pentry'].includes(e.kind) && e.teamId === tid);
+          this.onGoal(sc && sc.player ? { ...m, who: scorerLine(m, sc) } : m);
+        }
+      }
+      const ms = fresh.map((e) => this.eventMoment(g, e, now)).filter(Boolean);
+      for (const m of ms.filter((x) => x.kind !== 'sub')) this.onGoal(m);
+      for (const home of [true, false]) { // a double change = one board
+        const subs = ms.filter((x) => x.kind === 'sub' && x.home === home);
+        const pairs = subs.flatMap((x) => x.subs);
+        for (let i = 0; i < pairs.length; i += 2) this.onGoal({ ...subs[0], subs: pairs.slice(i, i + 2), minute: subs[subs.length - 1].minute });
+      }
       if (prev && prev.state === 'in' && g.state === 'post') this.finishedAt.set(g.id, now);
       this.last.set(g.id, g);
     }
@@ -357,6 +441,7 @@ class Sports {
         else if (now - (this.kicks.missed.get(k) || 0) < 60000) g.note = `${name} · conversion missed`;
       }
     }
+    for (const g of found) g.cards = this.liveCards(g, now);
     const show = found.filter((g) => g.live || (g.state === 'post' && now - (this.finishedAt.get(g.id) || 0) < 15 * 60000) ||
       (g.state === 'pre' && g.start - now >= 0 && g.start - now < 15 * 60000));
     show.sort((a, b) => (a.live ? 0 : a.state === 'pre' ? 1 : 2) - (b.live ? 0 : b.state === 'pre' ? 1 : 2));
@@ -365,31 +450,92 @@ class Sports {
     if (found.some((g) => g.state === 'pre' && g.start - now < 30 * 60000)) return 60000;
     return 10 * 60000;
   }
-  /** A pretend game of the chosen sport and its big moment, so you can see it without waiting for kick-off. */
-  demo(kind = 'soccer') {
-    let g, g2, m;
-    if (kind === 'rugby') {
-      g = { id: 'demo', league: { path: 'demo', name: 'Nations Championship', kind: 'rugby' }, state: 'in', live: true, clock: "44'", lastPlay: '', start: 0,
-        home: { id: '1', abbr: 'RSA', name: 'South Africa', score: 10, text: '10', color: '#00704a' }, away: { id: '2', abbr: 'ENG', name: 'England', score: 14, text: '14', color: '#c8102e' } };
-      g2 = { ...g, clock: "47'", lastPlay: "C. Kolbe 47'", home: { ...g.home, score: 15, text: '15' } };
-      m = { game: g2, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE' };
-    } else if (kind === 'cricket') {
-      g = { id: 'demo', league: { path: 'demo', name: 'T20I · 2nd T20I', kind: 'cricket' }, state: 'in', live: true, clock: '17.4 ov', lastPlay: 'South Africa need 22 runs from 14 balls', start: 0,
-        home: { id: '1', abbr: 'SA', name: 'South Africa', score: 161, text: '161/5', wickets: 5, sub: '17.4 ov', color: '#00843d' },
-        away: { id: '2', abbr: 'AUS', name: 'Australia', score: 182, text: '182/7', wickets: 7, sub: '20 ov', color: '#f2b51c' } };
-      g2 = { ...g, clock: '17.5 ov', lastPlay: 'South Africa need 16 runs from 13 balls', home: { ...g.home, score: 167, text: '167/5', sub: '17.5 ov' } };
-      m = { game: g2, home: true, before: '161/5', label: 'SIX', who: g2.lastPlay, chant: 'PROTEAS' };
-    } else {
-      g = { id: 'demo', league: { path: 'demo', name: 'Premier League', kind: 'soccer' }, state: 'in', live: true, clock: "64'", lastPlay: "T. Mokoena 38'", start: 0,
-        home: { id: '1', abbr: 'JHB', name: 'Lions', score: 1, text: '1', color: '#f2b01e' }, away: { id: '2', abbr: 'CPT', name: 'Comets', score: 0, text: '0', color: '#2f6bff' } };
-      g2 = { ...g, clock: "67'", lastPlay: "S. Dlamini 67'", away: { ...g.away, score: 1, text: '1' } };
-      m = { game: g2, home: false, before: '0', label: 'GOAL', who: g2.lastPlay, chant: '' };
+  async newEvents(g, now) {
+    const all = await keyEvents(g);
+    const seen = this.seenEvents.get(g.id);
+    const isCard = (e) => ['yellow', 'red', 'red20'].includes(e.kind);
+    if (!seen) { // the first look only learns what already happened (no replays), but cards already running still count
+      this.seenEvents.set(g.id, new Set(all.map((e) => e.id)));
+      all.filter(isCard).forEach((e) => this.addCard(g, e, now));
+      return [];
     }
-    this.demoUntil = Date.now() + 22000;
-    this.set([g]);
-    setTimeout(() => { this.set([g2]); this.onGoal({ ...m, at: Date.now() }); }, 2600);
-    setTimeout(() => { this.demoUntil = 0; this.set([]); this.refresh(); }, 22000);
+    const fresh = all.filter((e) => !seen.has(e.id));
+    fresh.forEach((e) => seen.add(e.id));
+    fresh.filter(isCard).forEach((e) => this.addCard(g, e, now));
+    return fresh;
+  }
+  addCard(g, e, now) {
+    const home = e.teamId === g.home.id;
+    const dur = g.league.kind === 'rugby' ? ({ yellow: 10, red20: 20 })[e.kind] || 0 : 0;
+    const list = this.cards.get(g.id) || []; this.cards.set(g.id, list);
+    if (list.some((c) => c.player === e.player && c.kind === e.kind && c.minute === e.minute)) return;
+    // Minutes left by the match clock (playing time); between looks we count down by the wall clock.
+    let left = dur;
+    if (dur) { const cm = minuteOf(g.clock), em = minuteOf(e.minute); if (cm != null && em != null) left = Math.max(0, em + dur - cm); }
+    list.push({ home, player: e.player, kind: e.kind, minute: e.minute, until: dur ? now + left * 60000 : 0 });
+  }
+  liveCards(g, now) {
+    return (this.cards.get(g.id) || []).filter((c) => (c.until && c.until > now - 30000) || c.kind === 'red' || (g.league.kind === 'soccer' && c.kind === 'yellow')).slice(-6);
+  }
+  eventMoment(g, e) {
+    const home = e.teamId === g.home.id;
+    if (e.teamId && !home && e.teamId !== g.away.id) return null;
+    const side = home ? g.home : g.away;
+    const card = (k) => [...(this.cards.get(g.id) || [])].reverse().find((c) => c.player === e.player && c.kind === k);
+    if (e.kind === 'yellow') return { kind: 'yellow', game: g, home, before: side.text, label: 'YELLOW CARD', who: e.player, minute: e.minute, until: (card('yellow') || {}).until || 0, at: Date.now() };
+    if (e.kind === 'red' || e.kind === 'red20') return { kind: e.kind, game: g, home, before: side.text, label: 'RED CARD', who: e.player, minute: e.minute, until: (card(e.kind) || {}).until || 0, at: Date.now() };
+    if (e.kind === 'sub') return { kind: 'sub', game: g, home, before: side.text, label: g.league.kind === 'rugby' ? 'REPLACEMENT' : 'SUBSTITUTION', who: '', minute: e.minute, subs: [[e.player, e.player2]], at: Date.now() };
+    return null;
+  }
+
+  /** A pretend game of the chosen sport and its big moment, so you can see it without waiting for kick-off. */
+  async demo(which = 'goal') {
+    which = ({ soccer: 'goal', rugby: 'try', cricket: 'six' })[which] || which;
+    if (which === 'try') await Promise.race([nationLogos().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+    const epl = { path: 'demo', name: 'Premier League', kind: 'soccer' };
+    const ars = { id: '1', abbr: 'ARS', name: 'Arsenal', score: 2, text: '2', color: '#e20520' };
+    const che = { id: '2', abbr: 'CHE', name: 'Chelsea', score: 1, text: '1', color: '#034694' };
+    const base = { id: 'demo', state: 'in', live: true, start: 0, lastPlay: '' };
+    let g, ms = [];
+    const now = Date.now();
+    if (which === 'try') {
+      const lg = { path: 'demo', name: 'Nations Championship', kind: 'rugby' };
+      g = { ...base, league: lg, clock: "47'", lastPlay: "C. Kolbe 47'", home: { id: '1', abbr: 'RSA', name: 'South Africa', score: 15, text: '15', color: '#00704a', logo: knownLogo('South Africa', 'rugby') },
+        away: { id: '2', abbr: 'ENG', name: 'England', score: 14, text: '14', color: '#c8102e', logo: knownLogo('England', 'rugby') } };
+      const g2 = { ...g, clock: "48'", lastPlay: 'H. Pollard converts 48\'', home: { ...g.home, score: 17, text: '17' } };
+      const until = now + 2600 + 15500 + 10 * 60000;
+      ms = [{ game: g, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE' },
+        { game: g2, home: true, before: '15', label: 'CONVERTED', who: "H. Pollard converts 48'" },
+        { kind: 'yellow', game: g2, home: false, before: '14', label: 'YELLOW CARD', who: 'M. Itoje', minute: "49'", until }];
+      g = { ...g2, cards: [{ home: false, player: 'M. Itoje', kind: 'yellow', minute: "49'", until }] };
+    } else if (which === 'six') {
+      const lg = { path: 'demo', name: 'T20I · 2nd T20I', kind: 'cricket' };
+      g = { ...base, league: lg, clock: '17.5 ov', lastPlay: 'South Africa need 16 runs from 13 balls',
+        home: { id: '1', abbr: 'SA', name: 'South Africa', score: 167, text: '167/5', wickets: 5, sub: '17.5 ov', color: '#00843d', logo: cricLogo('South Africa') },
+        away: { id: '2', abbr: 'AUS', name: 'Australia', score: 182, text: '182/7', wickets: 7, sub: '20 ov', color: '#f2b51c', logo: cricLogo('Australia') } };
+      ms = [{ game: g, home: true, before: '161/5', label: 'SIX', who: g.lastPlay, chant: 'PROTEAS' }];
+    } else if (which === 'gulls') {
+      g = { ...base, league: epl, clock: "71'", lastPlay: "K. Mitoma 71'", home: { id: '1', abbr: 'BHA', name: 'Brighton', score: 2, text: '2', color: '#0057b8' },
+        away: { id: '2', abbr: 'NEW', name: 'Newcastle', score: 1, text: '1', color: '#3a3a3a' } };
+      ms = [{ game: g, home: true, before: '1', label: 'GOAL', who: "K. Mitoma 71'" }];
+    } else if (which === 'cards') {
+      g = { ...base, league: epl, clock: "78'", home: { ...ars, score: 1, text: '1' }, away: che };
+      ms = [{ kind: 'red', game: g, home: false, before: '1', label: 'RED CARD', who: 'M. Caicedo', minute: "78'" }];
+      g = { ...g, cards: [{ home: false, player: 'M. Caicedo', kind: 'red', minute: "78'", until: 0 }] };
+    } else if (which === 'sub') {
+      g = { ...base, league: epl, clock: "64'", home: ars, away: che };
+      ms = [{ kind: 'sub', game: g, home: true, before: '2', label: 'SUBSTITUTION', who: '', minute: "64'", subs: [['G. Martinelli', 'L. Trossard'], ['M. Merino', 'Jorginho']] }];
+    } else {
+      g = { ...base, league: epl, clock: "67'", lastPlay: "B. Saka 67'", home: ars, away: che };
+      ms = [{ game: g, home: true, before: '1', label: 'GOAL', who: "B. Saka 67'" }];
+    }
+    const first = ms[0];
+    const start = { ...g, cards: [], home: { ...g.home, text: first.home ? first.before : g.home.text }, away: { ...g.away, text: !first.home ? first.before : g.away.text } };
+    this.demoUntil = now + 40000;
+    this.set([start]);
+    setTimeout(() => { this.set([g]); ms.forEach((m) => this.onGoal({ ...m, at: Date.now() })); }, 2600);
+    setTimeout(() => { this.demoUntil = 0; this.set([]); this.refresh(); }, 40000);
   }
 }
 
-module.exports = { Sports, LEAGUES, teams, scoreboard, parse, parseCricket, innings, moment, readable };
+module.exports = { Sports, LEAGUES, teams, scoreboard, parse, parseCricket, innings, moment, readable, keyEvents, motifFor };

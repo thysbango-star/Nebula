@@ -183,13 +183,13 @@ internal fun DrawScope.drawCinematic(t: Float, logo: ImageBitmap?, scorerOnLeft:
     drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)), Offset(w / 2, h / 2), w * 0.62f))
     logo?.let { img ->
         val appear = ease((t - 0.3f) / 0.7f); val leave = ease((t - 3.5f) / 0.5f)
-        val sz = h * 1.45f * (1f + 0.1f * (t / 4.5f).coerceIn(0f, 1f))
+        val sz = h * 1.2f * (1f + 0.1f * (t / 4.5f).coerceIn(0f, 1f))
         val right = scorerOnLeft // the logo sits on the far side from the scorer's badge
-        val cx = (if (right) w * 0.9f else w * 0.1f) + (1f - appear + leave) * sz * 0.45f * (if (right) 1 else -1)
-        val cy = h * 0.72f
+        val cx = (if (right) w * 0.97f else w * 0.03f) + (1f - appear + leave) * sz * 0.45f * (if (right) 1 else -1)
+        val cy = h * 0.8f
         withTransform({ translate(cx, cy); rotate(if (right) -14f else 14f, Offset.Zero) }) {
             drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset((-sz / 2).toInt(), (-sz / 2).toInt()), IntSize(sz.toInt(), sz.toInt()),
-                alpha = 0.88f * appear * (1f - leave))
+                alpha = 0.7f * appear * (1f - leave))
         }
     }
     // lens flare sweeping across

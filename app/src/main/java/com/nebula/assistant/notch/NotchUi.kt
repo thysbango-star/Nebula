@@ -220,7 +220,7 @@ fun NotchUi(c: NotchController) {
             g.kind != "score" -> 5600L
             g.chant.isNotEmpty() -> 7600L
             else -> 6800L
-        })
+        } + if (g.motif in FANCY) 1100L else 0L)
         if (Sports.goal.value?.at == g.at) Sports.clearGoal()
     }
     val liveGame = if (prefs.sportsOn) games.getOrNull(if (games.isEmpty()) 0 else sportsIdx % games.size) else null
@@ -642,6 +642,7 @@ private fun GoalView(s: Sports.Score) {
     val out = remember(s.at) { Animatable(0f) }
     val hasChant = s.chant.isNotEmpty()
     val wordAt = if (hasChant) 1500L else 640L
+    val hold = if (s.motif in FANCY) 3200L else 2100L // club moments get longer on screen
     LaunchedEffect(s.at) {
         launch { glitch.animateTo(1f, tween(260, easing = LinearEasing)) }
         launch { delay(120); wipe.animateTo(1f, tween(460, easing = FastOutSlowInEasing)) }
@@ -650,7 +651,7 @@ private fun GoalView(s: Sports.Score) {
         if (hasChant) launch { delay(560); chant.animateTo(1f, tween(300, easing = FastOutSlowInEasing)); delay(560); chant.animateTo(2f, tween(260)) }
         letters.forEachIndexed { i, a -> launch { delay(wordAt + i * 55L); a.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 320f)) } }
         launch { delay(wordAt + 320); sub.animateTo(1f, tween(360)) }
-        delay(wordAt + 2100)
+        delay(wordAt + hold)
         out.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
     }
     val inf = rememberInfiniteTransition(label = "pan")
@@ -669,7 +670,7 @@ private fun GoalView(s: Sports.Score) {
 
     Box(Modifier.fillMaxSize().graphicsLayer { translationX = shake.x; translationY = shake.y }) {
         // The card underneath; the score rolls once the colour has gone.
-        ScoreCard(s.game, roll = s, rollAfterMs = wordAt + 2500)
+        ScoreCard(s.game, roll = s, rollAfterMs = wordAt + hold + 400)
 
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height
@@ -805,6 +806,7 @@ private fun GoalView(s: Sports.Score) {
 
 // ---- cards and substitutions
 
+private val FANCY = setOf("cannons", "gulls", "magpies", "eagles", "cinematic")
 private val CardYellow = Color(0xFFFFD60A)
 private val CardRed = Color(0xFFE5172F)
 
@@ -932,18 +934,18 @@ private fun SubBoard(s: Sports.Score) {
                 s.subs.forEachIndexed { i, (on, off) ->
                     val v = rows.getOrNull(i)?.value ?: 1f
                     val flick = if (v < 1f) (if (sin(t * 90f + i) > 0f) 1f else 0.25f) * v else 1f
-                    Column(Modifier.padding(top = 6.dp).graphicsLayer { alpha = flick }) {
+                    Column(Modifier.padding(top = 3.dp).graphicsLayer { alpha = flick }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("▲", color = green, style = TextStyle(fontSize = 13.sp, shadow = led(green)))
                             Spacer(Modifier.width(8.dp))
                             Text(on.uppercase(), color = green, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp, letterSpacing = 1.sp, shadow = led(green)))
+                                style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 19.sp, letterSpacing = 1.sp, shadow = led(green)))
                         }
                         if (off.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("▼", color = red, style = TextStyle(fontSize = 13.sp, shadow = led(red)))
                             Spacer(Modifier.width(8.dp))
                             Text(off.uppercase(), color = red, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp, letterSpacing = 1.sp, shadow = led(red)))
+                                style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 19.sp, letterSpacing = 1.sp, shadow = led(red)))
                         }
                     }
                 }

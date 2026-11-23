@@ -573,7 +573,8 @@ function renderSettings() {
     <p class="sub">Football, rugby and cricket (plus US sports). Follow your teams and their live score sits in the island while they play; hover it for the full card. Goals, tries, sixes and wickets get their own moment.</p>
     ${toggle('sSports', 'Live scores in the island', 'Only while one of your teams is playing.', d.sportsOn !== false)}
     ${toggle('sGoals', 'Goal moments', 'The goal animation and a cheer when your team scores.', d.sportsGoals !== false)}
-    <div class="row"><button class="pill press" id="sGoalDemo">Preview a goal</button><button class="pill press" id="sTryDemo">A try</button><button class="pill press" id="sSixDemo">A six</button></div>
+    ${toggle('sEvents', 'Cards & substitutions', "Yellow and red cards (with rugby's sin-bin and 20-minute timers), substitution boards, and who scored.", d.sportsEvents !== false)}
+    <div class="chiprow">${[['goal', 'Arsenal goal'], ['gulls', 'Seagulls'], ['try', 'Springbok try'], ['cards', 'Red card'], ['sub', 'Substitution'], ['six', 'A six']].map(([v, l]) => `<button class="chip press" data-sdemo="${v}">${l}</button>`).join('')}</div>
     <div id="sportsPick"></div></div>
 
   <div class="group"><h3>Shortcut & startup</h3>
@@ -637,9 +638,8 @@ function renderSettings() {
   coach.render();
   on('sSports', 'onchange', (e) => setS({ sportsOn: e.target.checked }));
   on('sGoals', 'onchange', (e) => setS({ sportsGoals: e.target.checked }));
-  on('sGoalDemo', 'onclick', () => api.send('sports:demo', 'soccer'));
-  on('sTryDemo', 'onclick', () => api.send('sports:demo', 'rugby'));
-  on('sSixDemo', 'onclick', () => api.send('sports:demo', 'cricket'));
+  on('sEvents', 'onchange', (e) => setS({ sportsEvents: e.target.checked }));
+  B.querySelectorAll('[data-sdemo]').forEach((b) => (b.onclick = () => api.send('sports:demo', b.dataset.sdemo)));
   sportsUi.render();
   on('sQuiet', 'onchange', (e) => setS({ r3cketQuiet: e.target.checked }));
   on('sClick', 'oninput', (e) => { $('sClickV').textContent = speedLabel(fromSlider(+e.target.value)); });

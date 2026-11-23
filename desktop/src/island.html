@@ -146,7 +146,48 @@
   #score .clk { flex: 1; text-align: center; color: var(--dim); font: 600 11.5px/1 "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .live { width: 5px; height: 5px; border-radius: 3px; background: #FF453A; animation: blink 1.6s ease-in-out infinite; }
   .board { position: absolute; inset: 0; }
-  .board .bg { position: absolute; inset: 0; }
+  .board .bg { position: absolute; inset: 0; overflow: hidden; }
+  /* live gradient: both team colours drift like a slow lava lamp, with a passing sheen */
+  .board .blob { position: absolute; width: 520px; height: 520px; border-radius: 50%; top: 50%; margin-top: -260px; opacity: .55; filter: blur(4px); }
+  .board .blob.h { left: -260px; animation: drift 9s ease-in-out infinite; }
+  .board .blob.a { right: -260px; animation: drift 9s ease-in-out -4.5s infinite reverse; }
+  .board .sheen { position: absolute; top: 0; bottom: 0; width: 180px; background: linear-gradient(100deg, transparent, rgba(255,255,255,.07), transparent); animation: sheen 6s linear infinite; }
+  @keyframes drift { 0%, 100% { transform: translate(0, -60px); } 50% { transform: translate(40px, 60px); } }
+  @keyframes sheen { from { left: -200px; } to { left: 700px; } }
+  .cardchips { display: flex; justify-content: center; gap: 6px; margin-top: 8px; }
+  .cardchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; background: rgba(0,0,0,.25); font: 600 11.5px/1 "Segoe UI", sans-serif; }
+  .mini { width: 8px; height: 11px; border-radius: 2px; transform: rotate(-8deg); display: inline-block; }
+  .mini.yellow { background: #FFD60A; } .mini.red, .mini.red20 { background: #E5172F; }
+  .cd { font-family: "Bahnschrift", "Roboto Condensed", sans-serif; font-weight: 700; }
+  /* card moment */
+  #goal .cardm { position: absolute; inset: 0; display: flex; align-items: center; gap: 22px; padding: 0 34px; }
+  #goal .pcard { width: 62px; height: 86px; border-radius: 8px; flex: none; position: relative; overflow: hidden; opacity: 0; transform: perspective(500px) rotateY(-110deg) rotate(-32deg) scale(.6); }
+  #goal.on .pcard { animation: cardIn .9s cubic-bezier(.3, 1.5, .5, 1) .12s forwards; }
+  #goal .pcard::after { content: ''; position: absolute; top: -20%; bottom: -20%; width: 40px; left: -60px; background: linear-gradient(100deg, transparent, rgba(255,255,255,.65), transparent); }
+  #goal.on .pcard::after { animation: cardShine .65s ease .76s forwards; }
+  #goal .cwords { opacity: 0; transform: translateX(24px); }
+  #goal.on .cwords { animation: cwIn .42s cubic-bezier(.2, .8, .2, 1) .38s forwards; }
+  #goal .cwords .lab { font-size: 46px; line-height: 1; letter-spacing: 1px; }
+  #goal .cwords .who { font: 600 18px/1.2 "Segoe UI", sans-serif; margin-top: 2px; }
+  #goal .cwords .meta { display: flex; align-items: center; gap: 7px; color: var(--dim); font: 700 10.5px/1 "Segoe UI", sans-serif; letter-spacing: 1.6px; }
+  #goal .cwords .tag { margin-top: 8px; display: flex; align-items: baseline; gap: 10px; color: var(--faint); font: 700 10.5px/1 "Segoe UI", sans-serif; letter-spacing: 1.4px; }
+  @keyframes cardIn { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 1; transform: rotate(-8deg); } }
+  @keyframes cardShine { to { left: 90px; } }
+  @keyframes cwIn { to { opacity: 1; transform: none; } }
+  /* substitution board */
+  #goal .subb { position: absolute; left: 18px; right: 18px; top: 14px; bottom: 14px; border-radius: 18px; background: #050608; overflow: hidden;
+    background-image: radial-gradient(rgba(255,255,255,.05) .8px, transparent 1px); background-size: 5px 5px; transform: translateY(110%); }
+  #goal.on .subb { animation: boardUp .7s cubic-bezier(.3, 1.35, .5, 1) .08s forwards; }
+  #goal .subb .hd { display: flex; align-items: center; gap: 10px; padding: 10px 20px 2px; color: #FFB020; text-shadow: 0 0 10px rgba(255,176,32,.8); font-size: 18px; letter-spacing: 3px; }
+  #goal .subb .hd .m { margin-left: auto; letter-spacing: 1px; }
+  #goal .subb .pair { padding: 1px 22px; opacity: 0; }
+  #goal.on .subb .pair { animation: flicker .3s steps(6) forwards; }
+  #goal .subb .on, #goal .subb .off { font-size: 19px; line-height: 1.08; letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #goal .subb .on { color: #3DFF7A; text-shadow: 0 0 12px rgba(61,255,122,.75); }
+  #goal .subb .off { color: #FF4D4D; text-shadow: 0 0 12px rgba(255,77,77,.75); }
+  @keyframes boardUp { to { transform: none; } }
+  @keyframes stripes { to { transform: translateX(48px); } }
+  @keyframes flicker { 0% { opacity: 0; } 20% { opacity: .9; } 40% { opacity: .2; } 60% { opacity: 1; } 80% { opacity: .4; } 100% { opacity: 1; } }
   .board .shade { position: absolute; inset: 0; background: linear-gradient(rgba(0,0,0,.35), transparent 40%, rgba(0,0,0,.55)); }
   .board .in { position: relative; padding: 12px 26px 12px; display: flex; flex-direction: column; height: 100%; }
   .board .lg { text-align: center; color: var(--dim); font: 600 11.5px/1 "Segoe UI", sans-serif; }
@@ -403,11 +444,12 @@ function kickRolls(root, delay) { setTimeout(() => root.querySelectorAll('.rollb
 
 function renderScore() {
   const g = liveGame(); if (!g) return;
-  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}`;
+  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${(g.cards || []).map((c) => c.until).join(',')}`;
   if ($('score').dataset.k === key) return; $('score').dataset.k = key;
   const bs = PHONE ? 34 : 22;
   $('score').innerHTML = `${badge(g.home, bs)}${num(txt(g.home), rollKey('s' + g.id + 'h', txt(g.home)))}
-    <div class="clk">${g.live ? '<span class="live"></span>' : ''}${esc(g.clock)}</div>
+    <div class="clk">${(() => { const c = (g.cards || []).filter((x) => x.until > Date.now()).pop();
+      return c ? `<i class="mini ${c.kind}"></i><b class="cd" data-until="${c.until}"></b>` : `${g.live ? '<span class="live"></span>' : ''}${esc(g.clock)}`; })()}</div>
     ${num(txt(g.away), rollKey('s' + g.id + 'a', txt(g.away)))}${badge(g.away, bs)}`;
   kickRolls($('score'), 60);
 }
@@ -417,7 +459,9 @@ function boardHTML(g, roll, count = 0, idx = 0) {
   const cricket = g.league.kind === 'cricket';
   const lose = (a, b) => (done && a < b && !cricket ? 'big lose' : 'big');
   const bigc = cricket ? ' smallbig' : '';
-  return `<div class="board"><div class="bg" style="background:linear-gradient(90deg,${g.home.color}e6,#0d0d10 50%,${g.away.color}e6)"></div><div class="shade"></div>
+  return `<div class="board"><div class="bg" style="background:linear-gradient(90deg,${g.home.color}d9,#0d0d10 50%,${g.away.color}d9)">
+      <div class="blob h" style="background:radial-gradient(circle,${mix(g.home.color, 'w', .15)} 0,transparent 62%)"></div>
+      <div class="blob a" style="background:radial-gradient(circle,${mix(g.away.color, 'w', .15)} 0,transparent 62%)"></div><div class="sheen"></div></div><div class="shade"></div>
     <div class="in"><div class="lg">${esc(g.league.name)}</div>
       <div class="row">
         <div class="team">${badge(g.home, 44)}<span>${esc(g.home.name)}</span>${g.home.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.home.sub)}</small>` : ''}</div>
@@ -426,6 +470,7 @@ function boardHTML(g, roll, count = 0, idx = 0) {
         ${num(txt(g.away), from(false), lose(g.away.score, g.home.score) + bigc)}
         <div class="team">${badge(g.away, 44)}<span>${esc(g.away.name)}</span>${g.away.sub ? `<small style="color:var(--faint);font:600 10px/1 'Segoe UI'">${esc(g.away.sub)}</small>` : ''}</div>
       </div>
+      ${(g.cards || []).length ? `<div class="cardchips">${g.cards.map((c) => `<span class="cardchip"><i class="mini ${c.kind}"></i>${esc(String(c.player).split(' ').pop())} · ${esc((c.home ? g.home : g.away).abbr)}${c.until > Date.now() ? ` <b class="cd" data-until="${c.until}" style="color:${c.kind === 'yellow' ? '#FFD60A' : '#FF4D4D'}"></b>` : c.kind === 'red' ? ' <span style="color:var(--dim)">off</span>' : ''}</span>`).join('')}</div>` : ''}
       ${g.note ? `<div style="text-align:center;margin-top:8px;font:700 10.5px/1 'Segoe UI',sans-serif;letter-spacing:1.3px;color:${/missed$/.test(g.note) ? 'var(--dim)' : 'var(--amber)'}">${esc(g.note.toUpperCase())}</div>` : ''}
       ${g.lastPlay ? `<div class="play">${({ soccer: '⚽&nbsp;', rugby: '🏉&nbsp;', cricket: '🏏&nbsp;' })[g.league.kind] || ''}${esc(g.lastPlay)}</div>` : ''}
       ${count > 1 ? `<div class="dots">${Array.from({ length: Math.min(6, count) }, (_, i) => `<u class="${i === idx ? 'on' : ''}"></u>`).join('')}</div>` : ''}
@@ -434,7 +479,7 @@ function boardHTML(g, roll, count = 0, idx = 0) {
 function renderCard() {
   const g = liveGame(); if (!g) return;
   const n = (state.sports || []).length;
-  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${g.lastPlay}|${g.note || ''}|${n}`;
+  const key = `${g.id}|${txt(g.home)}|${txt(g.away)}|${g.clock}|${g.lastPlay}|${g.note || ''}|${(g.cards || []).map((c) => c.player + c.until).join(',')}|${n}`;
   if ($('card').dataset.k === key) return; $('card').dataset.k = key;
   $('card').innerHTML = boardHTML(g, null, n, gameIdx % Math.max(1, n)) +
     `<div class="chip link" id="askChip" style="position:absolute;right:14px;top:10px">Ask Nebula</div>`;
@@ -448,12 +493,25 @@ function renderCard() {
  */
 function mix(hex, to, k) { const n = parseInt((hex || '#555555').slice(1), 16); const t = to === 'w' ? 255 : 0; const f = (v) => Math.round(v + (t - v) * k); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
 let fxRaf = 0;
+// Countdowns (rugby sin bin, 20-minute red) tick wherever they're shown.
+setInterval(() => document.querySelectorAll('.cd[data-until]').forEach((el) => {
+  const left = Math.max(0, Math.round((+el.dataset.until - Date.now()) / 1000));
+  el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+}), 500);
+const momentQueue = [];
+const FANCY = ['cannons', 'gulls', 'magpies', 'eagles', 'cinematic'];
+function endMoment() { goal = null; const next = momentQueue.shift(); if (next) playGoal(next); else render(); }
 function playGoal(s) {
+  if (goal && goal !== s) { if (momentQueue.length < 4) momentQueue.push(s); return; }
+  if (s.kind === 'yellow' || s.kind === 'red' || s.kind === 'red20') return playCard(s);
+  if (s.kind === 'sub') return playSub(s);
   const side = s.home ? s.game.home : s.game.away;
   const dir = s.home ? 1 : -1;
   const chant = s.chant || '';
+  const motif = s.motif || '';
+  const fancy = FANCY.includes(motif);
   const wordAt = chant ? 1.5 : 0.64;             // seconds
-  const outAt = wordAt + 2.1, total = (chant ? 7.6 : 6.8);
+  const outAt = wordAt + (fancy ? 3.2 : 2.1), total = (chant ? 7.6 : 6.8) + (fancy ? 1.1 : 0);
   const light = mix(side.color, 'w', .4);
   const el = $('goal');
   el.classList.remove('on'); void el.offsetWidth;
@@ -472,7 +530,7 @@ function playGoal(s) {
   goal = s; clearTimeout(goalTimer);
   render();
   el.classList.add('on');
-  kickRolls(el.querySelector('.board'), (wordAt + 2.5) * 1000);
+  kickRolls(el.querySelector('.board'), (outAt + 0.4) * 1000);
   playSound('goal');
   // canvas: glitch, jagged wipe with halftone + streaks, shockwave ring
   const cv = el.querySelector('canvas.fx'); const g = cv.getContext('2d');
@@ -498,7 +556,7 @@ function playGoal(s) {
       const gr = g.createLinearGradient(X(0), H, X(W), 0);
       gr.addColorStop(0, mix(side.color, 'b', .5)); gr.addColorStop(.5, side.color); gr.addColorStop(1, light);
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
-      if (logo) {
+      if (logo && (motif === 'logos' || !motif)) {
         const ts = 44, gap = 78, drift = ((t / 1.4) % 1) * gap * dir;
         g.globalAlpha = .16;
         for (let y = -gap * .4, row = 0; y < H + gap; y += gap * .62, row++) {
@@ -521,6 +579,10 @@ function playGoal(s) {
       }
       g.restore(); g.globalAlpha = 1;
     }
+    // The club's own moment, over the colour and under the words.
+    if (motif === 'cannons') { const sh = cannonShake(t); el.style.transform = `translate(${sh[0]}px,${sh[1]}px)`; drawCannons(g, t, dir, W, H); }
+    else if (motif === 'gulls' || motif === 'magpies' || motif === 'eagles') drawBirds(g, t, dir, W, H, motif);
+    else if (motif === 'cinematic') drawCinematic(g, t, logo, s.home, W, H, side.color);
     if (t < 0.26) { // neon glitch slices
       seed = 1 + Math.floor(t / 0.03) * 7919;
       for (let i = 0; i < 7; i++) {
@@ -540,14 +602,135 @@ function playGoal(s) {
       g.strokeStyle = `rgba(255,255,255,${.7 * (1 - rp)})`; g.lineWidth = 3 * (1 - rp) + .5;
       g.beginPath(); g.arc(s.home ? 68 : W - 68, H * .5, 26 + 120 * ease(rp), 0, Math.PI * 2); g.stroke();
     }
-    if (t < outAt + 0.7 && goal === s) fxRaf = requestAnimationFrame(draw);
+    if (t < Math.max(outAt + 0.7, fancy ? 4.4 : 0) && goal === s) fxRaf = requestAnimationFrame(draw);
+    else el.style.transform = '';
   };
   fxRaf = requestAnimationFrame(draw);
-  goalTimer = setTimeout(() => { goal = null; render(); }, total * 1000);
+  goalTimer = setTimeout(endMoment, total * 1000);
+}
+
+// ---- club moments, drawn by Nebula (generic cannons, birds and a film look — nothing copied from a broadcast)
+const U = 1.3;
+const easeO = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+const frac = (x) => x - Math.floor(x);
+const FIRES = [0.55, 0.75, 0.95, 1.75, 1.95, 2.15], GUNS = [0.16, 0.5, 0.84], TILT = 34 * Math.PI / 180;
+function cannonShake(t) { let x = 0, y = 0; for (const f of FIRES) { const k = t - f; if (k >= 0 && k <= .16) { const a = (1 - k / .16) * 3.2 * U; x += a * Math.sin(k * 140); y += a * Math.cos(k * 120); } } return [x, y]; }
+function rrect(g, x, y, w, h, r) { g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, r) : g.rect(x, y, w, h); }
+function drawCannons(g, t, dir, W, H) {
+  const u = U, drop = (1 - easeO((t - .25) / .35) + easeO((t - 3.4) / .4)) * 56 * u;
+  const vx = Math.cos(TILT) * dir, vy = -Math.sin(TILT);
+  GUNS.forEach((at, i) => {
+    const cx = W * at, by = H - 12 * u + drop, shots = [FIRES[i], FIRES[i + 3]];
+    let recoil = 0; for (const f of shots) { const k = t - f; if (k >= 0 && k <= .35) recoil = Math.max(recoil, Math.sin(k / .35 * Math.PI) * 6 * u); }
+    g.save(); g.translate(cx, by); if (dir < 0) g.scale(-1, 1);
+    g.save(); g.rotate(-TILT);
+    const bx = -12 * u - recoil;
+    const mg = g.createLinearGradient(0, -7 * u, 0, 7 * u); mg.addColorStop(0, '#6b6f77'); mg.addColorStop(.5, '#2a2c31'); mg.addColorStop(1, '#15161a');
+    g.fillStyle = mg; rrect(g, bx, -7 * u, 42 * u, 14 * u, 7 * u); g.fill();
+    g.fillStyle = '#15161a'; rrect(g, bx + 38 * u, -8.5 * u, 6 * u, 17 * u, 2.5 * u); g.fill();
+    g.fillStyle = '#c9a227'; g.fillRect(bx + 9 * u, -7.5 * u, 3 * u, 15 * u); g.fillRect(bx + 26 * u, -7 * u, 2.5 * u, 14 * u);
+    g.fillStyle = 'rgba(255,255,255,.18)'; rrect(g, bx + 4 * u, -5 * u, 30 * u, 2.5 * u, 1.2 * u); g.fill();
+    g.restore();
+    g.fillStyle = '#4a3220'; g.beginPath(); g.moveTo(-16 * u, 2 * u); g.lineTo(14 * u, 2 * u); g.lineTo(8 * u, -7 * u); g.lineTo(-10 * u, -7 * u); g.closePath(); g.fill();
+    for (const wx of [-8, 8]) {
+      g.fillStyle = '#2a1c12'; g.beginPath(); g.arc(wx * u, 4 * u, 8 * u, 0, 7); g.fill();
+      g.strokeStyle = '#6e4a2c'; g.lineWidth = 2 * u; g.stroke(); g.lineWidth = 1.2 * u;
+      for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; g.beginPath(); g.moveTo(wx * u, 4 * u); g.lineTo(wx * u + Math.cos(a) * 7 * u, 4 * u + Math.sin(a) * 7 * u); g.stroke(); }
+      g.fillStyle = '#c9a227'; g.beginPath(); g.arc(wx * u, 4 * u, 1.8 * u, 0, 7); g.fill();
+    }
+    g.restore();
+    const mx = cx + vx * (31 * u - recoil), my = by + vy * (31 * u - recoil);
+    for (const f of shots) {
+      const k = t - f;
+      if (k >= 0 && k <= .16) { const r = 10 * u + 26 * u * (k / .16); const fl = g.createRadialGradient(mx, my, 0, mx, my, r);
+        fl.addColorStop(0, 'rgba(255,255,255,.95)'); fl.addColorStop(.45, 'rgba(255,194,74,.8)'); fl.addColorStop(1, 'rgba(255,90,31,0)'); g.fillStyle = fl; g.beginPath(); g.arc(mx, my, r, 0, 7); g.fill(); }
+      if (k >= 0 && k <= 1.5) for (let j = 0; j < 6; j++) {
+        const kk = Math.max(0, k - j * .03);
+        const px = mx + vx * kk * (34 + j * 9) * u + Math.sin(j * 2.3 + kk * 3) * 3 * u, py = my + vy * kk * (30 + j * 6) * u - kk * 14 * u;
+        g.fillStyle = `rgba(230,226,218,${Math.max(0, .55 * (1 - kk / 1.5))})`; g.beginPath(); g.arc(px, py, (5 + 15 * kk) * u * (.7 + j * .12), 0, 7); g.fill();
+      }
+      if (k >= 0 && k <= 1.2) {
+        const sp = W * .95, gr = H * 2.2, P = (kk) => [mx + vx * sp * kk, my + vy * sp * kk + .5 * gr * kk * kk];
+        const [bx2, by2] = P(k), [tx, ty] = P(Math.max(0, k - .06));
+        g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 3 * u; g.lineCap = 'round'; g.beginPath(); g.moveTo(tx, ty); g.lineTo(bx2, by2); g.stroke();
+        g.fillStyle = '#1a1a1e'; g.beginPath(); g.arc(bx2, by2, 4.8 * u, 0, 7); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.arc(bx2 - 1.5 * u, by2 - 1.5 * u, 1.5 * u, 0, 7); g.fill();
+      }
+    }
+  });
+}
+const BIRDS = { magpies: ['#121316', '#ffffff', '#121316', '#121316', 1], eagles: ['#5b3a1e', null, '#4a2e17', '#f4f1ea', 1.35], gulls: ['#f6f7f9', '#3b3f46', '#f6f7f9', '#f6f7f9', 1] };
+function drawBirds(g, t, dir, W, H, motif) {
+  const [wing, patch, body, head, big] = BIRDS[motif] || BIRDS.gulls; const n = motif === 'eagles' ? 6 : 10;
+  const list = Array.from({ length: n }, (_, i) => [i, .55 + .45 * frac(i * .37 + .11), .14 + .72 * frac(i * .618)]).sort((a, b) => a[1] - b[1]);
+  for (const [i, depth, lane] of list) {
+    const p = (t - (.3 + i * .11)) / (2.9 - depth);
+    if (p < 0 || p > 1) continue;
+    let x = -50 * U + (W + 100 * U) * p; if (dir < 0) x = W - x;
+    const y = H * lane + Math.sin(t * 3 + i) * 5 * U - p * 14 * U, sc = (.55 + .75 * depth) * big * U, flap = Math.sin(t * (13 - depth * 3) + i * 1.7);
+    g.save(); g.translate(x, y); if (dir < 0) g.scale(-1, 1); g.globalAlpha = .55 + .45 * depth;
+    const tipY = -flap * 11 * sc, midY = -flap * 4 * sc - 3 * sc;
+    g.strokeStyle = wing; g.lineWidth = 3.4 * sc; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath(); g.moveTo(-18 * sc, tipY); g.quadraticCurveTo(-10 * sc, midY - 2 * sc, -2 * sc, 0); g.quadraticCurveTo(0, -1.5 * sc, 2 * sc, 0); g.quadraticCurveTo(10 * sc, midY - 2 * sc, 18 * sc, tipY); g.stroke();
+    if (patch) { g.strokeStyle = patch; g.lineWidth = 3.6 * sc; g.beginPath(); g.moveTo(-18 * sc, tipY); g.lineTo(-13 * sc, tipY * .7 + midY * .3); g.moveTo(18 * sc, tipY); g.lineTo(13 * sc, tipY * .7 + midY * .3); g.stroke(); }
+    g.fillStyle = body; g.beginPath(); g.ellipse(2 * sc, .7 * sc, 6 * sc, 2.3 * sc, 0, 0, 7); g.fill();
+    g.fillStyle = head; g.beginPath(); g.arc(8 * sc, -.6 * sc, 2.4 * sc, 0, 7); g.fill();
+    g.strokeStyle = '#f2b01e'; g.lineWidth = 1.3 * sc; g.beginPath(); g.moveTo(10 * sc, -.4 * sc); g.lineTo(12.8 * sc, .4 * sc); g.stroke();
+    g.restore();
+  }
+}
+function drawCinematic(g, t, logo, scorerLeft, W, H, tint) {
+  const vg = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * .62); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
+  if (logo) {
+    const ap = easeO((t - .3) / .7), lv = easeO((t - 3.5) / .5), sz = H * 1.2 * (1 + .1 * Math.min(1, t / 4.5)), right = scorerLeft;
+    const cx = (right ? W * .97 : W * .03) + (1 - ap + lv) * sz * .45 * (right ? 1 : -1), cy = H * .8;
+    g.save(); g.translate(cx, cy); g.rotate((right ? -14 : 14) * Math.PI / 180); g.globalAlpha = .7 * ap * (1 - lv); g.drawImage(logo, -sz / 2, -sz / 2, sz, sz); g.restore(); g.globalAlpha = 1;
+  }
+  const fp = (t - .75) / .9;
+  if (fp >= 0 && fp <= 1) {
+    const fx = (scorerLeft ? fp : 1 - fp) * (W + 200) - 100, fy = H * .42, a = Math.sin(fp * Math.PI);
+    const st = g.createLinearGradient(fx - 160, 0, fx + 160, 0); st.addColorStop(0, 'rgba(255,255,255,0)'); st.addColorStop(.5, `rgba(255,255,255,${.55 * a})`); st.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = st; g.fillRect(0, fy - 1.3, W, 2.6);
+    const fl = g.createRadialGradient(fx, fy, 0, fx, fy, 34); fl.addColorStop(0, `rgba(255,255,255,${.7 * a})`); fl.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = fl; g.beginPath(); g.arc(fx, fy, 34, 0, 7); g.fill();
+    for (let k = 1; k <= 3; k++) { g.fillStyle = `rgba(255,255,255,${.08 * a})`; g.beginPath(); g.arc(W / 2 + (W / 2 - fx) * .35 * k, fy + k * 8, 6 + k * 5, 0, 7); g.fill(); }
+  }
+  let seed = Math.floor(t * 24) * 9301 + 49297; const r = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  g.fillStyle = 'rgba(255,255,255,.05)'; for (let i = 0; i < 160; i++) g.fillRect(r() * W, r() * H, 1.2, 1.2);
+  const bar = 18 * easeO((t - .1) / .35) * (1 - easeO((t - 3.6) / .4));
+  if (bar > .5) { g.fillStyle = '#000'; g.fillRect(0, 0, W, bar); g.fillRect(0, H - bar, W, bar); }
+}
+
+// ---- cards and substitutions
+function playCard(s) {
+  const side = s.home ? s.game.home : s.game.away, yellow = s.kind === 'yellow', cc = yellow ? '#FFD60A' : '#E5172F';
+  const rugby = s.game.league.kind === 'rugby';
+  const tag = rugby ? (yellow ? 'SIN BIN' : s.kind === 'red20' ? 'REPLACEMENT IN' : 'OFF FOR THE MATCH') : (yellow ? '' : 'SENT OFF');
+  const el = $('goal'); el.classList.remove('on'); void el.offsetWidth;
+  el.innerHTML = `<div style="position:absolute;inset:0;background:#0d0d10"></div>
+    <div style="position:absolute;inset:0;background:radial-gradient(circle at ${s.home ? '0%' : '100%'} 60%, ${side.color}b3 0, transparent 70%)"></div>
+    <div style="position:absolute;inset:-40px;background:repeating-linear-gradient(-45deg, ${cc}17 0 12px, transparent 12px 36px);animation: stripes 1.6s linear infinite"></div>
+    <div class="cardm"><div class="pcard" style="background:linear-gradient(135deg, ${mix(cc, 'w', .25)}, ${cc} 55%, ${mix(cc, 'b', .2)})"></div>
+      <div class="cwords"><div class="meta">${badge(side, 20)}${esc(side.name.toUpperCase())}${s.minute ? ` · ${esc(s.minute)}` : ''}</div>
+        <div class="lab num" style="color:${cc}">${esc(s.label)}</div>
+        ${s.who ? `<div class="who">${esc(s.who)}</div>` : ''}
+        ${tag || s.until ? `<div class="tag">${esc(tag)}${s.until ? `<b class="cd" data-until="${s.until}" style="color:${cc};font-size:22px;letter-spacing:0"></b>` : ''}</div>` : ''}</div></div>`;
+  goal = s; clearTimeout(goalTimer); render(); el.classList.add('on');
+  playSound('failure');
+  goalTimer = setTimeout(endMoment, 5600);
+}
+function playSub(s) {
+  const side = s.home ? s.game.home : s.game.away;
+  const el = $('goal'); el.classList.remove('on'); void el.offsetWidth;
+  el.innerHTML = `<div style="position:absolute;inset:0;background:#0d0d10"></div>
+    <div class="subb"><div class="hd num">${badge(side, 24)}<span>${esc(s.label)}</span><span class="m">${esc(s.minute || '')}</span></div>
+      ${(s.subs || []).slice(0, 2).map(([on, off], i) => `<div class="pair" style="animation-delay:${.52 + i * .7}s">
+        <div class="on num">▲&nbsp; ${esc(String(on).toUpperCase())}</div>${off ? `<div class="off num">▼&nbsp; ${esc(String(off).toUpperCase())}</div>` : ''}</div>`).join('')}</div>`;
+  goal = s; clearTimeout(goalTimer); render(); el.classList.add('on');
+  goalTimer = setTimeout(endMoment, 5200 + 900 * Math.max(0, (s.subs || []).length - 1));
 }
 $('score').onclick = () => { hovering = true; render(); };
 $('card').onclick = () => { const n = (state.sports || []).length; if (n > 1) { gameIdx++; $('card').dataset.k = ''; render(); } };
-$('goal').onclick = () => { clearTimeout(goalTimer); goal = null; render(); };
+$('goal').onclick = () => { clearTimeout(goalTimer); endMoment(); };
 
 // Nebula's sounds: wake (Open), thinking, error.
 const SOUNDS = {};
@@ -772,6 +955,19 @@ if (q.has('demo')) {
   if (d === 'six' || d === 'sixcard') state.sports = [demoCricket];
   if (d === 'trycard' || d === 'sixcard') hovering = true;
   if (q.get('logo')) demoGame.away.logo = q.get('logo');
+  const ars = { abbr: 'ARS', name: 'Arsenal', score: 2, text: '2', color: '#e20520' }, che = { abbr: 'CHE', name: 'Chelsea', score: 1, text: '1', color: '#034694' };
+  const eplGame = (o) => ({ id: 'de', league: { name: 'Premier League', kind: 'soccer' }, state: 'in', live: true, clock: "67'", lastPlay: "B. Saka 67'", home: ars, away: che, ...o });
+  const go = (m) => setTimeout(() => playGoal({ at: Date.now(), ...m }), 300);
+  if (d === 'cannons') { const g = eplGame(); state.sports = [g]; go({ game: g, home: true, before: '1', label: 'GOAL', who: "B. Saka 67'", motif: 'cannons' }); }
+  if (d === 'gulls') { const g = eplGame({ home: { abbr: 'BHA', name: 'Brighton', score: 2, text: '2', color: '#0057b8' }, away: { abbr: 'NEW', name: 'Newcastle', score: 1, text: '1', color: '#3a3a3a' }, lastPlay: "K. Mitoma 71'" });
+    state.sports = [g]; go({ game: g, home: true, before: '1', label: 'GOAL', who: "K. Mitoma 71'", motif: q.get('m') || 'gulls' }); }
+  if (d === 'cine') { state.sports = [demoRugby]; if (q.get('logo')) demoRugby.home.logo = q.get('logo'); go({ game: demoRugby, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: '', motif: 'cinematic' }); }
+  if (d === 'yellow') { const until = Date.now() + 600000; const g = { ...demoRugby, cards: [{ home: false, player: 'M. Itoje', kind: 'yellow', minute: "49'", until }] }; state.sports = [g];
+    go({ kind: 'yellow', game: g, home: false, before: '14', label: 'YELLOW CARD', who: 'M. Itoje', minute: "49'", until }); }
+  if (d === 'red') { const g = eplGame({ cards: [{ home: false, player: 'M. Caicedo', kind: 'red', minute: "78'", until: 0 }] }); state.sports = [g];
+    go({ kind: 'red', game: g, home: false, before: '1', label: 'RED CARD', who: 'M. Caicedo', minute: "78'" }); }
+  if (d === 'sub') { const g = eplGame(); state.sports = [g]; go({ kind: 'sub', game: g, home: true, before: '2', label: 'SUBSTITUTION', minute: "64'", subs: [['G. Martinelli', 'L. Trossard'], ['M. Merino', 'Jorginho']] }); }
+  if (d === 'cardchips') { const until = Date.now() + 452000; demoRugby.cards = [{ home: false, player: 'M. Itoje', kind: 'yellow', minute: "49'", until }]; state.sports = [demoRugby]; hovering = true; }
   if (d === 'goal') setTimeout(() => playGoal({ game: demoGame, home: false, before: '0', label: q.get('label') || 'GOAL', who: demoGame.lastPlay, chant: q.get('chant') || '', at: Date.now() }), 300);
   if (d === 'try') setTimeout(() => playGoal({ game: demoRugby, home: true, before: '10', label: 'TRY', who: "C. Kolbe 47'", chant: 'BOKKE', at: Date.now() }), 300);
   if (d === 'six') setTimeout(() => playGoal({ game: demoCricket, home: true, before: '161/5', label: 'SIX', who: demoCricket.lastPlay, chant: 'PROTEAS', at: Date.now() }), 300);

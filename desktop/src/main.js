@@ -72,6 +72,7 @@ const DEFAULTS = {
   currency: '',
   sportsOn: true,        // live scores in the island while your teams play
   sportsGoals: true,     // the goal animation + cheer
+  sportsEvents: true,    // cards (with rugby timers), substitution boards and scorers
   sportsTeams: [],       // [{league, id, abbr, name, color}]
 };
 let configData = { ...DEFAULTS };
@@ -418,6 +419,7 @@ const sports = new Sports({
   getTeams: () => configData.sportsTeams,
   onLearn: (list) => { config.set('sportsTeams', list); broadcastSettings(); },
   enabled: () => !!configData.sportsOn,
+  events: () => configData.sportsEvents !== false,
   onChange: (games) => { sportsGames = games; pushIslandState(); applyIslandMode(); },
   onGoal: (score) => {
     if (!configData.sportsGoals || !score.label || !island) return;
