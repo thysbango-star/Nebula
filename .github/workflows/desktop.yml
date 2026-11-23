@@ -1,4 +1,4 @@
-name: Build Nebula for Windows
+name: Build Nebula for Windows and Linux
 
 on:
   push:
@@ -84,3 +84,59 @@ jobs:
           files: |
             desktop/dist/Nebula-Setup.exe
             desktop/dist/Nebula-Portable.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Check scripts
+        run: npm run check
+
+      - name: Test the wake word engine on Linux
+        run: node test/kws-test.js
+
+      - name: Test the sports watcher
+        run: node test/sports-test.js
+
+      - name: Test the Linux media reader (playerctl)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq playerctl > /dev/null
+          node -e "const {LinuxMedia}=require('./src/linux');new LinuxMedia().media().then(m=>{console.log('media:',JSON.stringify(m));if(!m||typeof m!=='object')process.exit(1)})"
+
+      - name: Build AppImage and .deb
+        run: npm run dist:linux
+
+      - name: Collect files
+        run: |
+          ls -la dist
+          test -f dist/Nebula-Linux.AppImage
+          test -f dist/Nebula-Linux.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nebula-Linux
+          path: |
+            desktop/dist/Nebula-Linux.AppImage
+            desktop/dist/Nebula-Linux.deb
+
+      - name: Publish (same "desktop" download page)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop
+          make_latest: false
+          files: |
+            desktop/dist/Nebula-Linux.AppImage
+            desktop/dist/Nebula-Linux.deb

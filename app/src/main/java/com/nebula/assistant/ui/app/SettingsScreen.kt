@@ -177,6 +177,19 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
 
         Group("About") {
             Text("Nebula $version", style = MaterialTheme.typography.bodyMedium)
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val scope = rememberCoroutineScope()
+            var upd by remember { mutableStateOf("") }
+            Text("Check for updates ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.padding(top = 8.dp).pressable(onClick = {
+                upd = "Checking…"
+                scope.launch { val i = runCatching { com.nebula.assistant.support.Updates.check(ctx) }.getOrNull(); upd = if (i != null) "${i.name} is ready — see the banner at the top." else "You're on the latest version." }
+            }))
+            if (upd.isNotEmpty()) Text(upd, style = MaterialTheme.typography.bodySmall, color = p.dim)
+            Text("Report a problem to Claude ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.padding(top = 8.dp).pressable(onClick = {
+                com.nebula.assistant.support.Reporter.open(ctx, "Problem: (describe what went wrong)")
+            }))
+            Text("Opens a pre-filled report on GitHub for you to check and send. Claude reads new reports daily, fixes them and ships an update.",
+                style = MaterialTheme.typography.bodySmall, color = p.dim)
             Text("Show the welcome tour again ›", style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.padding(top = 8.dp).pressable(a.replayOnboarding))
         }
         Spacer(Modifier.height(30.dp))

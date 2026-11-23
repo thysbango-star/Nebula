@@ -96,9 +96,10 @@ class VoiceSession(private val context: Context, private val scope: CoroutineSco
     }
 
     private suspend fun fail(msg: String) {
+        com.nebula.assistant.support.Reporter.note("voice: $msg")
         VoiceState.update { it.copy(phase = VoiceState.Phase.ERROR, reply = msg, level = 0f) }
         Sounds.play(context, NebulaSound.FAILURE)
-        delay(3500)
+        delay(6500) // long enough to tap "Report to Claude"
     }
 
     @SuppressLint("MissingPermission")

@@ -17,6 +17,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -126,6 +128,7 @@ fun NebulaRoot(engine: TaskEngine, prefs: NebulaPrefs, perms: List<Perm>, host: 
             TopBar(tab, { tab = it }, onHistory = { overlay = "history" }, onSettings = { overlay = "settings" },
                 onNew = if (tab == 0) ({ convId = null }) else null,
                 badge = tasks.count { it.status == com.nebula.assistant.data.TaskStatus.REQUIRES_INPUT })
+            SupportBanners()
             AnimatedContent(tab, transitionSpec = {
                 val dir = if (targetState > initialState) 1 else -1
                 (slideInHorizontally(spring(dampingRatio = 0.85f, stiffness = 320f)) { it / 4 * dir } + fadeIn(tween(260))) togetherWith
@@ -238,6 +241,38 @@ private fun History(list: List<com.nebula.assistant.data.Conversation>, current:
                     }
                 }
             }
+        }
+    }
+}
+
+/** "Update available" (recommended, never forced) and "Nebula crashed last time — report it?" */
+@Composable
+private fun SupportBanners() {
+    val p = Pal
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val upd by com.nebula.assistant.support.Updates.available.collectAsState()
+    var crash by remember { mutableStateOf(com.nebula.assistant.support.Reporter.lastCrash(ctx)) }
+    upd?.let { u ->
+        Banner("Update available — ${u.name}", u.notes.ifBlank { "Recommended: it has the latest fixes." }, "Update", { com.nebula.assistant.support.Updates.open(ctx, u) },
+            "Later", { com.nebula.assistant.support.Updates.later() }, "Skip this version", { com.nebula.assistant.support.Updates.skip(ctx, u) })
+    }
+    crash?.let { c ->
+        Banner("Nebula closed unexpectedly", "Send the details to Claude to get it fixed in the next update.", "Report to Claude",
+            { com.nebula.assistant.support.Reporter.open(ctx, "Crash: ${c.lineSequence().first().take(120)}", c); com.nebula.assistant.support.Reporter.clearCrash(ctx); crash = null },
+            "Dismiss", { com.nebula.assistant.support.Reporter.clearCrash(ctx); crash = null })
+    }
+}
+
+@Composable
+private fun Banner(title: String, text: String, primary: String, onPrimary: () -> Unit, second: String, onSecond: () -> Unit, third: String? = null, onThird: (() -> Unit)? = null) {
+    val p = Pal
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.surface2).padding(14.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = p.text)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = p.dim, maxLines = 4, modifier = Modifier.padding(top = 2.dp))
+        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(primary, style = MaterialTheme.typography.labelLarge, color = p.flame, modifier = Modifier.pressable(onClick = onPrimary))
+            Text(second, style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.pressable(onClick = onSecond))
+            if (third != null && onThird != null) Text(third, style = MaterialTheme.typography.labelLarge, color = p.dim, modifier = Modifier.pressable(onClick = onThird))
         }
     }
 }

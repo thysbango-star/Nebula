@@ -415,16 +415,28 @@ const session = {
 const timer = { endsAt: 0, label: '', handle: null };
 
 // ------------------------------------------------------------------ now playing
-let nowPlaying = null; let mediaTimer = null; let lastArt = '';
+const { findCover, cleanArtist } = require('./covers');
+let nowPlaying = null; let mediaTimer = null; let lastArt = ''; let coverFor = '';
+// Windows: its media controls (through the helper). Linux: MPRIS via playerctl.
+const linuxMedia = process.platform === 'linux' ? new (require('./linux').LinuxMedia)() : null;
+const mediaSource = () => (process.platform === 'win32' ? helper : linuxMedia);
 async function pollMedia() {
   clearTimeout(mediaTimer);
-  if (process.platform !== 'win32' || configData.islandMusic === false || quitting) { mediaTimer = setTimeout(pollMedia, 10000); return; }
+  if (!mediaSource() || configData.islandMusic === false || quitting) { mediaTimer = setTimeout(pollMedia, 10000); return; }
   let wait = 4000;
   try {
-    const m = await helper.media();
+    const m = await mediaSource().media();
     if (m && !m.none && m.title) {
-      if (m.art) lastArt = m.art;
+      const trackKey = `${m.title}|${m.artist}`;
+      if (m.art) { lastArt = m.art; coverFor = trackKey; }
+      else if (coverFor !== trackKey) { lastArt = ''; }
+      m.artist = cleanArtist(m.artist);
       const next = { ...m, art: m.art || lastArt };
+      // No cover from the app (YouTube in a browser…): look it up, then show it when it arrives.
+      if (!next.art && coverFor !== trackKey) {
+        coverFor = trackKey;
+        findCover(m.title, m.artist).then((d) => { if (d && coverFor === trackKey && nowPlaying && `${nowPlaying.title}|${nowPlaying.artist}` === `${m.title}|${m.artist}`) { lastArt = d; nowPlaying = { ...nowPlaying, art: d }; pushIslandState(); } });
+      }
       const changed = !nowPlaying || nowPlaying.title !== next.title || nowPlaying.playing !== next.playing || Math.abs((nowPlaying.pos || 0) - (next.pos || 0)) > 3000;
       const wasPlaying = nowPlaying && nowPlaying.playing;
       nowPlaying = next;
@@ -815,8 +827,9 @@ function wireIpc() {
   ipcMain.on('island:crosshair', () => showCrosshair(!(cross && !cross.isDestroyed())));
   ipcMain.on('island:media', async (_e, what) => {
     if (!['toggle', 'next', 'prev'].includes(what)) return;
-    await helper.mediaControl(what);
-    if (what !== 'toggle') await helper.mediaReset();
+    if (!mediaSource()) return;
+    await mediaSource().mediaControl(what);
+    if (what !== 'toggle') await mediaSource().mediaReset();
     setTimeout(pollMedia, 350);
   });
   ipcMain.on('island:cancel-timer', () => setTimer(0));

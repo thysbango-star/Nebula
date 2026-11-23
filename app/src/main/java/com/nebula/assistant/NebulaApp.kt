@@ -30,6 +30,7 @@ class NebulaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.nebula.assistant.support.Reporter.installCrashCatcher(this)
         Notifications.createChannels(this)
         Store.init(this)
         Sounds.warmUp(this)
@@ -38,6 +39,8 @@ class NebulaApp : Application() {
                 description = "When a task finishes, fails or needs your answer."
             })
         watchTasks()
+        // Is there a newer Nebula? Checked on launch and every 12 hours; one notification per new version.
+        scope.launch { while (true) { runCatching { com.nebula.assistant.support.Updates.check(this@NebulaApp, notify = true) }; kotlinx.coroutines.delay(12 * 3_600_000L) } }
     }
 
     /** Brings results back: notifies when a task changes state while you're not looking at Nebula. */

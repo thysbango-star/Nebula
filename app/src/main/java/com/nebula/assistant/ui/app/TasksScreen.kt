@@ -246,6 +246,13 @@ fun TaskDetail(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (t.isActive) Action("Cancel task", p.bad, onCancel)
             if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELLED) Action("Try again", p.flame, onRetry)
+            if (t.status == TaskStatus.FAILED) {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Action("Report to Claude", p.text) {
+                    com.nebula.assistant.support.Reporter.open(ctx, "Task failed: ${t.title}",
+                        (listOf("Summary: ${t.summary}", "Plan: ${t.plan.joinToString(" → ")}") + t.steps.takeLast(8).map { it.toString() }).joinToString("\n"))
+                }
+            }
             Action("Open chat", p.text, onOpenChat)
             if (!t.isActive) Action("Delete", p.dim, onDelete)
         }

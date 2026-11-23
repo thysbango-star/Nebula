@@ -1317,6 +1317,13 @@ private fun VoiceView(s: VoiceState.Session, c: NotchController) {
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp, end = 6.dp).verticalScroll(rememberScrollState())) {
             Text(big, color = if (faded) Faint else Color.White, style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 20.sp, lineHeight = 25.sp))
         }
+        if (s.phase == VoiceState.Phase.ERROR) Row(Modifier.padding(top = 8.dp)) {
+            Text("Report to Claude", color = Color.White, style = TextStyle(fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+                modifier = Modifier.clip(CircleShape).background(Glass).clickable {
+                    com.nebula.assistant.support.Reporter.open(ctx, "Voice error: ${s.reply}", "Heard: ${s.transcript}")
+                    VoiceState.onStop?.invoke()
+                }.padding(horizontal = 12.dp, vertical = 6.dp))
+        }
         if (s.sources.isNotEmpty() && s.phase != VoiceState.Phase.LISTENING) {
             Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 s.sources.take(4).forEach { src ->
