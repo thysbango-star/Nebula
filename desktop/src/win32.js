@@ -70,6 +70,46 @@ $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 ${CSHARP}
 '@
+# What's playing, from Windows' own media controls (the same source as the volume flyout).
+$mgr = $null; $lastKey = ''
+try {
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  $asTaskG = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\`1' })[0]
+  function Await($op, $type) { $t = $asTaskG.MakeGenericMethod($type).Invoke($null, @($op)); $null = $t.Wait(3000); $t.Result }
+  $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
+  $null = [Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType = WindowsRuntime]
+  $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+} catch { $mgr = $null }
+function MediaNow() {
+  if ($mgr -eq $null) { return '{"none":true}' }
+  $s = $mgr.GetCurrentSession()
+  if ($s -eq $null) { return '{"none":true}' }
+  $p = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+  $pb = $s.GetPlaybackInfo(); $tl = $s.GetTimelineProperties()
+  $o = [ordered]@{ title = [string]$p.Title; artist = [string]$p.Artist; app = [string]$s.SourceAppUserModelId
+    playing = ($pb.PlaybackStatus -eq 'Playing'); pos = [int64]$tl.Position.TotalMilliseconds; dur = [int64]$tl.EndTime.TotalMilliseconds
+    at = [int64]([DateTimeOffset]$tl.LastUpdatedTime).ToUnixTimeMilliseconds() }
+  $key = "$($o.title)|$($o.artist)"
+  if ($key -ne $script:lastKey -and $p.Thumbnail -ne $null) {
+    try {
+      $st = Await ($p.Thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+      $ns = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st); $ms = New-Object System.IO.MemoryStream; $ns.CopyTo($ms)
+      $o.art = 'data:image/png;base64,' + [Convert]::ToBase64String($ms.ToArray()); $st.Dispose()
+    } catch { }
+    $script:lastKey = $key
+  }
+  return ($o | ConvertTo-Json -Compress)
+}
+function MediaCtl($what) {
+  if ($mgr -eq $null) { return 'none' }
+  $s = $mgr.GetCurrentSession(); if ($s -eq $null) { return 'none' }
+  switch ($what) {
+    'toggle' { $r = Await ($s.TryTogglePlayPauseAsync()) ([bool]) }
+    'next'   { $r = Await ($s.TrySkipNextAsync()) ([bool]) }
+    'prev'   { $r = Await ($s.TrySkipPreviousAsync()) ([bool]) }
+  }
+  return "$r"
+}
 [Console]::Out.WriteLine('ready'); [Console]::Out.Flush()
 while ($true) {
   $line = [Console]::In.ReadLine()
@@ -82,6 +122,9 @@ while ($true) {
       'stop'  { [NebulaWin]::Stop(); $out = 'ok' }
       'count' { $out = "$([NebulaWin]::Clicks)|$([int][NebulaWin]::Running())" }
       'boost' { $out = "$([NebulaWin]::Boost($p[1]))" }
+      'media' { $out = MediaNow }
+      'mctl'  { $out = MediaCtl $p[1] }
+      'mreset' { $script:lastKey = ''; $out = 'ok' }
       default { $out = 'unknown' }
     }
   } catch { $out = 'error ' + $_.Exception.Message.Replace([char]10, ' ') }
@@ -135,8 +178,10 @@ class WinHelper {
   async cmd(line) {
     if (!(await this.start()) || !this.proc) return '';
     return new Promise((resolve) => {
-      const t = setTimeout(() => resolve(''), 4000);
-      this.queue.push((r) => { clearTimeout(t); resolve(r); });
+      // A slow answer must still use up its own slot, or every later reply would land on the wrong question.
+      let done = false;
+      const t = setTimeout(() => { done = true; resolve(''); }, /^media/.test(line) ? 9000 : 4000);
+      this.queue.push((r) => { clearTimeout(t); if (!done) resolve(r); });
       this.proc.stdin.write(line + '\n');
     });
   }
@@ -148,6 +193,10 @@ class WinHelper {
     return { exe: (exe || '').toLowerCase(), fullscreen: full === '1', path: (file || '').toLowerCase() };
   }
   async boost(exe) { return +(await this.cmd(`boost ${String(exe).replace(/\s/g, '')}`)) || 0; }
+  /** What's playing on Windows: {title, artist, playing, pos, dur, at, art?} — art (a data URL) only when the track changes. */
+  async media() { const r = await this.cmd('media'); try { return JSON.parse(r); } catch { return null; } }
+  mediaControl(what) { return this.cmd(`mctl ${what}`); }
+  mediaReset() { return this.cmd('mreset'); }
   startClicking(ms) { return this.cmd(`start ${Math.round(ms)}`); }
   stopClicking() { return this.cmd('stop'); }
   async clicks() { const [n, on] = (await this.cmd('count')).split('|'); return { clicks: +n || 0, running: on === '1' }; }

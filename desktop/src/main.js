@@ -70,6 +70,7 @@ const DEFAULTS = {
   activeKey: 0,
   theme: 'system',       // 'system' | 'light' | 'dark'
   currency: '',
+  islandMusic: true,     // what's playing (Spotify, YouTube, any app using Windows' media controls), themed by its album art
   sportsOn: true,        // live scores in the island while your teams play
   sportsGoals: true,     // the goal animation + cheer
   sportsEvents: true,    // cards (with rugby timers), substitution boards and scorers
@@ -300,6 +301,7 @@ function registerHotkeys() {
 function applyIslandMode() {
   if (!island) return;
   if (configData.sportsOn && sportsGames.length && !(r3.gaming && configData.r3cketQuiet)) { island.showInactive(); return; }
+  if (configData.islandMusic !== false && nowPlaying && nowPlaying.playing && !(r3.gaming && configData.r3cketQuiet)) { island.showInactive(); return; }
   const quiet = r3.gaming && configData.r3cketQuiet && !clickerState.running && !configData.r3cketHud;
   if (session.active || (configData.islandMode === 'always' && !quiet) || clickerState.running) island.showInactive();
   else island.hide();
@@ -412,6 +414,27 @@ const session = {
 };
 const timer = { endsAt: 0, label: '', handle: null };
 
+// ------------------------------------------------------------------ now playing
+let nowPlaying = null; let mediaTimer = null; let lastArt = '';
+async function pollMedia() {
+  clearTimeout(mediaTimer);
+  if (process.platform !== 'win32' || configData.islandMusic === false || quitting) { mediaTimer = setTimeout(pollMedia, 10000); return; }
+  let wait = 4000;
+  try {
+    const m = await helper.media();
+    if (m && !m.none && m.title) {
+      if (m.art) lastArt = m.art;
+      const next = { ...m, art: m.art || lastArt };
+      const changed = !nowPlaying || nowPlaying.title !== next.title || nowPlaying.playing !== next.playing || Math.abs((nowPlaying.pos || 0) - (next.pos || 0)) > 3000;
+      const wasPlaying = nowPlaying && nowPlaying.playing;
+      nowPlaying = next;
+      if (changed) { pushIslandState(); if (wasPlaying !== next.playing) applyIslandMode(); }
+      wait = next.playing ? 1500 : 3000;
+    } else if (nowPlaying) { nowPlaying = null; lastArt = ''; pushIslandState(); applyIslandMode(); }
+  } catch (e) { log('media', e.message); }
+  mediaTimer = setTimeout(pollMedia, wait);
+}
+
 // ------------------------------------------------------------------ sports
 const { Sports, LEAGUES, teams: sportsTeamList } = require('./sports');
 let sportsGames = [];
@@ -439,6 +462,7 @@ function pushIslandState() {
     hud: r3.gaming && configData.r3cketHud ? { ...r3.hud, since: r3.since, boosts: r3.boosts, crosshair: !!r3.crosshair } : null,
     followup: !!session.followup, screenShare: !!configData.screenShare,
     sports: configData.sportsOn ? sportsGames : [],
+    media: configData.islandMusic !== false ? nowPlaying : null,
   });
   send(glow, 'vibrance:state', { active: session.active && !session.gaming, phase: session.phase, intensity: configData.intensity });
 }
@@ -789,6 +813,12 @@ function wireIpc() {
   ipcMain.on('island:close', () => endSession());
   ipcMain.on('island:clicker', (_e, cmd) => clicker(cmd));
   ipcMain.on('island:crosshair', () => showCrosshair(!(cross && !cross.isDestroyed())));
+  ipcMain.on('island:media', async (_e, what) => {
+    if (!['toggle', 'next', 'prev'].includes(what)) return;
+    await helper.mediaControl(what);
+    if (what !== 'toggle') await helper.mediaReset();
+    setTimeout(pollMedia, 350);
+  });
   ipcMain.on('island:cancel-timer', () => setTimer(0));
   ipcMain.on('island:focus', () => { if (island) island.focus(); });
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
@@ -840,6 +870,7 @@ function wireIpc() {
     if (before.clickInterval !== configData.clickInterval && clickerState.running) clicker('speed');
     if (before.startWithWindows !== configData.startWithWindows) applyLoginItem();
     if (before.islandMode !== configData.islandMode) applyIslandMode();
+    if (before.islandMusic !== configData.islandMusic) { if (configData.islandMusic === false) nowPlaying = null; pollMedia(); pushIslandState(); applyIslandMode(); }
     if (JSON.stringify(before.sportsTeams) !== JSON.stringify(configData.sportsTeams) || before.sportsOn !== configData.sportsOn) sports.refresh();
     refreshTrayMenu();
     broadcastSettings();
@@ -898,6 +929,7 @@ app.whenReady().then(() => {
   applyLoginItem();
   initWake();
   sports.start();
+  setTimeout(pollMedia, 6000);
   ear.webContents.on('did-finish-load', () => { earRunning = false; connectEarPort(); updateEar(); });
 
   screen.on('display-metrics-changed', repositionWindows);

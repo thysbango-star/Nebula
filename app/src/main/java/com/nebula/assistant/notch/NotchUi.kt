@@ -130,6 +130,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.sin
 
 // ============================================================================ look

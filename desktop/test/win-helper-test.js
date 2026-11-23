@@ -19,6 +19,11 @@ const { WinHelper } = require('../src/win32');
   if ((await h.stopClicking()) !== 'ok') process.exit(1);
   await new Promise((r) => setTimeout(r, 400));
   if ((await h.clicks()).running) { console.error('clicker did not stop'); process.exit(1); }
+  // Now playing: CI has no music, so Windows' media controls answer "nothing playing" — but the call must work.
+  const m = await h.media();
+  console.log('media:', JSON.stringify(m));
+  if (!m || typeof m !== 'object') { console.error('media query failed'); process.exit(1); }
+  if (!['none', 'False', 'True'].includes(await h.mediaControl('toggle'))) { console.error('media control failed'); process.exit(1); }
   h.stop();
   console.log('R3cket helper OK');
   process.exit(0);
