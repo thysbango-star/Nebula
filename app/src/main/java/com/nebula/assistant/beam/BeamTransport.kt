@@ -25,7 +25,8 @@ import java.net.Socket
  * Nebula-to-Nebula transfer over the local network (TCP), encrypted with [BeamSecurity].
  *
  * Sender → receiver:  {"v":1,"from","device","pub","items":[{name,size,mime}],"text"}\n
- * Receiver → sender:  {"ok":true,"pub"}\n  (only after the person taps Accept)  or {"ok":false,"reason"}\n
+ * Receiver → sender:  {"wait":true,"pub"}\n  right away (so both screens can show the same code while they decide), then
+ *                     {"ok":true}\n after the person taps Accept, or {"ok":false,"reason"}\n
  * Then, per item: encrypted frames, a zero frame ends each file. Receiver finishes with {"done":true,"saved":n}\n
  */
 object BeamTransport {
@@ -55,9 +56,11 @@ object BeamTransport {
             items.firstOrNull { it.text != null }?.let { header.put("text", it.text) }
             writeLine(out, header.toString())
             onWaiting("")
-            val reply = JSONObject(readLine(inp))
+            var reply = JSONObject(readLine(inp))
+            var session: BeamSecurity.Session? = null
+            if (reply.optBoolean("wait")) { session = BeamSecurity.Session(kp, reply.getString("pub")); onWaiting("…" + session.code); reply = JSONObject(readLine(inp)) }
             if (!reply.optBoolean("ok")) return@withContext SendResult(false, reply.optString("reason").ifBlank { "Transfer declined" })
-            val session = BeamSecurity.Session(kp, reply.getString("pub"))
+            if (session == null) session = BeamSecurity.Session(kp, reply.getString("pub"))
             onWaiting(session.code)
             sock.soTimeout = 30_000
             val total = files.sumOf { it.size }.coerceAtLeast(1)
@@ -120,9 +123,10 @@ object BeamTransport {
             val session = BeamSecurity.Session(kp, h.getString("pub"))
             val from = h.optString("from").take(60).ifBlank { "Someone nearby" }
             val offer = Offer(BeamSecurity.token(), from, h.optString("device"), items, session.code, h.optString("text").takeIf { it.isNotBlank() }?.take(20_000))
+            writeLine(out, JSONObject().put("wait", true).put("pub", BeamSecurity.pub(kp)).toString())
             val ok = kotlinx.coroutines.runBlocking { withTimeoutOrNull(60_000) { onOffer(offer) } } == true
             if (!ok) { writeLine(out, JSONObject().put("ok", false).put("reason", "Transfer declined").toString()); return }
-            writeLine(out, JSONObject().put("ok", true).put("pub", BeamSecurity.pub(kp)).toString())
+            writeLine(out, JSONObject().put("ok", true).toString())
             c.soTimeout = 30_000
             val saved = ArrayList<Uri>()
             val total = items.sumOf { it.size }.coerceAtLeast(1); var got = 0L

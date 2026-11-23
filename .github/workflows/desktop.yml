@@ -47,6 +47,9 @@ jobs:
       - name: Test the sports watcher (live scores + goal detection)
         run: node test/sports-test.js
 
+      - name: Test Nebula Beam (encrypted transfer, consent, limits, mDNS packets)
+        run: node test/beam-test.js
+
       - name: Test the document writers (docx, xlsx, pptx, csv, md, txt, html)
         run: node test/docs-test.js
 
@@ -112,6 +115,9 @@ jobs:
 
       - name: Test the sports watcher
         run: node test/sports-test.js
+
+      - name: Test Nebula Beam
+        run: node test/beam-test.js
 
       - name: Test the Linux media reader (playerctl)
         run: |

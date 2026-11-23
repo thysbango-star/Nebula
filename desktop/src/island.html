@@ -132,6 +132,27 @@
   .foot .gear:hover { color: #fff; }
   canvas.orb { flex: none; }
 
+  /* ---------------- Nebula Beam: the brief's pink → violet → navy pill ---------------- */
+  #island.beam { width: 380px; height: 58px; border-radius: 0 0 29px 29px; }
+  body.m-beam #shL { left: calc(50% - 190px - 16px); } body.m-beam #shR { left: calc(50% + 190px); }
+  #beam { padding: 6px 7px 7px; }
+  .bpill { position: relative; height: 100%; border-radius: 23px; overflow: hidden; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 12px;
+    background: linear-gradient(90deg, #FF5FA2, #8B5CF6 55%, #1E2A78); box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
+  .bpill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.18) 50%, transparent 70%);
+    background-size: 220% 100%; animation: sheen 2.2s linear infinite; pointer-events: none; }
+  @keyframes sheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  .btx { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .btx b { color: #fff; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btx span { color: rgba(255,255,255,.8); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #beamPlane { width: 26px; height: 26px; flex: none; }
+  #beamCheck { display: none; width: 24px; height: 24px; border-radius: 12px; background: #fff; color: #8B5CF6; font-style: normal; font-weight: 800;
+    align-items: center; justify-content: center; font-size: 14px; flex: none; animation: pop .5s var(--spring); }
+  @keyframes pop { from { transform: scale(.3); } to { transform: none; } }
+  #beam.done #beamCheck { display: flex; } #beam.done #beamPlane { display: none; }
+  .bbar { position: absolute; left: 22px; right: 22px; bottom: 4px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.22); display: none; }
+  #beam.prog .bbar { display: block; }
+  #beamFill { height: 100%; width: 0; border-radius: 2px; background: #fff; transition: width .25s ease; }
+
   /* ---------------- Sports (Apple Sports-style) ---------------- */
   .num, .goalword { font-family: "Bahnschrift", "Roboto Condensed", "Arial Narrow", sans-serif; font-stretch: condensed; font-weight: 700; }
   #island.score { width: 300px; height: 34px; }
@@ -366,6 +387,7 @@
 
   <div class="view" id="music"></div>
   <div class="view" id="musiccard"></div>
+  <div class="view" id="beam"><div class="bpill"><canvas id="beamPlane" width="52" height="52"></canvas><div class="btx"><b id="beamTitle"></b><span id="beamSub"></span></div><i id="beamCheck">✓</i><div class="bbar"><div id="beamFill"></div></div></div></div>
   <div class="view" id="score"></div>
   <div class="view" id="card"></div>
   <div class="view" id="goal"></div>
@@ -441,6 +463,7 @@ let hovering = false; let interactive = false; let level = 0;
 // ---------------------------------------------------------------- layout
 function mode() {
   if (state.active) return state.gaming ? 'game' : 'session';
+  if (beam) return 'beam';
   if (goal) return 'goal';
   if (state.hud && !hovering) return 'hud';
   const typing = document.activeElement === $('askInput') && $('askInput').value;
@@ -459,7 +482,7 @@ function render() {
   island.classList.toggle('session', m === 'session');
   island.classList.toggle('game', m === 'game');
   island.classList.toggle('hud', m === 'hud');
-  for (const k of ['score', 'card', 'goal', 'music', 'musiccard']) island.classList.toggle(k, m === k);
+  for (const k of ['score', 'card', 'goal', 'music', 'musiccard', 'beam']) island.classList.toggle(k, m === k);
   if (m === 'music') renderMusic();
   if (m === 'musiccard') renderMusicCard();
   if (m === 'score') renderScore();
@@ -470,7 +493,8 @@ function render() {
   island.classList.toggle('awake', state.active);
   island.classList.toggle('thinking', state.phase === 'thinking');
   $('glowShadow').classList.toggle('on', state.active);
-  for (const v of ['rest', 'hover', 'session', 'game', 'hud', 'score', 'card', 'music', 'musiccard']) $(v).classList.toggle('on', v === m);
+  if (m === 'beam') renderBeam();
+  for (const v of ['rest', 'hover', 'session', 'game', 'hud', 'score', 'card', 'music', 'musiccard', 'beam']) $(v).classList.toggle('on', v === m);
   if (m !== 'goal') $('goal').classList.remove('on');
   if (m !== 'hover' && !hovering) askMode = false;
   if (m === 'game') {
@@ -1247,6 +1271,34 @@ requestAnimationFrame(loop);
 
 // ---------------------------------------------------------------- wiring
 api.on('island:state', (s) => { state = { ...state, ...s }; render(); });
+
+// ---------------- Nebula Beam (only real transfers: the bar is the real fraction sent)
+let beam = null; let beamHide = 0; let planeT = 0;
+api.on('island:beam', (b) => {
+  clearTimeout(beamHide);
+  beam = b && ['waiting', 'sending', 'receiving', 'sent', 'received'].includes(b.kind) ? b : null;
+  if (beam && (beam.kind === 'sent' || beam.kind === 'received')) beamHide = setTimeout(() => { beam = null; render(); }, 4500);
+  render();
+});
+function renderBeam() {
+  const b = beam; const el = $('beam'); const done = b.kind === 'sent' || b.kind === 'received';
+  el.classList.toggle('done', done); el.classList.toggle('prog', b.progress != null && !done);
+  $('beamTitle').textContent = b.kind === 'sent' ? `Sent to ${b.to}` : b.kind === 'received' ? `From ${b.from}` : b.kind === 'receiving' ? `Arriving from ${b.from}` : `Flying to ${b.to}`;
+  const pct = b.progress != null ? ` · ${Math.round(b.progress * 100)}%` : '';
+  $('beamSub').textContent = b.kind === 'waiting' ? `Waiting for them to accept${b.code ? ' · code ' + b.code : ''}`
+    : b.kind === 'received' ? `${b.count} saved to Downloads › Nebula Beam` : b.kind === 'sent' ? `${b.count || 1} item${(b.count || 1) === 1 ? '' : 's'}`
+    : `${b.count} item${b.count === 1 ? '' : 's'}${pct}${b.code ? ' · code ' + b.code : ''}`;
+  $('beamFill').style.width = `${Math.round((b.progress || 0) * 100)}%`;
+  if (!done && !planeT) planeT = requestAnimationFrame(drawPlane);
+}
+function drawPlane(t) {
+  planeT = 0; if (!beam || beam.kind === 'sent' || beam.kind === 'received') return;
+  const c = $('beamPlane'); const g = c.getContext('2d'); const w = c.width, h = c.height; const dy = Math.sin(t / 220) * 3;
+  g.clearRect(0, 0, w, h); g.fillStyle = '#fff'; g.beginPath();
+  if (beam.kind === 'receiving') { g.moveTo(w * .1, h * .5 + dy); g.lineTo(w * .9, h * .15 + dy); g.lineTo(w * .62, h * .88 + dy); g.lineTo(w * .48, h * .6 + dy); }
+  else { g.moveTo(w * .9, h * .5 + dy); g.lineTo(w * .1, h * .15 + dy); g.lineTo(w * .38, h * .88 + dy); g.lineTo(w * .52, h * .6 + dy); }
+  g.closePath(); g.fill(); planeT = requestAnimationFrame(drawPlane);
+}
 api.on('island:level', (l) => { level = l; });
 api.on('island:speak', speak);
 api.on('island:speak-stop', stopSpeaking);

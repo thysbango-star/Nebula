@@ -39,7 +39,7 @@ object BeamSecurity {
             val k = MessageDigest.getInstance("SHA-256").digest("nebula-beam-key".toByteArray() + secret)
             key = SecretKeySpec(k, "AES")
             val c = MessageDigest.getInstance("SHA-256").digest("nebula-beam-code".toByteArray() + secret)
-            code = "%06d".format(((c[0].toInt() and 0xff) shl 16 or (c[1].toInt() and 0xff) shl 8 or (c[2].toInt() and 0xff)) % 1_000_000)
+            code = "%06d".format((((c[0].toInt() and 0xff) shl 16) or ((c[1].toInt() and 0xff) shl 8) or (c[2].toInt() and 0xff)) % 1_000_000)
         }
 
         private fun nonce(n: Long, dir: Int) = ByteBuffer.allocate(12).putInt(dir).putLong(n).array()

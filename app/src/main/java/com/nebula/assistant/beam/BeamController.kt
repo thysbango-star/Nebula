@@ -119,7 +119,7 @@ object BeamController {
         sendJob = scope.launch {
             var code = ""
             val r = BeamTransport.send(app, d, discovery.deviceName(), if (Build.MANUFACTURER.equals("samsung", true)) "samsung" else "android", items,
-                onWaiting = { c -> code = c; _ui.value = if (c.isEmpty()) BeamUi.Waiting(d.name, "") else BeamUi.Sending(d.name, 0f, items.size, c) },
+                onWaiting = { c -> code = c.removePrefix("…"); _ui.value = if (c.isEmpty() || c.startsWith("…")) BeamUi.Waiting(d.name, code) else BeamUi.Sending(d.name, 0f, items.size, code) },
                 onProgress = { p -> _ui.value = BeamUi.Sending(d.name, p, items.size, code) })
             if (r.ok) {
                 buzz(40); _ui.value = BeamUi.Sent(d.name, items.size, "nebula"); record(d.name, items, "sent")

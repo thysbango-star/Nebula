@@ -5,7 +5,7 @@
 
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, nativeImage, safeStorage, Notification, shell, nativeTheme,
-  utilityProcess, MessageChannelMain, powerMonitor, desktopCapturer,
+  utilityProcess, MessageChannelMain, powerMonitor, desktopCapturer, dialog,
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +21,7 @@ const { Agent } = require('./agent');
 // Never interrupt the user with crash dialogs: log quietly and keep running.
 const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
 const support = require('./support');
+const { Beam } = require('./beam');
 function log(...a) {
   try { if (a.some((x) => x instanceof Error) || /error|fail/i.test(String(a[0]))) support.note(a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ')); } catch { /* */ }
   try {
@@ -77,6 +78,8 @@ const DEFAULTS = {
   sportsGoals: true,     // the goal animation + cheer
   sportsEvents: true,    // cards (with rugby timers), substitution boards and scorers
   skipUpdate: '',        // a version the user chose to skip
+  beamVisible: true,     // nearby Nebula devices can find this PC (every Beam still has to be accepted here)
+  beamMaxMb: 2048,       // largest Beam this PC accepts
   sportsTeams: [],       // [{league, id, abbr, name, color}]
 };
 let configData = { ...DEFAULTS };
@@ -824,7 +827,67 @@ function settingsPayload() {
   };
 }
 
+// ------------------------------------------------------------------ Nebula Beam (PC ⇄ phone, PC ⇄ PC)
+
+const beam = new Beam({
+  name: () => os.hostname().replace(/\.local$/, '') || 'Nebula PC',
+  type: process.platform === 'win32' ? 'windows' : 'linux',
+  downloads: () => app.getPath('downloads'),
+  maxMb: () => configData.beamMaxMb || 2048,
+});
+let beamState = { kind: 'idle' }; let beamOffer = null; let beamAsk = null;
+function beamPush(st) {
+  if (st) beamState = st;
+  send(settings, 'app:beam', { state: beamState, devices: beam.list(), visible: !!configData.beamVisible });
+  send(island, 'island:beam', beamState);
+}
+beam.on('devices', () => beamPush());
+beam.on('log', (m) => log('beam', m));
+beam.on('state', (st) => {
+  beamPush(st);
+  if (st.kind === 'received') {
+    if (beamAsk) { beamAsk.abort(); beamAsk = null; }
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: `Beam from ${st.from}`, body: st.text ? st.text.slice(0, 180) : `${st.count} file${st.count === 1 ? '' : 's'} saved to Downloads › Nebula Beam`, icon: iconPath() });
+      n.on('click', () => { if (st.text) openApp('beam'); else if (st.saved && st.saved[0]) shell.showItemInFolder(st.saved[0]); }); n.show();
+    }
+    if (st.text) { try { require('electron').clipboard.writeText(st.text); } catch { /* */ } }
+  }
+});
+beam.on('offer', async (o) => {
+  beamOffer = o; beamPush({ kind: 'incoming', offer: o });
+  const what = o.text ? `Text: “${o.text.slice(0, 200)}”` : `${o.items.length} item${o.items.length === 1 ? '' : 's'} · ${humanSize(o.total)}\n${o.items.slice(0, 5).map((i) => '• ' + i.name).join('\n')}${o.items.length > 5 ? `\n+${o.items.length - 5} more` : ''}`;
+  beamAsk = new AbortController();
+  const r = await dialog.showMessageBox({
+    type: 'question', title: 'Nebula Beam', buttons: ['Accept', 'Decline'], defaultId: 0, cancelId: 1, noLink: true, signal: beamAsk.signal,
+    message: `${o.from} wants to Beam you`, detail: `${what}\n\nCheck this code matches their screen: ${o.code.slice(0, 3)} ${o.code.slice(3)}`,
+  }).catch(() => ({ response: 1 }));
+  beamAsk = null;
+  if (beamOffer === o) { beamOffer = null; beam.decide(r.response === 0); }
+});
+function humanSize(b) { return b >= 1 << 30 ? (b / 2 ** 30).toFixed(1) + ' GB' : b >= 1 << 20 ? (b / 2 ** 20).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
+async function beamSend(id, files, text) {
+  const d = beam.list().find((x) => x.id === id);
+  if (!d) { beamPush({ kind: 'failed', reason: 'Recipient unavailable' }); return; }
+  const total = files.reduce((a, f) => { try { return a + fs.statSync(f).size; } catch { return a; } }, 0);
+  const r = await beam.send(d, files, text);
+  beamPush(r.ok ? { kind: 'sent', to: d.name, count: files.length || 1 } : { kind: 'failed', reason: r.reason, to: d.name });
+  log('beam', `${r.ok ? 'sent' : 'failed'} ${files.length} (${humanSize(total)}) → ${d.name}${r.ok ? '' : ': ' + r.reason}`);
+  setTimeout(() => { if (beamState.kind === 'sent' || beamState.kind === 'failed') beamPush({ kind: 'idle' }); }, 6000);
+}
+function beamApplyVisible() { if (configData.beamVisible) beam.visible().catch((e) => log('beam', e.message)); else beam.hide(); }
+
 function wireIpc() {
+  ipcMain.handle('app:beam-open', async () => { await beam.scan(30).catch((e) => log('beam', e.message)); beamPush(); return true; });
+  ipcMain.on('app:beam-files', async (_e, id) => {
+    const r = await dialog.showOpenDialog(settings && !settings.isDestroyed() ? settings : undefined, { title: 'Choose what to Beam', properties: ['openFile', 'multiSelections'] });
+    if (!r.canceled && r.filePaths.length) beamSend(id, r.filePaths, null);
+  });
+  ipcMain.on('app:beam-text', (_e, { id, text }) => { if (String(text || '').trim()) beamSend(id, [], String(text).slice(0, 20000)); });
+  ipcMain.on('app:beam-decide', (_e, yes) => { if (beamOffer) { beamOffer = null; if (beamAsk) beamAsk.abort(); beam.decide(!!yes); } });
+  ipcMain.on('app:beam-folder', () => { const d = path.join(app.getPath('downloads'), 'Nebula Beam'); fs.mkdirSync(d, { recursive: true }); shell.openPath(d); });
+  ipcMain.on('app:beam-visible', (_e, on) => { config.set('beamVisible', !!on); beamApplyVisible(); beamPush(); });
+  ipcMain.on('app:beam-max', (_e, mb) => { config.set('beamMaxMb', Math.max(10, Math.min(10240, Number(mb) || 2048))); });
   ipcMain.on('ear:audio', (_e, data) => onAudio(data instanceof Float32Array ? data : new Float32Array(data)));
   ipcMain.on('ear:need-port', () => connectEarPort());
   ipcMain.on('ear:error', (_e, msg) => { log('mic', msg); if (session.active) fail('I can’t reach the microphone. Check Windows microphone privacy settings.'); });
@@ -968,6 +1031,7 @@ app.whenReady().then(() => {
   initWake();
   sports.start();
   setTimeout(pollMedia, 6000);
+  setTimeout(beamApplyVisible, 4000);
   // Is there a newer Nebula? On launch and every 12 hours; one notification per version.
   const updateCheck = async () => {
     try {
@@ -1003,4 +1067,4 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', (e) => e.preventDefault()); // keep running in the tray
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); try { if (ears) ears.kill(); } catch { /* */ } helper.stopClicking().finally(() => helper.stop()); });
+app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); try { beam.close(); } catch { /* */ } try { if (ears) ears.kill(); } catch { /* */ } helper.stopClicking().finally(() => helper.stop()); });
