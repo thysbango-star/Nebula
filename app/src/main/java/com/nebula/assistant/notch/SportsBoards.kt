@@ -870,7 +870,8 @@ private fun ScoreMoment(s: Sports.Score) {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Row {
-                        val fs = when { s.label.length > 9 -> 30; s.label.length > 6 -> 40; else -> 64 }
+                        // fits the space beside the logo: TRY / GOAL big, CONVERTED / PENALTY smaller
+                        val fs = minOf(64, (212f / (s.label.length * 0.68f)).toInt())
                         s.label.forEachIndexed { i, ch ->
                             val v = seg(t, wAt + i * 0.06f, wAt + i * 0.06f + 0.4f, ::backOut)
                             Text(ch.toString(), color = ink, modifier = Modifier.graphicsLayer {

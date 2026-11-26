@@ -207,13 +207,17 @@ fun Island(s: IslandState, c: NotchHost, onGoalDone: () -> Unit, onPanel: (Boole
             growDir = if (growing) 1f else -1f
             with(d) { c.reserve(maxOf(w.value, target.w.value).dp.roundToPx() + 8, (maxOf(h.value, target.h.value) + 10f).dp.roundToPx()) }
             coroutineScope {
-                if (shown != mode) launch {
-                    contentAlpha.animateTo(0f, tween(if (growing) 80 else 110))
-                    shown = mode
-                    appear.snapTo(0f)
-                    delay(if (growing) 70 else 30)
+                // The content always ends visible: if a change interrupts a fade, the next run finishes it
+                // (an interrupted fade used to leave an empty black island until the view changed again).
+                launch {
+                    if (shown != mode) {
+                        contentAlpha.animateTo(0f, tween(if (growing) 80 else 110))
+                        shown = mode
+                        appear.snapTo(0f)
+                        delay(if (growing) 70 else 30)
+                    }
                     launch { contentAlpha.animateTo(1f, tween(180)) }
-                    appear.animateTo(1f, tween(if (lite) 260 else 620, easing = LinearEasing))
+                    if (appear.value < 1f) appear.animateTo(1f, tween(if (lite) 260 else 620, easing = LinearEasing))
                 }
                 if (mode != Mode.NONE && !lite) launch { squish.snapTo(1f); squish.animateTo(0f, spring(dampingRatio = 0.32f, stiffness = 260f)) }
                 if (mode != Mode.NONE && !lite) launch { rim.animateTo(1f, tween(140)); rim.animateTo(0f, tween(900, 200)) }
@@ -268,10 +272,14 @@ fun Island(s: IslandState, c: NotchHost, onGoalDone: () -> Unit, onPanel: (Boole
                         val ra = maxOf(rim.value, rimBase)
                         if (ra > 0.01f) {
                             val sw = 1.6.dp.toPx()
-                            rotate(spin.value) {
-                                drawRoundRect(Brush.sweepGradient(listOf(Color.Transparent, Ember, Flame, Ruby, Color.Transparent, Color.Transparent), center),
-                                    Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), CornerRadius(rr), alpha = ra, style = Stroke(sw))
+                            // the gradient turns, not the shape
+                            val deg = spin.value; val cx = size.width / 2; val cy = size.height / 2
+                            val comet = object : ShaderBrush() {
+                                override fun createShader(size: Size): Shader = android.graphics.SweepGradient(cx, cy,
+                                    intArrayOf(0, 0, Ember.toArgb(), Flame.toArgb(), Ruby.toArgb(), 0), floatArrayOf(0f, 0.55f, 0.72f, 0.86f, 0.96f, 1f))
+                                    .apply { setLocalMatrix(android.graphics.Matrix().apply { setRotate(deg, cx, cy) }) }
                             }
+                            drawRoundRect(comet, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), CornerRadius(rr), alpha = ra, style = Stroke(sw))
                         }
                     }
                     .combinedClickable(
@@ -366,7 +374,7 @@ private fun geoFor(mode: Mode, pillH: Dp, s: IslandState, sport: Sports.Game?): 
             val text = if ((v.phase == VoiceState.Phase.LISTENING && !(v.followUp && v.transcript.isBlank())) || v.phase == VoiceState.Phase.THINKING) v.transcript else v.reply
             val lines = ceil(text.length / 34f).toInt().coerceIn(1, 9)
             val extra = if (v.sources.isNotEmpty() && v.phase != VoiceState.Phase.LISTENING) 36 else 0
-            Geo(full, (112 + lines * 25 + extra).coerceIn(150, 420).dp, card)
+            Geo(full, (120 + lines * 25 + extra).coerceIn(156, 420).dp, card)
         }
     }
 }

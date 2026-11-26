@@ -61,14 +61,18 @@ internal val Ink = Color(0xFF0B0B0D)
 internal val NotchGradient = Brush.linearGradient(listOf(Ember, Flame, Ruby))
 internal val NebulaColors = listOf(Ember, Flame, Ruby)
 
-internal val Display = FontFamily(Font(R.font.space_grotesk, FontWeight.Medium), Font(R.font.space_grotesk, FontWeight.SemiBold))
+// Static cuts of the variable fonts (made from the OFL originals): a variable font with no axis applied falls back
+// to its lightest weight on some renderers, which is why the island's type could look thin.
+internal val Display = FontFamily(Font(R.font.space_grotesk_medium, FontWeight.Medium), Font(R.font.space_grotesk_semibold, FontWeight.SemiBold))
 internal val Condensed = FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)))
-internal val Body = FontFamily(Font(R.font.manrope, FontWeight.Medium), Font(R.font.manrope, FontWeight.SemiBold), Font(R.font.manrope, FontWeight.Bold))
+internal val Body = FontFamily(Font(R.font.manrope_medium, FontWeight.Medium), Font(R.font.manrope_semibold, FontWeight.SemiBold), Font(R.font.manrope_bold, FontWeight.Bold))
+/** The broadcast weight, for scores and big words. */
+internal val Heavy = FontFamily(Font(R.font.manrope_extrabold, FontWeight.ExtraBold))
 
 internal fun label() = TextStyle(fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp)
 internal fun big(size: Int) = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = size.sp, lineHeight = (size * 1.15f).sp)
 /** Broadcast type: heavy, tight, for scores and big words. */
-internal fun heavy(size: Int, italic: Boolean = false) = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = size.sp, lineHeight = (size * 1.02f).sp,
+internal fun heavy(size: Int, italic: Boolean = false) = TextStyle(fontFamily = Heavy, fontWeight = FontWeight.ExtraBold, fontSize = size.sp, lineHeight = (size * 1.02f).sp,
     letterSpacing = (-0.02 * size).sp, fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal)
 internal fun caps(size: Float = 10f) = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = size.sp, letterSpacing = (size * 0.16f).sp)
 

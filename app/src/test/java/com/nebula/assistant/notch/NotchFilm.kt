@@ -284,7 +284,7 @@ class NotchFilm {
         v.draw(android.graphics.Canvas(bmp))
         val tool = System.getProperty("nebula.ffmpeg").orEmpty()
         if (raw == null && tool.isNotEmpty() && File(tool).canExecute()) {
-            ffmpeg = ProcessBuilder(tool, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "${w}x$h", "-r", "$fps", "-i", "-",
+            ffmpeg = ProcessBuilder(tool, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "${w}x$h", "-r", "$fps", "-i", "-",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", File(out, "notch-animations.mp4").absolutePath)
                 .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start()
             raw = java.io.BufferedOutputStream(ffmpeg!!.outputStream, 1 shl 22)
@@ -318,11 +318,13 @@ class NotchFilm {
     /** Real ESPN logos for the teams and competitions in the reel. */
     private suspend fun fetchLogos(ctx: android.content.Context): Map<String, String> {
         val outMap = HashMap<String, String>()
-        fun get(u: String) = runCatching {
-            val c = URL(u).openConnection() as HttpURLConnection
-            c.connectTimeout = 8000; c.readTimeout = 10000
-            JSONObject(c.inputStream.bufferedReader().readText())
-        }.getOrNull()
+        // The JDK's own HTTP client (Android's URLConnection doesn't work inside Robolectric).
+        val http = java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NORMAL).connectTimeout(java.time.Duration.ofSeconds(10)).build()
+        fun bytes(u: String): ByteArray? = runCatching {
+            val r = http.send(java.net.http.HttpRequest.newBuilder(java.net.URI(u)).header("User-Agent", "Mozilla/5.0").GET().build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray())
+            if (r.statusCode() in 200..299) r.body() else { println("Film: HTTP ${r.statusCode()} for $u"); null }
+        }.onFailure { println("Film: fetch failed $u: $it") }.getOrNull()
+        fun get(u: String) = bytes(u)?.let { runCatching { JSONObject(String(it)) }.getOrNull() }
         val base = "https://site.api.espn.com/apis/site/v2/sports/"
         for ((path, keys) in listOf("soccer/eng.1" to listOf("arsenal", "chelsea", "brighton", "newcastle"), "rugby/289234" to listOf("southafrica", "england"))) {
             val arr = get(base + path + "/teams")?.optJSONArray("sports")?.optJSONObject(0)?.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("teams") ?: continue
@@ -337,7 +339,13 @@ class NotchFilm {
                 ?.let { outMap[if (path.startsWith("rugby")) "rugbyleague" else "league"] = it }
         }
         if (outMap["southafrica"] == null) runCatching { Sports.nationLogos() }.getOrNull()?.let { m -> m["southafrica"]?.let { outMap["southafrica"] = it }; m["england"]?.let { outMap["england"] = it } }
-        outMap.values.forEach { Logos.get(ctx, it) }
+        // Seed Nebula's own logo cache on disk, then load them the normal way.
+        val dir = File(ctx.cacheDir, "logos").apply { mkdirs() }
+        for (u in outMap.values) {
+            val f = File(dir, java.security.MessageDigest.getInstance("SHA-1").digest(u.toByteArray()).joinToString("") { "%02x".format(it) } + ".png")
+            bytes(u)?.let { f.writeBytes(it) }
+            println("Film: logo $u -> ${Logos.get(ctx, u) != null}")
+        }
         println("Film logos: $outMap")
         return outMap
     }
