@@ -59,7 +59,7 @@ internal fun moodGeo(ui: MoodUi, full: Dp): Geo = when (ui) {
     is MoodUi.Finding -> Geo(full, 214.dp, 34.dp)
     is MoodUi.Opening -> Geo(full, 136.dp, 34.dp)
     is MoodUi.Manual -> Geo(full, 290.dp, 36.dp)
-    is MoodUi.Live -> Geo(full, 228.dp, 34.dp)
+    is MoodUi.Live -> Geo(full, 244.dp, 34.dp)
 }
 
 @Composable
@@ -219,9 +219,17 @@ private fun ColumnScope.LiveNow(s: MoodUi.Live, t: Float) {
         }
     }
     Spacer(Modifier.weight(1f))
+    val sound by com.nebula.assistant.mood.MoodAudio.state.collectAsState()
+    val note by com.nebula.assistant.mood.MoodAudio.note.collectAsState()
+    if (note.isNotBlank()) Text(note, color = PillB, style = label().copy(fontSize = 11.sp), maxLines = 2, modifier = Modifier.padding(bottom = 6.dp))
     Row(Modifier.fillMaxWidth().rise(3), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Wide(Icons.Rounded.SpeakerGroup, "Sound on TV", Modifier.weight(1f)) { MoodPlay.soundPicker(ctx, com.nebula.assistant.notch.NotchBus.media.value?.pkg) }
-        Wide(Icons.Rounded.Stop, "Stop", Modifier.weight(1f)) { MoodPlay.stop() }
+        when (sound) {
+            com.nebula.assistant.mood.MoodAudio.State.OFF -> Wide(Icons.Rounded.Tv, "Sound on TV", Modifier.weight(1f)) { MoodPlay.soundToTv() }
+            com.nebula.assistant.mood.MoodAudio.State.STARTING -> Wide(Icons.Rounded.HourglassTop, "Starting…", Modifier.weight(1f)) {}
+            com.nebula.assistant.mood.MoodAudio.State.ON -> Wide(Icons.Rounded.PhoneAndroid, "Sound on phone", Modifier.weight(1f)) { MoodPlay.soundToPhone() }
+        }
+        Wide(Icons.Rounded.Bluetooth, "Bluetooth", Modifier.weight(0.8f)) { MoodPlay.soundPicker(ctx, com.nebula.assistant.notch.NotchBus.media.value?.pkg) }
+        Wide(Icons.Rounded.Stop, "Stop", Modifier.weight(0.7f)) { MoodPlay.stop() }
     }
 }
 

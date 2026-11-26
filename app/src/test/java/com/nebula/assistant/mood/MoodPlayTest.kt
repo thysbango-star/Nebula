@@ -62,6 +62,15 @@ class MoodPlayTest {
             var second = ""; while (true) { val l = r.readLine() ?: break; if (l.startsWith("data: ")) { second = l; break } }
             assertTrue(second.contains("Ordinary People"))
             c.disconnect()
+            // the sound: AAC frames (with their ADTS header) reach the TV as they're made
+            val ac = URL("$base/$code/audio").openConnection() as HttpURLConnection; ac.readTimeout = 4000
+            val ain = ac.inputStream
+            assertEquals("audio/aac", ac.contentType)
+            thread { Thread.sleep(300); repeat(3) { MoodAudio.emit(MoodAudio.adts(4) + byteArrayOf(1, 2, 3, 4)) } }
+            val got = ByteArray(11).also { var n = 0; while (n < 11) n += ain.read(it, n, 11 - n) }
+            assertEquals(0xFF, got[0].toInt() and 0xff); assertEquals(0xF1, got[1].toInt() and 0xff)
+            assertEquals(11, ((got[3].toInt() and 3) shl 11) or ((got[4].toInt() and 0xff) shl 3) or ((got[5].toInt() and 0xff) shr 5)) // frame length in the header
+            ac.disconnect()
             // 20 wrong codes in a minute: that address is stopped
             repeat(20) { req("$base/ZZZZZZ/") }
             assertEquals(429, req("$base/$code/state").first)

@@ -88,6 +88,7 @@ object MoodPlay {
         val port = runCatching { s.start() }.getOrElse { _ui.value = MoodUi.Finding(emptyList(), false, false, ""); return false }
         server = s
         url = "http://$ip:$port/$code/"
+        scope.launch { MoodAudio.state.collect { server?.push(stateJson()) } } // sound on/off: the TV starts or stops playing it
         feedJob = scope.launch { // the TV follows the phone: every change in what's playing, straight away
             var last = ""
             NotchBus.media.collect { m ->
@@ -137,7 +138,12 @@ object MoodPlay {
         if (!_live.value || (server?.viewers ?: 0) == 0 && _ui.value !is MoodUi.Live && _ui.value !is MoodUi.Manual) stop() else _ui.value = MoodUi.Idle
     }
 
+    /** Sound on the TV over Wi-Fi (Android asks first), or back on the phone. */
+    fun soundToTv() { MoodAudio.start(app) }
+    fun soundToPhone() { MoodAudio.stop(app) }
+
     fun stop() {
+        if (MoodAudio.state.value != MoodAudio.State.OFF) MoodAudio.stop(app)
         scanJob?.cancel(); feedJob?.cancel()
         server?.stop(); server = null; url = ""; tvName = ""
         _live.value = false; _ui.value = MoodUi.Idle
@@ -179,6 +185,7 @@ object MoodPlay {
     private fun stateJson(): String {
         val m = NotchBus.media.value
         val j = JSONObject().put("now", System.currentTimeMillis()).put("phone", deviceName()).put("theme", prefs.moodTheme)
+            .put("audio", MoodAudio.state.value == MoodAudio.State.ON)
         if (themeChanged) { j.put("themeChanged", true); themeChanged = false }
         if (m != null && m.title.isNotBlank()) {
             val c = compat(m)

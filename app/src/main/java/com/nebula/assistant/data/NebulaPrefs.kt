@@ -153,6 +153,8 @@ class NebulaPrefs(context: Context) {
     /** Mood PLAY: the TV screen's theme ("auto" picks one from each cover) and TVs that said yes (id → token / key). */
     var moodTheme: String get() = sp.getString("mood_theme", "auto") ?: "auto"; set(v) = sp.edit().putString("mood_theme", v).apply()
     var moodTvs: String get() = sp.getString("mood_tvs", "{}") ?: "{}"; set(v) = sp.edit().putString("mood_tvs", v).apply()
+    /** While the sound goes to the TV, keep the phone itself quiet. */
+    var moodMutePhone: Boolean get() = bool("mood_mute_phone", true); set(v) = setBool("mood_mute_phone", v)
     var beamHaptics: Boolean get() = bool("beam_haptics", true); set(v) = setBool("beam_haptics", v)
     var beamLinkFallback: Boolean get() = bool("beam_link_fallback", true); set(v) = setBool("beam_link_fallback", v)
     var beamMaxMb: Int get() = sp.getInt("beam_max_mb", 2048); set(v) = sp.edit().putInt("beam_max_mb", v.coerceIn(10, 10240)).apply()

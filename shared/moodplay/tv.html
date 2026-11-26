@@ -45,9 +45,10 @@
   .time { position: absolute; top: 722px; font-size: 48px; font-weight: 400; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
   .time.a { left: 338px; } .time.b { left: 1598px; }
   .bar { position: absolute; left: 541px; top: 746px; width: 940px; height: 7px; border-radius: 4px; background: var(--ink); }
-  .bar .knob { position: absolute; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: var(--knob);
-    box-shadow: 0 2px 8px rgba(0,0,0,.35), 0 0 0 2px rgba(0,0,0,.06); transition: left .45s linear, background 1s; }
-  .bar .done { position: absolute; left: 0; top: -2px; bottom: -2px; border-radius: 6px; background: var(--ink); transition: width .45s linear; }
+  /* moved with transform only (no layout, no repaint) — cheap on a TV's small graphics chip */
+  .bar .knob { position: absolute; left: 0; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: var(--knob);
+    box-shadow: 0 2px 8px rgba(0,0,0,.35); transition: transform .5s linear; will-change: transform; }
+  .bar .done { position: absolute; left: 0; top: -2px; bottom: -2px; width: 100%; border-radius: 6px; background: var(--ink); transform-origin: 0 50%; transition: transform .5s linear; will-change: transform; }
   .ctls { position: absolute; left: 520px; top: 812px; width: 990px; height: 110px; display: flex; justify-content: space-between; align-items: center; }
   .ctl { position: relative; width: 110px; height: 110px; display: grid; place-items: center; border-radius: 28px; color: var(--ink); background: none; border: 0; outline: none; transition: transform .15s, background .2s; }
   .ctl svg { fill: currentColor; stroke: currentColor; }
@@ -73,31 +74,36 @@
 
   /* themes ---------------------------------------------------------------- */
   .t-waves .bg { background: linear-gradient(180deg, var(--w1, #a7adba), var(--w2, #2c2f3b)); }
-  .t-waves svg { position: absolute; inset: 0; }
+  /* each bundle of lines is drawn once into its own layer; only that layer moves */
+  .t-waves .wl, .t-waves .wr { position: absolute; inset: 0; will-change: transform; }
+  .t-waves .wl svg, .t-waves .wr svg { position: absolute; inset: 0; }
   .t-waves .wl { animation: sway 11s ease-in-out infinite alternate; transform-origin: 0 50%; }
   .t-waves .wr { animation: sway 13s ease-in-out -4s infinite alternate-reverse; transform-origin: 100% 30%; }
   @keyframes sway { from { transform: translate(-14px, 10px) rotate(-1.6deg); } to { transform: translate(12px, -12px) rotate(1.8deg); } }
 
   .t-shards .bg { background: linear-gradient(100deg, var(--s1, #b4b4b4), var(--s2, #e6e6e6) 55%, var(--s3, #f7f7f7)); }
+  .t-shards .cl { position: absolute; inset: 0; will-change: transform; animation: drift 10s ease-in-out infinite alternate; }
+  .t-shards .cl.r { animation-duration: 12s; animation-delay: -5s; }
   .t-shards .shard { position: absolute; left: 0; top: 0; transition: transform 1.2s cubic-bezier(.2, .9, .2, 1); }
-  .t-shards .shard svg { display: block; animation: drift var(--d, 9s) ease-in-out var(--dl, 0s) infinite alternate; overflow: visible; }
-  @keyframes drift { from { transform: translate(0, 0) rotate(0deg); } to { transform: translate(var(--dx, 8px), var(--dy, -14px)) rotate(var(--dr, 6deg)); } }
+  .t-shards .shard svg { display: block; overflow: visible; }
+  @keyframes drift { from { transform: translate(0, 0); } to { transform: translate(6px, -12px); } }
   .t-shards.burst .shard { transform: translate(var(--bx), var(--by)) rotate(var(--br)) scale(.6) !important; }
 
   .t-arcs .bg { background: radial-gradient(70% 90% at 70% 10%, var(--a1, #fde1e6), transparent 70%), radial-gradient(70% 90% at 20% 100%, var(--a2, #fdf1e2), transparent 70%), linear-gradient(120deg, var(--a3, #f4eef0), var(--a4, #e9e3f0)); }
+  .t-arcs .arcw { position: absolute; inset: 0; will-change: transform; animation: breathe 9s ease-in-out infinite alternate; transform-origin: 0 100%; }
   .t-arcs svg { position: absolute; inset: 0; }
   .t-arcs path { stroke-dasharray: 2400; stroke-dashoffset: 0; }
   .t-arcs.draw path { animation: drawin 1.6s cubic-bezier(.3, .8, .2, 1) both; }
   @keyframes drawin { from { stroke-dashoffset: 2400; } }
-  .t-arcs .grp { animation: breathe 9s ease-in-out infinite alternate; transform-origin: 0 100%; }
   @keyframes breathe { from { transform: scale(1); } to { transform: scale(1.025) translateY(-6px); } }
 
   .t-glow { background: #0b0c2a; }
-  .t-glow .blur { position: absolute; inset: -160px; background-size: cover; background-position: center; filter: blur(110px) saturate(1.6); opacity: .75; transform: scale(1.15); animation: glowdrift 24s ease-in-out infinite alternate; }
+  /* the cover, shrunk to a few pixels and stretched back up: a soft glow with no blur filter to compute */
+  .t-glow .blur { position: absolute; inset: -160px; background-size: cover; background-position: center; opacity: .8; transform: scale(1.15); animation: glowdrift 24s ease-in-out infinite alternate; will-change: transform; }
   @keyframes glowdrift { from { transform: scale(1.15) translate(-40px, -20px); } to { transform: scale(1.3) translate(40px, 25px); } }
   .t-glow .rays { position: absolute; left: 50%; top: 36%; width: 2600px; height: 2600px; margin: -1300px 0 0 -1300px; border-radius: 50%;
     background: conic-gradient(from 0deg, transparent 0 8%, rgba(255,255,255,.09) 10%, transparent 13% 30%, rgba(255,255,255,.07) 33%, transparent 36% 55%, rgba(255,255,255,.08) 58%, transparent 61% 80%, rgba(255,255,255,.06) 83%, transparent 86%);
-    animation: spin 90s linear infinite; mix-blend-mode: screen; }
+    animation: spin 90s linear infinite; will-change: transform; }
   .t-glow .shade { position: absolute; inset: 0; background: radial-gradient(60% 60% at 50% 36%, transparent, rgba(5,5,25,.55)); }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -110,8 +116,8 @@
   #stage.wide .meta { left: 1010px; width: 840px; } .t-vinyl .record.spin { animation: spin 2.4s linear infinite; }
 
   .t-dots .bg { background: linear-gradient(135deg, var(--d1, #ff8a3d), var(--d2, #d3255a)); }
-  .t-dots .pat { position: absolute; inset: -80px; background-image: radial-gradient(circle, var(--dd, rgba(255,255,255,.35)) 28%, transparent 30%); background-size: 46px 46px;
-    -webkit-mask-image: linear-gradient(115deg, #000 0%, transparent 38%, transparent 62%, #000 100%); mask-image: linear-gradient(115deg, #000 0%, transparent 38%, transparent 62%, #000 100%); animation: pan 16s linear infinite; }
+  .t-dots .pat { position: absolute; inset: -80px; background-image: radial-gradient(circle, var(--dd, rgba(255,255,255,.35)) 28%, transparent 30%); background-size: 46px 46px; opacity: .7; animation: pan 16s linear infinite; will-change: transform; }
+  .t-dots .fade { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 0%, var(--d1) 40%, var(--d2) 60%, transparent 100%); opacity: .85; }
   @keyframes pan { to { transform: translate(46px, 46px); } }
 
   /* idle: the hills, the clouds and the sheep */
@@ -126,6 +132,10 @@
 
   .toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); padding: 16px 34px; border-radius: 40px; background: rgba(0,0,0,.72); color: #fff; font-size: 30px; font-weight: 600; z-index: 9; opacity: 0; transition: opacity .4s; }
   .toast.on { opacity: 1; }
+  /* a slow TV: the decorations hold still (measured on the TV itself in the first seconds) */
+  body.lite .scene *, body.lite .scene { animation-play-state: paused !important; }
+  body.lite .scene { transition-duration: .3s; }
+  .snd { display: none; } .snd.on { display: inline-block; width: 26px; height: 26px; }
 </style>
 </head>
 <body>
@@ -133,7 +143,7 @@
   <div id="scenes"></div>
   <div id="content">
   <div class="logo" id="logo"><span>m</span><i class="pill"></i><span class="od">od</span><b>PLAY</b></div>
-  <div class="from" id="from" style="display:none"><i></i><span id="fromName"></span></div>
+  <div class="from" id="from" style="display:none"><i></i><span id="fromName"></span><svg class="snd" id="sndIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
   <div id="ui" style="opacity:0">
     <div class="art" id="art"></div>
     <div class="meta" id="meta"></div>
@@ -198,8 +208,15 @@ function palette(src) {
         resolve({ sat, lum, mono: sat < .1 || !ranked.length, main, second, vivid: sat > .32 });
       } catch (e) { resolve(null); }
     };
-    im.onerror = () => resolve(null); im.src = src;
+    im.onerror = () => resolve(null); im.src = src; tiny.img = im;
   });
+}
+// the cover at 12×12: stretched up, it's a soft blur that costs the TV nothing
+let tinyCache = {};
+function tiny(src) {
+  if (!src) return ''; if (tinyCache[src]) return tinyCache[src];
+  try { const im = tiny.img; if (!im || im.src.indexOf(src) < 0 || !im.complete) return ''; const c = document.createElement('canvas'); c.width = c.height = 12;
+    c.getContext('2d').drawImage(im, 0, 0, 12, 12); return (tinyCache = { [src]: c.toDataURL() })[src]; } catch (e) { return ''; }
 }
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 const rgb = (a, al) => al == null ? `rgb(${a.join(',')})` : `rgba(${a.join(',')},${al})`;
@@ -220,29 +237,30 @@ function waveBundle(d, cls) {
   // parallel lines along one curve: a mask of alternating strokes, so the lines sit on any gradient
   const id = 'm' + Math.random().toString(36).slice(2);
   const widths = [214, 196, 160, 142, 106, 88, 52, 34];
-  return `<g class="${cls}"><mask id="${id}" maskUnits="userSpaceOnUse" x="-400" y="-400" width="2720" height="1880"><rect x="-400" y="-400" width="2720" height="1880" fill="#000"/>` +
+  return `<div class="${cls}"><svg viewBox="0 0 1920 1080" preserveAspectRatio="none"><mask id="${id}" maskUnits="userSpaceOnUse" x="-400" y="-400" width="2720" height="1880"><rect x="-400" y="-400" width="2720" height="1880" fill="#000"/>` +
     widths.map((w, i) => `<path d="${d}" fill="none" stroke="${i % 2 ? '#000' : '#fff'}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`).join('') +
-    `</mask><rect x="-400" y="-400" width="2720" height="1880" fill="var(--wl, #0b0b0b)" mask="url(#${id})"/></g>`;
+    `</mask><rect x="-400" y="-400" width="2720" height="1880" fill="#0b0b0b" mask="url(#${id})"/></svg></div>`;
 }
 const SCENES = {
   waves(p) {
     const w1 = p && !p.mono ? rgb(mix(p.main, [190, 196, 210], .7)) : '#a7adba', w2 = p && !p.mono ? rgb(mix(p.second, [30, 32, 44], .75)) : '#2c2f3b';
     return { ink: '#0b0b0b', sub: '#0b0b0b', knob: '#fff', vars: { '--w1': w1, '--w2': w2 },
-      html: `<div class="bg fill"></div><svg viewBox="0 0 1920 1080" preserveAspectRatio="none">${waveBundle('M -80 250 C 170 300 230 470 130 565 S 10 770 175 860 S 330 1000 320 1180', 'wl')}${waveBundle('M 1540 -60 C 1470 120 1640 235 1770 330 S 1690 545 1780 645 S 1990 700 2040 760', 'wr')}</svg>` };
+      html: `<div class="bg fill"></div>${waveBundle('M -80 250 C 170 300 230 470 130 565 S 10 770 175 860 S 330 1000 320 1180', 'wl')}${waveBundle('M 1540 -60 C 1470 120 1640 235 1770 330 S 1690 545 1780 645 S 1990 700 2040 760', 'wr')}` };
   },
   shards(p) {
     const s2 = p && !p.mono ? rgb(mix(p.main, [235, 235, 235], .8)) : '#e3e3e3';
-    let h = '<div class="bg fill"></div>';
+    let h = '<div class="bg fill"></div>'; const cl = ['', ''];
     const fills = ['#0d0d0d', '#2a2a2a', '#5c5c5c', '#8a8a8a', '#a9a9a9', '#cfcfcf', '#ececec', '#ffffff'];
     let seed = 7; const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     for (let side = 0; side < 2; side++) for (let i = 0; i < 26; i++) {
       const x = side ? 1700 + r() * 230 : r() * 240, y = 190 + r() * 700, s = 30 + r() * 120;
       const pts = [[0, 0], [s * (0.4 + r() * 0.8), s * (0.1 + r() * 0.5)], [s * r() * 0.6, s * (0.6 + r() * 0.7)]].map((q) => q.join(',')).join(' ');
       const f = fills[Math.floor(r() * fills.length)], f2 = fills[Math.floor(r() * fills.length)];
-      h += `<div class="shard" style="left:${x}px;top:${y}px;--bx:${(side ? 1 : -1) * (200 + r() * 400)}px;--by:${(r() - .5) * 500}px;--br:${(r() - .5) * 220}deg">` +
-        `<svg width="${s * 1.3}" height="${s * 1.4}" style="--d:${7 + r() * 8}s;--dl:${-r() * 8}s;--dx:${(r() - .5) * 26}px;--dy:${(r() - .5) * 30}px;--dr:${(r() - .5) * 18}deg"><polygon points="${pts}" fill="${f}"/>` +
+      cl[side] += `<div class="shard" style="left:${x}px;top:${y}px;--bx:${(side ? 1 : -1) * (200 + r() * 400)}px;--by:${(r() - .5) * 500}px;--br:${(r() - .5) * 220}deg">` +
+        `<svg width="${s * 1.3}" height="${s * 1.4}" style="transform:rotate(${(r() - .5) * 30}deg)"><polygon points="${pts}" fill="${f}"/>` +
         `<polygon points="${pts.split(' ').slice(0, 2).join(' ')} ${s * 0.3},${s * 0.35}" fill="${f2}" opacity=".55"/></svg></div>`;
     }
+    h += `<div class="cl">${cl[0]}</div><div class="cl r">${cl[1]}</div>`;
     return { ink: '#0b0b0b', sub: '#0b0b0b', knob: '#111', vars: { '--s2': s2 }, html: h };
   },
   arcs(p) {
@@ -253,11 +271,11 @@ const SCENES = {
       const y = 157 + i * 55, x = 252 - i * 7, rr = 120 + i * 28;
       paths += `<path d="M -30 ${y + 34 - i * 2} Q ${x * .5} ${y + 6} ${x - rr * .3} ${y} Q ${x} ${y} ${x} ${y + rr} L ${x - i * 6} 1140" fill="none" stroke="#0b0b0b" stroke-width="9" stroke-linecap="round" style="animation-delay:${i * 50}ms"/>`;
     }
-    return { ink: '#0b0b0b', sub: '#0b0b0b', knob, vars: { '--a1': a1, '--a2': a2 }, html: `<div class="bg fill"></div><svg viewBox="0 0 1920 1080"><g class="grp">${paths}</g></svg>` };
+    return { ink: '#0b0b0b', sub: '#0b0b0b', knob, vars: { '--a1': a1, '--a2': a2 }, html: `<div class="bg fill"></div><div class="arcw"><svg viewBox="0 0 1920 1080"><g>${paths}</g></svg></div>` };
   },
   glow(p, art) {
     return { ink: '#fff', sub: '#fff', knob: '#fff', centre: true, vars: {},
-      html: `<div class="blur" style="background-image:url('${art || ''}')"></div><div class="rays"></div><div class="shade"></div>` };
+      html: `<div class="blur" style="background-image:url('${tiny(art) || art || ''}')"></div><div class="rays"></div><div class="shade"></div>` };
   },
   vinyl(p) {
     const base = p ? p.main : [214, 120, 80];
@@ -270,7 +288,7 @@ const SCENES = {
     const d1 = p ? rgb(p.main) : '#ff8a3d', d2 = p ? rgb(mix(p.second, [0, 0, 0], .2)) : '#d3255a';
     const ink = p && lumOf(p.main) > .62 ? '#111' : '#fff';
     return { ink, sub: ink, knob: ink === '#fff' ? '#fff' : '#111', vars: { '--d1': d1, '--d2': d2, '--dd': ink === '#fff' ? 'rgba(255,255,255,.28)' : 'rgba(0,0,0,.2)' },
-      html: '<div class="bg fill"></div><div class="pat"></div>' };
+      html: '<div class="bg fill"></div><div class="pat"></div><div class="fade"></div>' };
   },
   idle() {
     const cloud = (w, x, y, d, o) => `<div class="cloud" style="left:${x}px;top:${y}px;animation-duration:${d}s;animation-delay:${-d * o}s"><svg width="${w}" height="${w * .52}" viewBox="0 0 300 156"><path d="M60 150h190a46 46 0 0 0 0-92 30 30 0 0 0-10 2A80 80 0 0 0 85 60a52 52 0 0 0-25 90z" fill="#fff"/></svg></div>`;
@@ -293,7 +311,7 @@ function showScene(name, p, art, key) {
   const old = [...$('scenes').children].filter((x) => x !== el);
   setTimeout(() => old.forEach((x) => x.remove()), 1300);
   stage.style.setProperty('--ink', sc.ink); stage.style.setProperty('--sub', sc.sub); stage.style.setProperty('--knob', sc.knob);
-  stage.classList.toggle('centre', !!sc.centre); stage.classList.toggle('wide', !!sc.wide);
+  stage.classList.toggle('centre', !!sc.centre); stage.classList.toggle('wide', !!sc.wide); barW = 0;
   if (name === 'arcs') { el.classList.add('draw'); }
   curTheme = name;
   return el;
@@ -302,6 +320,7 @@ function showScene(name, p, art, key) {
 // ---------------------------------------------------------------- state from the phone
 async function apply(s) {
   S = s; skew = s.now ? Date.now() - s.now : 0;
+  sound(!!s.audio);
   $('from').style.display = s.phone ? 'flex' : 'none'; $('fromName').textContent = s.phone || '';
   const m = s.media;
   if (!m || !m.title) {
@@ -333,14 +352,31 @@ async function apply(s) {
   const rec = document.getElementById('record'); if (rec) { rec.classList.add('out'); rec.classList.toggle('spin', !!m.playing); }
   tick();
 }
+let barW = 0;
 function pos() { const m = S && S.media; if (!m) return 0; const p = m.playing ? m.pos + (Date.now() - skew - m.at) : m.pos; return m.dur ? Math.min(m.dur, Math.max(0, p)) : Math.max(0, p); }
 function tick() {
   const m = S && S.media; if (!m) return;
   const p = pos(), f = m.dur ? p / m.dur : 0;
   $('tA').textContent = clock(p); $('tB').textContent = m.dur ? clock(m.dur) : '--:--';
-  $('knob').style.left = (f * 100) + '%'; $('done').style.width = (f * 100) + '%';
+  const w = barW || ($('bar').offsetWidth); barW = w;
+  $('knob').style.transform = `translateX(${(f * w).toFixed(1)}px)`; $('done').style.transform = `scaleX(${f.toFixed(4)})`;
 }
 setInterval(tick, 500);
+
+// ---------------------------------------------------------------- the sound (from the phone, over Wi-Fi)
+let snd = null, needTap = false, sndWant = false;
+function sound(on) {
+  sndWant = on && !DEMO;
+  $('sndIcon').classList.toggle('on', sndWant);
+  if (sndWant && !snd) {
+    snd = new Audio(BASE + 'audio?' + Date.now()); snd.preload = 'auto';
+    const again = () => { if (snd) { snd.src = ''; snd = null; } if (sndWant) setTimeout(() => sound(sndWant), 1500); };
+    snd.onerror = again; snd.onended = again;
+    snd.play().catch(() => { needTap = true; toast('Press OK on the remote to hear it on the TV'); });
+  } else if (!sndWant && snd) { snd.pause(); snd.src = ''; snd = null; }
+}
+// Live streams pile up delay in the browser: if the TV drifts more than 3 s behind, start again at "now".
+setInterval(() => { if (snd && snd.buffered.length && snd.buffered.end(snd.buffered.length - 1) - snd.currentTime > 3) { snd.pause(); snd.src = ''; snd = null; sound(sndWant); } }, 5000);
 
 // ---------------------------------------------------------------- remote control
 let lastKey = 0;
@@ -352,6 +388,7 @@ document.querySelectorAll('.ctl').forEach((b) => b.addEventListener('click', () 
 const order = () => [...document.querySelectorAll('.ctl')];
 addEventListener('keydown', (e) => {
   document.body.classList.add('keys'); lastKey = Date.now();
+  if (needTap && snd) { needTap = false; snd.play().catch(() => {}); if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); return; } }
   const k = e.key, code = e.keyCode, list = order(), i = list.indexOf(document.activeElement);
   if (k === 'ArrowRight' || code === 39) { (list[Math.min(list.length - 1, i + 1)] || list[2]).focus(); e.preventDefault(); }
   else if (k === 'ArrowLeft' || code === 37) { (list[Math.max(0, i - 1)] || list[2]).focus(); e.preventDefault(); }
@@ -381,6 +418,14 @@ function listen() {
 }
 function ended() { showScene('idle'); $('ui').style.opacity = 0; $('idle').style.display = 'block'; $('idleH').textContent = 'Mood PLAY has ended'; $('idleP').textContent = 'Start it again from Nebula on your phone'; $('from').style.display = 'none'; }
 setInterval(() => { if (!DEMO && Date.now() - lastMsg > 40000) toast('Reconnecting to your phone…'); }, 10000);
+
+(function measure() {
+  if (Q.get('lite') === '1') return document.body.classList.add('lite');
+  let n = 0, t0 = 0, worst = 0, last = 0;
+  function f(t) { if (!t0) t0 = t; if (last) worst = Math.max(worst, t - last); last = t; n++;
+    if (t - t0 < 5000) requestAnimationFrame(f); else if (n / ((t - t0) / 1000) < 24) document.body.classList.add('lite'); }
+  setTimeout(() => requestAnimationFrame(f), 2500); // after the first scene has settled
+})();
 
 if (DEMO) {
   // previews: ?demo=1&t=<title>&a=<artist>&art=<url>&theme=<name>|auto&playing=1

@@ -92,6 +92,15 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
                     if (cmd in setOf("toggle", "next", "prev", "repeat", "shuffle")) { onCmd(cmd); send(out, 204, "text/plain", ByteArray(0)) }
                     else send(out, 400, "text/plain", ByteArray(0))
                 } else send(out, 405, "text/plain", ByteArray(0))
+                "audio" -> { // the sound, live: raw AAC frames the TV's <audio> plays as they arrive
+                    out.write("HTTP/1.1 200 OK\r\nContent-Type: audio/aac\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray()); out.flush()
+                    c.soTimeout = 0; c.tcpNoDelay = true
+                    val q = java.util.concurrent.ArrayBlockingQueue<ByteArray>(400)
+                    val sink: (ByteArray) -> Boolean = { f -> q.offer(f) || run { q.clear(); true } } // a stalled TV skips ahead instead of holding the phone up
+                    MoodAudio.addSink(sink)
+                    try { while (server != null) { val f = q.poll(5, java.util.concurrent.TimeUnit.SECONDS) ?: continue; out.write(f); out.flush() } }
+                    catch (_: Exception) {} finally { MoodAudio.removeSink(sink) }
+                }
                 "events" -> {
                     out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n" +
                         "Access-Control-Allow-Origin: *\r\n\r\nretry: 2000\n\ndata: ${state()}\n\n").toByteArray()); out.flush()
