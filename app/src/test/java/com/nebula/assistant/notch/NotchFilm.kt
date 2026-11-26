@@ -259,6 +259,18 @@ class NotchFilm {
         for (i in 0..24) { st = st.copy(beam = BeamUi.Receiving("Galaxy Tab", i / 24f, 2)); hold(1.0 / 12, caption = "Arriving") }
         st = st.copy(beam = BeamUi.Received("Galaxy Tab", 2, listOf(Uri.parse("content://demo/1")), null)); hold(2.2, caption = "Received")
         st = st.copy(beam = BeamUi.Idle); hold(1.2, caption = "")
+
+        // ---- Mood PLAY
+        section = "Mood PLAY"
+        val mUrl = "http://192.168.1.23:8765/K7QX2M/"
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Finding(emptyList(), true, true, mUrl)); hold(2.2, caption = "The TV button on the music player: Mood PLAY looks for TVs")
+        val tvs = listOf(com.nebula.assistant.mood.Tv("samsung:1", "Living Room TV", "samsung", "192.168.1.40"), com.nebula.assistant.mood.Tv("lg:2", "Bedroom LG", "lg", "192.168.1.41"))
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Finding(tvs, false, true, mUrl)); hold(2.2, caption = "Real TVs on your Wi-Fi pop in")
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Opening(tvs[0], false)); hold(1.4, caption = "Opening on the TV")
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Opening(tvs[0], true)); hold(2.0, caption = "First time: press Allow on the TV")
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Live("Living Room TV", mUrl, 1, "auto")); hold(2.6, caption = "On the TV: pick a theme, send the sound, or stop")
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Manual(mUrl, BeamLink.qr(mUrl, 360), "Open this in your TV's web browser")); hold(2.6, caption = "Any other TV or computer: the address and code")
+        st = st.copy(mood = com.nebula.assistant.mood.MoodUi.Idle); hold(1.0, caption = "")
     }
 
     private fun lineupSec(p: List<Sports.Player>): Double {

@@ -73,9 +73,10 @@ data class IslandState(
     val lives: List<NotchBus.Live> = emptyList(),
     val goal: Sports.Score? = null,
     val beam: BeamUi = BeamUi.Idle,
+    val mood: com.nebula.assistant.mood.MoodUi = com.nebula.assistant.mood.MoodUi.Idle,
 )
 
-internal enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, CHARGE, RINGER, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL, LIVE, LIVE_OPEN, BEAM }
+internal enum class Mode { NONE, PREVIEW, UNLOCK, CALL, VOICE, VOLUME, CHARGE, RINGER, DEVICE, R3CKET, MESSAGE, TASK, MUSIC, MUSIC_OPEN, GAME, SPORTS, SPORTS_OPEN, GOAL, LIVE, LIVE_OPEN, BEAM, MOOD }
 
 /** Exact size and corner of the island for a view. Fixed sizes = no measuring, no jitter. */
 internal data class Geo(val w: Dp, val h: Dp, val r: Dp)
@@ -103,6 +104,7 @@ fun NotchUi(c: NotchController) {
         lives = NotchBus.live.collectAsState().value,
         goal = Sports.goal.collectAsState().value,
         beam = BeamController.ui.collectAsState().value,
+        mood = com.nebula.assistant.mood.MoodPlay.ui.collectAsState().value,
     )
     Island(state, c, onGoalDone = { Sports.clearGoal() }, onPanel = { R3cket.panel.value = it })
 }
@@ -165,6 +167,7 @@ fun Island(s: IslandState, c: NotchHost, onGoalDone: () -> Unit, onPanel: (Boole
         !prefs.notchEnabled -> Mode.NONE
         c.unlock != null -> Mode.UNLOCK
         s.beam !is BeamUi.Idle -> Mode.BEAM
+        s.mood !is com.nebula.assistant.mood.MoodUi.Idle -> Mode.MOOD
         s.call != null && prefs.notchCalls && (c.phoneInCall || s.call.ringing) -> Mode.CALL
         c.volume != null -> Mode.VOLUME
         ringer != null && !quiet -> Mode.RINGER
@@ -337,6 +340,7 @@ fun Island(s: IslandState, c: NotchHost, onGoalDone: () -> Unit, onPanel: (Boole
                             Mode.SPORTS_OPEN -> liveGame?.let { SportsOpen(it, more = s.games.size, index = sportsIdx % s.games.size.coerceAtLeast(1)) }
                             Mode.GOAL -> s.goal?.let { Moment(it) }
                             Mode.BEAM -> BeamView(s.beam)
+                            Mode.MOOD -> MoodView(s.mood)
                             Mode.NONE -> {}
                         }
                     }
@@ -364,6 +368,7 @@ private fun geoFor(mode: Mode, pillH: Dp, s: IslandState, sport: Sports.Game?): 
         Mode.LIVE -> Geo(236.dp, pillH, pillH / 2)
         Mode.LIVE_OPEN -> Geo(full, 150.dp, card)
         Mode.BEAM -> beamGeo(s.beam, full)
+        Mode.MOOD -> moodGeo(s.mood, full)
         Mode.SPORTS_OPEN -> sport?.let { sportsOpenGeo(it) } ?: Geo(full, 130.dp, card)
         Mode.GOAL -> s.goal?.let { momentGeo(it) } ?: Geo(full, 150.dp, card)
         Mode.DEVICE -> Geo(312.dp, pillH + 18.dp, (pillH + 18.dp) / 2)
@@ -384,7 +389,7 @@ private fun accentFor(mode: Mode, s: IslandState, t: NebulaTask?): Color = when 
     Mode.VOICE -> when (s.voice.phase) { VoiceState.Phase.ERROR -> Red; VoiceState.Phase.LISTENING -> Sky; else -> Flame }
     Mode.CALL -> if (s.call?.ringing == true) Mint else Sky
     Mode.MESSAGE -> Sky
-    Mode.BEAM, Mode.MUSIC_OPEN, Mode.SPORTS_OPEN, Mode.GOAL -> Color.Transparent // they bring their own colours
+    Mode.BEAM, Mode.MOOD, Mode.MUSIC_OPEN, Mode.SPORTS_OPEN, Mode.GOAL -> Color.Transparent // they bring their own colours
     Mode.R3CKET, Mode.GAME -> Lime
     Mode.TASK -> when (t?.status) { TaskStatus.COMPLETED -> Mint; TaskStatus.FAILED -> Red; else -> Ember }
     else -> Flame

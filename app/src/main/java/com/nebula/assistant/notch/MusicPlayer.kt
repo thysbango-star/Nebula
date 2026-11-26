@@ -228,11 +228,10 @@ internal fun MusicOpen(m: NotchBus.Media) {
                     Spacer(Modifier.width(18.dp))
                     PressIcon(Icons.Rounded.SkipNext, 30.dp) { tc?.skipToNext() }
                 }
-                IconTap(Icons.Rounded.SpeakerGroup, 18.dp, Color.White.copy(alpha = 0.7f)) {
-                    runCatching {
-                        ctx.startActivity(android.content.Intent("com.android.settings.panel.action.MEDIA_OUTPUT")
-                            .putExtra("com.android.settings.panel.extra.PACKAGE_NAME", m.pkg).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
+                // Mood PLAY: put what's playing on the TV (lit up while it's on one).
+                val onTv by com.nebula.assistant.mood.MoodPlay.live.collectAsState()
+                IconTap(if (onTv) Icons.Rounded.CastConnected else Icons.Rounded.Cast, 20.dp, if (onTv) Color(0xFFFF8F3F) else Color.White.copy(alpha = 0.8f)) {
+                    com.nebula.assistant.mood.MoodPlay.open()
                 }
             }
         }

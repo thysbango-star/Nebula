@@ -58,6 +58,9 @@ android {
 
     packaging { jniLibs { useLegacyPackaging = true } }
 
+    // Pages shared with the desktop app (the Mood PLAY TV screen), served to TVs from the phone.
+    sourceSets { getByName("main") { assets.srcDirs("src/main/assets", "../shared") } }
+
     // The notch film (app/src/test/.../NotchFilm.kt) renders every notch animation with Robolectric.
     testOptions {
         unitTests {
@@ -94,6 +97,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // Nebula Beam: QR codes for Beam Link
     implementation("com.google.zxing:core:3.5.3")
+    implementation("androidx.media:media:1.7.0") // Mood PLAY: repeat / shuffle on any music app's session
 
     // Only for recording the notch film on CI (not in the app).
     testImplementation(composeBom)
