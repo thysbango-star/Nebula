@@ -165,13 +165,15 @@ private fun Formation(rows: List<Int>, starters: List<Sports.Player>, t: Float, 
     val cols = listOf(listOf(gk)) + rows.runningFold(0) { a, b -> a + b }.zipWithNext().map { (a, b) -> outfield.subList(a.coerceAtMost(outfield.size), b.coerceAtMost(outfield.size)) }
     BoxWithConstraints(modifier) {
         val cw = maxWidth / cols.size
+        val most = cols.maxOf { it.size }
+        val tile = minOf(24.dp, maxHeight / (most + 0.6f))
         cols.forEachIndexed { c, col ->
             col.forEachIndexed { r, pl ->
                 val k = seg(t, 0.4f + c * 0.22f + r * 0.05f, 0.75f + c * 0.22f + r * 0.05f, ::backOut)
                 val y = maxHeight * ((r + 1f) / (col.size + 1f))
-                Box(Modifier.offset(x = cw * c + cw / 2 - 12.dp, y = y - 12.dp).size(24.dp).graphicsLayer { scaleX = k; scaleY = k; alpha = k.coerceIn(0f, 1f) }
+                Box(Modifier.offset(x = cw * c + cw / 2 - tile / 2, y = y - tile / 2).size(tile).graphicsLayer { scaleX = k; scaleY = k; alpha = k.coerceIn(0f, 1f) }
                     .clip(RoundedCornerShape(6.dp)).background(if (c == 0) Color(0xFFFFE066) else Color.White.copy(alpha = 0.92f)), contentAlignment = Alignment.Center) {
-                    Text(pl.no, color = Ink, style = heavy(11))
+                    Text(pl.no, color = Ink, style = heavy(if (tile < 20.dp) 9 else 11))
                 }
             }
         }
@@ -718,7 +720,7 @@ private fun LineupReel(s: Sports.Score) {
                     val pl = s.players.getOrNull(i)
                     val ink = Color.White
                     val wipe by produceState(0f, i) { val st = withFrameNanos { it }; while (value < 1f) withFrameNanos { value = ((it - st) / 4.2e8f).coerceAtMost(1f) } }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.graphicsLayer { alpha = if (pl == null && shape != null) 0f else 1f }, horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (pl == null) side.name.uppercase() else "No.${pl.no}", color = ink, maxLines = 1,
                             style = heavy(if (pl == null) 28 else 54).copy(shadow = Shadow(Color.Black.copy(alpha = 0.25f), Offset(0f, 3f), 8f)))
                         if (pl != null) Text(pl.name.uppercase(), color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
