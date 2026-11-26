@@ -244,9 +244,11 @@ internal fun Scorebar(g: Sports.Game, modifier: Modifier, roll: Sports.Score? = 
 /** The camera row: competition on the left, the clock (and its added-time tab) on the right. */
 @Composable
 private fun StripRow(g: Sports.Game, left: String = g.league.name.uppercase(), right: @Composable RowScope.() -> Unit = { ClockTab(g) }) {
+    // Two halves either side of the camera, so nothing ever runs under it.
     Row(Modifier.fillMaxWidth().height(Strip).padding(start = 22.dp, end = 18.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(left, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = caps(9.5f), modifier = Modifier.weight(1f).padding(end = 70.dp))
-        right()
+        Text(left, color = Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, style = caps(9.5f), modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(40.dp))
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = right)
     }
 }
 
@@ -586,7 +588,7 @@ private fun Review(s: Sports.Score) {
                     Text(if (tmo) "TMO" else "VAR", color = if (tmo) TmoOrange else Color.White, style = heavy(38, italic = !tmo).copy(letterSpacing = 2.sp))
                     Spacer(Modifier.width(20.dp))
                     val wipe = seg(t, 0.35f, 1.0f)
-                    Text(reason, maxLines = 1, overflow = TextOverflow.Ellipsis, style = heavy(if (reason.length > 16) 24 else 32).copy(
+                    Text(reason, maxLines = 1, overflow = TextOverflow.Ellipsis, style = heavy(if (reason.length > 16) 22 else if (reason.length > 11) 25 else 32).copy(
                         brush = if (tmo) SolidColor(TmoOrange) else Brush.verticalGradient(listOf(Color.White, Color(0xFFB3B3BC), Color(0xFFE6E6EA)))),
                         modifier = Modifier.drawWithContent { clipRect(right = size.width * wipe) { this@drawWithContent.drawContent() } })
                 }

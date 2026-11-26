@@ -313,7 +313,8 @@ fun Island(s: IslandState, c: NotchHost, onGoalDone: () -> Unit, onPanel: (Boole
                         Modifier
                             .align(Alignment.TopCenter)
                             .requiredSize(g.w, g.h)
-                            .graphicsLayer { alpha = contentAlpha.value },
+                            .graphicsLayer { alpha = contentAlpha.value }
+                            .clip(RoundedCornerShape(g.r.coerceAtMost(g.h / 2))),
                     ) {
                         when (shown) {
                             Mode.PREVIEW -> PreviewView()

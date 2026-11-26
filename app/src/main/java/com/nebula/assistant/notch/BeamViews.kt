@@ -159,7 +159,7 @@ private fun Scanning(s: BeamUi.Scanning) {
             }
             Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.rise(2)) {
-                Route(Icons.Rounded.IosShare, "Quick Share & apps", "Android sharing") { BeamController.pick(BeamTarget.System) }
+                Route(Icons.Rounded.IosShare, "Quick Share", "& your apps") { BeamController.pick(BeamTarget.System) }
                 Route(Icons.Rounded.QrCode2, "Beam Link", "QR code · no app") { BeamController.pick(BeamTarget.Link) }
             }
         }
@@ -316,7 +316,7 @@ private fun Failed(f: BeamUi.Failed) = Column(Modifier.fillMaxSize().padding(sta
     }
     Spacer(Modifier.weight(1f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.rise(1)) {
-        if (f.canHotspot) Chip("Use my hotspot", true, Modifier.weight(1.3f)) { BeamController.useHotspot() }
+        if (f.canHotspot) Chip("Use hotspot", true, Modifier.weight(1.3f)) { BeamController.useHotspot() }
         if (f.canRetry) Chip("Retry", !f.canHotspot, Modifier.weight(1f)) { BeamController.retry() }
         if (f.canLink) Chip("Beam Link", !f.canRetry && !f.canHotspot, Modifier.weight(1f)) { BeamController.useLink() }
         Chip("Close", false, Modifier.weight(1f)) { BeamController.close() }
