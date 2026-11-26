@@ -51,7 +51,7 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
 
     /** Send the latest state to every TV that's watching (null = just a keep-alive). */
     fun push(json: String?) {
-        val bytes = (if (json == null) ": ping\n\n" else "data: $json\n\n").toByteArray()
+        val bytes = (if (json == null) "event: ping\ndata: 1\n\n" else "data: $json\n\n").toByteArray() // a real event, so the TV knows it's still connected
         for (o in streams) runCatching { synchronized(o) { o.write(bytes); o.flush() } }.onFailure { streams.remove(o); runCatching { o.close() } }
     }
 
@@ -83,6 +83,9 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
             when (seg.getOrNull(1)) {
                 null -> send(out, 200, "text/html; charset=utf-8", ctx.assets.open("moodplay/tv.html").use { it.readBytes() })
                 "state" -> send(out, 200, "application/json", state().toByteArray())
+                "f" -> seg.getOrNull(2)?.takeIf { it.matches(Regex("[a-z_]+\\.ttf")) }?.let { name ->
+                    runCatching { ctx.assets.open("moodplay/fonts/$name").use { it.readBytes() } }.getOrNull()
+                }?.let { send(out, 200, "font/ttf", it, "Cache-Control: max-age=604800\r\n") } ?: send(out, 404, "text/plain", ByteArray(0))
                 "art" -> art(query)?.let { send(out, 200, "image/png", it, "Cache-Control: max-age=86400\r\n") } ?: send(out, 404, "text/plain", ByteArray(0))
                 "cmd" -> if (method == "POST") {
                     val cmd = Regex("(?:^|&)c=([a-z]+)").find(query)?.groupValues?.get(1).orEmpty()

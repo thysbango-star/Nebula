@@ -78,6 +78,14 @@ function fakeSamsung(port) {
   });
   assert.strictEqual(events[0].media.title, 'GNX'); assert.strictEqual(events[1].media.title, 'Ordinary People');
   mp.theme('waves'); assert.strictEqual(theme, 'waves'); assert.strictEqual(mp.state().theme, 'waves');
+  // The font travels with the page; anything else in that folder is refused.
+  const font = await get(`${base}/${mp.code}/f/manrope_bold.ttf`); assert.strictEqual(font.status, 200); assert.ok(font.body.length > 50000);
+  assert.strictEqual((await get(`${base}/${mp.code}/f/..%2Ftv.html`)).status, 404);
+  // The heartbeat is a real event the TV page listens for (a comment line would be invisible to it).
+  const beat = await new Promise((resolve) => {
+    http.get(`${base}/${mp.code}/events`, (s) => { let all = ''; s.on('data', (d) => { all += d; if (all.includes('event: ping')) { s.destroy(); resolve(true); } }); setTimeout(() => mp.push(null), 200); });
+  });
+  assert.ok(beat);
 
   // Rate limit: 20 wrong codes in a minute and that address is told to stop.
   for (let i = 0; i < 20; i++) await get(base + '/ZZZZZZ/');

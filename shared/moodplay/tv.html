@@ -7,10 +7,15 @@
 <style>
   /* Mood PLAY — the TV screen. Served by Nebula (phone or PC) over your Wi-Fi and opened in the TV's browser.
      Everything is drawn on a 1920×1080 stage that's scaled to fit the TV, so it looks the same on every set. */
+  /* The font travels with the page, so every TV draws it the same (TV browsers have very few fonts of their own). */
+  @font-face { font-family: "MoodSans"; src: url("f/manrope_medium.ttf") format("truetype"); font-weight: 300 500; }
+  @font-face { font-family: "MoodSans"; src: url("f/manrope_bold.ttf") format("truetype"); font-weight: 600 900; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
-  body { font-family: "Open Sans", "Samsung One", "SamsungOne", "LG Smart", "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { font-family: "MoodSans", "Open Sans", "Samsung One", "SamsungOne", "LG Smart", "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; color: var(--ink); --ink: #111; --sub: #111; --knob: #fff; --pill-a: #ff3a2a; --pill-b: #ff8f3f; }
+  /* TVs crop the edges of the picture (overscan): the backgrounds fill the screen, the content stays in the safe middle. */
+  #content { position: absolute; inset: 0; transform: scale(var(--safe, .94)); transform-origin: 50% 50%; z-index: 3; }
   .scene { position: absolute; inset: 0; opacity: 0; transition: opacity 1.1s ease; }
   .scene.on { opacity: 1; }
   .fill { position: absolute; inset: 0; }
@@ -126,6 +131,7 @@
 <body>
 <div id="stage">
   <div id="scenes"></div>
+  <div id="content">
   <div class="logo" id="logo"><span>m</span><i class="pill"></i><span class="od">od</span><b>PLAY</b></div>
   <div class="from" id="from" style="display:none"><i></i><span id="fromName"></span></div>
   <div id="ui" style="opacity:0">
@@ -142,6 +148,7 @@
   </div>
   <div class="idlemsg" id="idle" style="display:none"><h1 id="idleH">Connected</h1><p id="idleP">Play something on your phone</p></div>
   <div class="toast" id="toast"></div>
+  </div>
 </div>
 <script>
 'use strict';
@@ -156,7 +163,9 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 const clock = (ms) => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 
 function fit() {
+  // TVs crop the edges of the picture (overscan): keep everything inside the safe 94% in the middle.
   const k = Math.min(innerWidth / 1920, innerHeight / 1080);
+  if (DEMO) stage.style.setProperty('--safe', 1);
   stage.style.transform = `translate(${(innerWidth - 1920 * k) / 2}px, ${(innerHeight - 1080 * k) / 2}px) scale(${k})`;
 }
 addEventListener('resize', fit); fit();
@@ -366,10 +375,12 @@ function listen() {
   if (!window.EventSource) return poll();
   const es = new EventSource(BASE + 'events');
   es.onmessage = (e) => { lastMsg = Date.now(); try { apply(JSON.parse(e.data)); } catch (x) {} };
+  es.addEventListener('ping', () => { lastMsg = Date.now(); }); // the phone's heartbeat: still connected, nothing new
+  es.onopen = () => { lastMsg = Date.now(); };
   es.onerror = () => { es.close(); setTimeout(() => fetch(BASE + 'state', { cache: 'no-store' }).then((r) => (r.status === 404 ? ended() : listen())).catch(() => setTimeout(listen, 3000)), 1500); };
 }
 function ended() { showScene('idle'); $('ui').style.opacity = 0; $('idle').style.display = 'block'; $('idleH').textContent = 'Mood PLAY has ended'; $('idleP').textContent = 'Start it again from Nebula on your phone'; $('from').style.display = 'none'; }
-setInterval(() => { if (!DEMO && Date.now() - lastMsg > 20000) toast('Reconnecting to your phone…'); }, 10000);
+setInterval(() => { if (!DEMO && Date.now() - lastMsg > 40000) toast('Reconnecting to your phone…'); }, 10000);
 
 if (DEMO) {
   // previews: ?demo=1&t=<title>&a=<artist>&art=<url>&theme=<name>|auto&playing=1

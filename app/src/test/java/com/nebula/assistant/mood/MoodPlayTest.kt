@@ -47,6 +47,8 @@ class MoodPlayTest {
             assertEquals(302, req("$base/$code").first)
             assertEquals("GNX", JSONObject(req("$base/${code.lowercase()}/state").second).getJSONObject("media").getString("title"))
             assertEquals("png", req("$base/$code/art?v=1").second)
+            assertEquals(200, req("$base/$code/f/manrope_bold.ttf").first)
+            assertEquals(404, req("$base/$code/f/secret.txt").first)
             assertEquals(405, req("$base/$code/cmd?c=next").first)
             assertEquals(204, req("$base/$code/cmd?c=next", "POST").first)
             assertEquals(400, req("$base/$code/cmd?c=format", "POST").first)

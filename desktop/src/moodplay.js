@@ -218,7 +218,7 @@ class MoodPlay {
   }
 
   push(obj) {
-    const line = obj == null ? ': ping\n\n' : `data: ${JSON.stringify(obj)}\n\n`;
+    const line = obj == null ? 'event: ping\ndata: 1\n\n' : `data: ${JSON.stringify(obj)}\n\n`; // a real event, so the TV knows it's still connected
     for (const s of this.streams) { try { s.write(line); } catch { this.streams.delete(s); } }
   }
 
@@ -235,6 +235,11 @@ class MoodPlay {
     switch (seg[1]) {
       case undefined: return send(200, 'text/html; charset=utf-8', fs.readFileSync(this.pagePath));
       case 'state': return send(200, 'application/json', JSON.stringify(this.state()));
+      case 'f': {
+        const name = seg[2] || '';
+        if (!/^[a-z_]+\.ttf$/.test(name)) return send(404, 'text/plain', '');
+        try { return send(200, 'font/ttf', fs.readFileSync(path.join(path.dirname(this.pagePath), 'fonts', name)), { 'Cache-Control': 'max-age=604800' }); } catch { return send(404, 'text/plain', ''); }
+      }
       case 'art': {
         const m = this.media(); const d = m && m.art && /^data:([^;]+);base64,(.*)$/.exec(m.art);
         return d ? send(200, d[1], Buffer.from(d[2], 'base64'), { 'Cache-Control': 'max-age=86400' }) : send(404, 'text/plain', '');
