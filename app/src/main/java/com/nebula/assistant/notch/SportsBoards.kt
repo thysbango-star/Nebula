@@ -469,7 +469,7 @@ private fun IntroBoard(s: Sports.Score) {
     val t by rememberClock(s.at)
     val ft = s.kind == "fulltime"
     val logo = rememberLogo(g.leagueLogo)
-    MomentFrame(g, "${g.league.name.uppercase()}  ·  ${s.label}") {
+    MomentFrame(g, s.label) {
         val pour = seg(t, 2.7f, 3.5f, ::easeInOut)
         Box(Modifier.fillMaxSize()) {
             // the black bar
@@ -735,7 +735,7 @@ private fun SubBoard(s: Sports.Score) {
     val t by rememberClock(s.at)
     val green = Color(0xFF3DFF7A); val red = Color(0xFFFF4D4D)
     fun led(c: Color) = Shadow(c.copy(alpha = 0.8f), Offset.Zero, 14f)
-    MomentFrame(g, "${s.label}  ·  ${side.name.uppercase()}", right = { Text(s.minute, color = Ember, style = label().copy(fontFamily = Display)) }) {
+    MomentFrame(g, "${side.abbr.uppercase()} · ${s.label}", right = { Text(s.minute, color = Ember, style = label().copy(fontFamily = Display)) }) {
         val rise = seg(t, 0f, 0.6f, ::backOut)
         Box(Modifier.fillMaxSize().graphicsLayer { translationY = (1f - rise) * 40.dp.toPx(); alpha = rise.coerceIn(0f, 1f) }.clip(RoundedCornerShape(28.dp)).background(Color(0xFF040506))) {
             Canvas(Modifier.fillMaxSize()) {
