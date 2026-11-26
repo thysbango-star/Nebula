@@ -135,6 +135,12 @@
   /* a slow TV: the decorations hold still (measured on the TV itself in the first seconds) */
   body.lite .scene *, body.lite .scene { animation-play-state: paused !important; }
   body.lite .scene { transition-duration: .3s; }
+  /* shown only while the TV's browser still needs a first press before it may play sound */
+  .tap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.9); z-index: 20; display: none; flex-direction: column; align-items: center; gap: 10px;
+    padding: 46px 70px; border-radius: 44px; border: 0; background: rgba(12,12,16,.86); color: #fff; font-family: inherit; box-shadow: 0 30px 80px rgba(0,0,0,.5); opacity: 0; transition: opacity .3s, transform .3s; }
+  .tap.on { display: flex; opacity: 1; transform: translate(-50%, -50%); }
+  .tap svg { width: 96px; height: 96px; } .tap span { font-size: 46px; font-weight: 700; } .tap small { font-size: 28px; opacity: .65; }
+  .tap:focus { box-shadow: 0 0 0 6px #ff8f3f, 0 30px 80px rgba(0,0,0,.5); outline: none; }
   .snd { display: none; } .snd.on { display: inline-block; width: 26px; height: 26px; }
 </style>
 </head>
@@ -158,6 +164,7 @@
   </div>
   <div class="idlemsg" id="idle" style="display:none"><h1 id="idleH">Connected</h1><p id="idleP">Play something on your phone</p></div>
   <div class="toast" id="toast"></div>
+  <button class="tap" id="tap" tabindex="0"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Play the sound on this TV</span><small>Press OK, or click here</small></button>
   </div>
 </div>
 <script>
@@ -364,19 +371,38 @@ function tick() {
 setInterval(tick, 500);
 
 // ---------------------------------------------------------------- the sound (from the phone, over Wi-Fi)
-let snd = null, needTap = false, sndWant = false;
-function sound(on) {
-  sndWant = on && !DEMO;
-  $('sndIcon').classList.toggle('on', sndWant);
-  if (sndWant && !snd) {
-    snd = new Audio(BASE + 'audio?' + Date.now()); snd.preload = 'auto';
-    const again = () => { if (snd) { snd.src = ''; snd = null; } if (sndWant) setTimeout(() => sound(sndWant), 1500); };
-    snd.onerror = again; snd.onended = again;
-    snd.play().catch(() => { needTap = true; toast('Press OK on the remote to hear it on the TV'); });
-  } else if (!sndWant && snd) { snd.pause(); snd.src = ''; snd = null; }
+// One <audio> for the whole visit. TV browsers only allow sound after a first press (OK, or a click with the
+// remote's pointer); after that the same element can reconnect as often as it needs, with no more prompts.
+const snd = new Audio(); snd.preload = 'auto';
+let sndWant = false, unlocked = false, retry = null;
+function sndStart() {
+  clearTimeout(retry);
+  snd.src = BASE + 'audio?' + Date.now();
+  snd.playbackRate = 1;
+  snd.play().then(() => { unlocked = true; $('tap').classList.remove('on'); })
+    .catch(() => { if (!unlocked) { $('tap').classList.add('on'); setTimeout(() => $('tap').focus(), 50); } });
 }
-// Live streams pile up delay in the browser: if the TV drifts more than 3 s behind, start again at "now".
-setInterval(() => { if (snd && snd.buffered.length && snd.buffered.end(snd.buffered.length - 1) - snd.currentTime > 3) { snd.pause(); snd.src = ''; snd = null; sound(sndWant); } }, 5000);
+function sound(on) {
+  const want = on && !DEMO;
+  $('sndIcon').classList.toggle('on', want);
+  if (want === sndWant) return;
+  sndWant = want;
+  if (want) sndStart(); else { snd.pause(); snd.removeAttribute('src'); snd.load(); $('tap').classList.remove('on'); }
+}
+// A dropped connection: quietly reconnect (no prompt — the page is already allowed to play).
+snd.addEventListener('error', () => { if (sndWant) { clearTimeout(retry); retry = setTimeout(sndStart, 1200); } });
+snd.addEventListener('ended', () => { if (sndWant) { clearTimeout(retry); retry = setTimeout(sndStart, 300); } });
+// Live sound slowly gathers delay in the browser's buffer: catch up by playing 4% faster (inaudible) instead of
+// cutting out. Only a big gap (a stalled network) restarts it.
+setInterval(() => {
+  if (!sndWant || snd.paused || !snd.buffered.length) return;
+  const lag = snd.buffered.end(snd.buffered.length - 1) - snd.currentTime;
+  if (lag > 10) sndStart();
+  else snd.playbackRate = lag > 1.6 ? 1.04 : lag < 0.7 ? 1 : snd.playbackRate;
+}, 1000);
+// The first press anywhere — OK, a key, or the remote's pointer — unlocks the sound.
+function unlock() { if (sndWant && !unlocked) sndStart(); }
+addEventListener('click', unlock, true); addEventListener('pointerdown', unlock, true); addEventListener('touchstart', unlock, true);
 
 // ---------------------------------------------------------------- remote control
 let lastKey = 0;
@@ -388,7 +414,7 @@ document.querySelectorAll('.ctl').forEach((b) => b.addEventListener('click', () 
 const order = () => [...document.querySelectorAll('.ctl')];
 addEventListener('keydown', (e) => {
   document.body.classList.add('keys'); lastKey = Date.now();
-  if (needTap && snd) { needTap = false; snd.play().catch(() => {}); if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); return; } }
+  if (sndWant && !unlocked) { sndStart(); if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); return; } }
   const k = e.key, code = e.keyCode, list = order(), i = list.indexOf(document.activeElement);
   if (k === 'ArrowRight' || code === 39) { (list[Math.min(list.length - 1, i + 1)] || list[2]).focus(); e.preventDefault(); }
   else if (k === 'ArrowLeft' || code === 37) { (list[Math.max(0, i - 1)] || list[2]).focus(); e.preventDefault(); }

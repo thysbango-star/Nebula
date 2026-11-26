@@ -94,6 +94,7 @@ class MoodAudioService : Service() {
     @Volatile private var running = false
     private var thread: Thread? = null
     private var savedVolume = -1
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -110,7 +111,13 @@ class MoodAudioService : Service() {
         val p = projection ?: run { MoodAudio.set(MoodAudio.State.OFF, "Android didn't hand over the sound"); stopSelf(); return START_NOT_STICKY }
         p.registerCallback(object : MediaProjection.Callback() { override fun onStop() { stopSelf() } }, null)
         running = true
-        thread = Thread({ capture(p) }, "mood-audio").apply { start() }
+        // Wi-Fi power saving makes a live stream stutter (worst with the screen off): keep it awake while we send.
+        runCatching {
+            val wm = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+            @Suppress("DEPRECATION") val mode = if (Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifiLock = wm.createWifiLock(mode, "nebula:moodplay").apply { setReferenceCounted(false); acquire() }
+        }
+        thread = Thread({ capture(p) }, "mood-audio").apply { priority = Thread.MAX_PRIORITY; start() }
         return START_NOT_STICKY
     }
 
@@ -136,8 +143,9 @@ class MoodAudioService : Service() {
         if (com.nebula.assistant.data.NebulaPrefs(this).moodMutePhone) runCatching {
             savedVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC); am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
         }
-        val pcm = ByteArray(4096); val info = MediaCodec.BufferInfo()
+        val pcm = ByteArray(4096); val info = MediaCodec.BufferInfo(); var samples = 0L
         var silentSince = 0L; var mutedChecked = false
+        var everHeard = false // once real sound has come through, silence is just a quiet bit of music, not a blocked app
         try {
             while (running) {
                 val n = rec.read(pcm, 0, pcm.size)
@@ -146,8 +154,9 @@ class MoodAudioService : Service() {
                 var sum = 0.0; var i = 0; while (i + 1 < n) { val v = (pcm[i].toInt() and 0xff) or (pcm[i + 1].toInt() shl 8); sum += v.toDouble() * v; i += 2 }
                 val rms = sqrt(sum / (n / 2)) / 32768.0
                 val playing = NotchBus.media.value?.playing == true
-                if (playing && rms < 1e-5) { if (silentSince == 0L) silentSince = System.currentTimeMillis() } else silentSince = 0L
-                if (silentSince > 0 && System.currentTimeMillis() - silentSince > 4000) {
+                if (rms >= 1e-5) everHeard = true
+                if (!everHeard && playing && rms < 1e-5) { if (silentSince == 0L) silentSince = System.currentTimeMillis() } else silentSince = 0L
+                if (silentSince > 0 && System.currentTimeMillis() - silentSince > 6000) {
                     if (savedVolume >= 0 && !mutedChecked) {
                         // On this phone the capture follows the volume: put the volume back and keep going.
                         mutedChecked = true; runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, savedVolume, 0) }; savedVolume = -1; silentSince = 0L
@@ -157,17 +166,13 @@ class MoodAudioService : Service() {
                     MoodAudio.set(MoodAudio.State.OFF, "${NotchBus.media.value?.let { appName(it.pkg) } ?: "This app"} doesn't let its sound be sent. Try Bluetooth, or another app")
                     break
                 }
-                val ib = enc.dequeueInputBuffer(10_000)
-                if (ib >= 0) { enc.getInputBuffer(ib)!!.apply { clear(); put(pcm, 0, n) }; enc.queueInputBuffer(ib, 0, n, System.nanoTime() / 1000, 0) }
-                while (true) {
-                    val ob = enc.dequeueOutputBuffer(info, 0); if (ob < 0) break
-                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0) {
-                        val buf = enc.getOutputBuffer(ob)!!; val frame = ByteArray(info.size + 7)
-                        System.arraycopy(MoodAudio.adts(info.size), 0, frame, 0, 7); buf.position(info.offset); buf.get(frame, 7, info.size)
-                        MoodAudio.emit(frame)
-                    }
-                    enc.releaseOutputBuffer(ob, false)
-                }
+                // Never drop sound: wait for the encoder (draining what it's finished) until it takes this block.
+                var ib = enc.dequeueInputBuffer(5_000)
+                while (ib < 0 && running) { drain(enc, info); ib = enc.dequeueInputBuffer(5_000) }
+                if (ib < 0) break
+                enc.getInputBuffer(ib)!!.apply { clear(); put(pcm, 0, n) }
+                enc.queueInputBuffer(ib, 0, n, samples * 1_000_000L / rate, 0); samples += n / 4
+                drain(enc, info)
             }
         } catch (_: Exception) {
         } finally {
@@ -179,12 +184,26 @@ class MoodAudioService : Service() {
         }
     }
 
+    /** Hand every finished AAC frame to the TVs, each with its ADTS header. */
+    private fun drain(enc: MediaCodec, info: MediaCodec.BufferInfo) {
+                while (true) {
+                    val ob = enc.dequeueOutputBuffer(info, 0); if (ob < 0) break
+                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0) {
+                        val buf = enc.getOutputBuffer(ob)!!; val frame = ByteArray(info.size + 7)
+                        System.arraycopy(MoodAudio.adts(info.size), 0, frame, 0, 7); buf.position(info.offset); buf.get(frame, 7, info.size)
+                        MoodAudio.emit(frame)
+                    }
+                    enc.releaseOutputBuffer(ob, false)
+                }
+    }
+
     private fun appName(pkg: String) = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("This app")
 
     override fun onDestroy() {
         running = false
         runCatching { thread?.join(1500) }
         runCatching { projection?.stop() }
+        runCatching { wifiLock?.release() }
         super.onDestroy()
     }
 }
