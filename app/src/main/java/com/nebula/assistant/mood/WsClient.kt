@@ -108,10 +108,10 @@ class WsClient(private val url: String, private val lanTls: Boolean = false) : A
     }
 
     companion object {
-        /** Private addresses only: 10.x, 172.16–31.x, 192.168.x, link-local. */
+        /** Private addresses only: 10.x, 172.16–31.x, 192.168.x, link-local (and this device, for tests). */
         fun isLan(host: String): Boolean = runCatching {
             val a = java.net.InetAddress.getByName(host)
-            a.isSiteLocalAddress || a.isLinkLocalAddress
+            a.isSiteLocalAddress || a.isLinkLocalAddress || a.isLoopbackAddress
         }.getOrDefault(false)
     }
 }

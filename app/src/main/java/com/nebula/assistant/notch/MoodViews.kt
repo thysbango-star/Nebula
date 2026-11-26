@@ -106,7 +106,7 @@ internal fun MoodLogo(size: Float = 17f, ink: Color = Color.White) {
 }
 
 @Composable
-private fun Finding(s: MoodUi.Finding, t: Float) {
+private fun ColumnScope.Finding(s: MoodUi.Finding, t: Float) {
     Text(when { !s.wifi -> "Connect to Wi-Fi — the TV has to be on the same network"; s.tvs.isEmpty() && s.searching -> "Looking for TVs on your Wi-Fi…"
         s.tvs.isEmpty() -> "No TVs answered. Use the address on any TV or computer"; else -> "Choose a TV" },
         color = Color.White, style = label().copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.rise(1))
@@ -160,7 +160,7 @@ private fun TvWaves(t: Float, size: Dp, live: Boolean) {
 }
 
 @Composable
-private fun Opening(s: MoodUi.Opening, t: Float) {
+private fun ColumnScope.Opening(s: MoodUi.Opening, t: Float) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.rise(1)) {
         TvWaves(t, 52.dp, live = false)
         Spacer(Modifier.width(14.dp))
@@ -172,7 +172,7 @@ private fun Opening(s: MoodUi.Opening, t: Float) {
 }
 
 @Composable
-private fun Manual(s: MoodUi.Manual) {
+private fun ColumnScope.Manual(s: MoodUi.Manual) {
     val qr = remember(s.qr) { s.qr.asImageBitmap() }
     val addr = s.url.removePrefix("http://").substringBefore('/')
     val code = s.url.trimEnd('/').substringAfterLast('/')
@@ -198,7 +198,7 @@ private fun Manual(s: MoodUi.Manual) {
 }
 
 @Composable
-private fun LiveNow(s: MoodUi.Live, t: Float) {
+private fun ColumnScope.LiveNow(s: MoodUi.Live, t: Float) {
     val ctx = LocalContext.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.rise(1)) {
         TvWaves(t, 44.dp, live = true)

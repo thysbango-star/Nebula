@@ -23,7 +23,8 @@ const { Agent } = require('./agent');
 // Never interrupt the user with crash dialogs: log quietly and keep running.
 const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
 const support = require('./support');
-const { Beam } = require('./beam');
+const { Beam, lanAddress } = require('./beam');
+const { MoodPlay, pagePath: moodPagePath } = require('./moodplay');
 function log(...a) {
   try { if (a.some((x) => x instanceof Error) || /error|fail/i.test(String(a[0]))) support.note(a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ')); } catch { /* */ }
   try {
@@ -447,6 +448,14 @@ process.on('uncaughtException', (e) => {
 // ------------------------------------------------------------------ now playing
 const { findCover, cleanArtist } = require('./covers');
 let nowPlaying = null; let mediaTimer = null; let lastArt = ''; let coverFor = '';
+// Mood PLAY: what's playing here, on the TV (the TV remote controls it).
+const mood = new MoodPlay({
+  lanIp: () => lanAddress(), media: () => nowPlaying, deviceName: require('os').hostname(), pagePath: moodPagePath(app),
+  control: async (c) => { if (mediaSource()) { await mediaSource().mediaControl(c); if (c !== 'toggle') await mediaSource().mediaReset(); setTimeout(pollMedia, 350); } },
+  getTvs: () => configData.moodTvs || {}, saveTvs: (o) => { configData.moodTvs = o; saveConfig(); },
+  getTheme: () => configData.moodTheme || 'auto', setTheme: (t) => { configData.moodTheme = t; saveConfig(); },
+  onChange: (st) => { send(settings, 'mood:state', st); if (island) send(island, 'island:mood', st.mode !== 'idle'); },
+});
 // Windows: its media controls (through the helper). Linux: MPRIS via playerctl.
 const linuxMedia = process.platform === 'linux' ? new (require('./linux').LinuxMedia)() : null;
 const mediaSource = () => (process.platform === 'win32' ? helper : linuxMedia);
@@ -515,6 +524,7 @@ function pushWidgets() {
 
 function pushIslandState() {
   pushWidgets();
+  if (mood.server) mood.update(); // the TV follows what's playing
   send(island, 'island:state', {
     active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
     sources: session.sources, timerEndsAt: timer.endsAt, intensity: configData.intensity,
@@ -964,6 +974,17 @@ function wireIpc() {
   ipcMain.on('island:clicker', (_e, cmd) => clicker(cmd));
   ipcMain.on('island:crosshair', () => showCrosshair(!(cross && !cross.isDestroyed())));
   ipcMain.on('settings:widgets-reset', () => { if (widgets) widgets.resetPositions(); });
+  ipcMain.handle('mood:status', () => mood.status());
+  ipcMain.on('mood:act', (_e, m) => {
+    m = m || {};
+    if (m.do === 'find') mood.find();
+    else if (m.do === 'connect' && typeof m.id === 'string') mood.connect(m.id);
+    else if (m.do === 'manual') mood.manual();
+    else if (m.do === 'done') mood.done();
+    else if (m.do === 'stop') mood.stop();
+    else if (m.do === 'theme' && ['auto', 'waves', 'shards', 'arcs', 'glow', 'vinyl', 'dots'].includes(m.theme)) mood.theme(m.theme);
+  });
+  ipcMain.on('island:moodplay', () => { openApp('mood'); if (mood.ui.mode === 'idle') mood.find(); });
   ipcMain.on('widget:act', async (_e, m) => {
     m = m || {};
     if (m.do === 'voice') { if (session.active) endSession(); else startSession('widget'); }

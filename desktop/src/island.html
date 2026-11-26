@@ -628,10 +628,12 @@ function renderMusicCard() {
   if (!el.querySelector('canvas')) {
     el.innerHTML = `<div class="back"></div><div class="tint"></div><div class="sheen"></div><canvas></canvas><div class="tile"><img alt=""></div>
       <div class="info"><div class="tiw"><span class="ti"></span></div><div class="ar"></div>
-        <div class="ctl"><button data-m="prev">${ICON.prev}</button><button class="pp" data-m="toggle" id="mcPlay"></button><button data-m="next">${ICON.next}</button></div>
+        <div class="ctl"><button data-m="prev">${ICON.prev}</button><button class="pp" data-m="toggle" id="mcPlay"></button><button data-m="next">${ICON.next}</button>
+          <button id="mcTv" title="Mood PLAY — show this on the TV" style="margin-left:auto;opacity:.85"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="8" width="18" height="11" rx="2"/><path d="M9 22h6M8.5 5.5a5 5 0 0 1 7 0M6.5 3.5a8 8 0 0 1 11 0"/></svg></button></div>
         <div class="track"><i class="ln"></i><i class="fl"></i><i class="kn"></i></div>
         <div class="times"><span id="mcPos"></span><span id="mcLeft"></span></div></div>`;
     el.querySelectorAll('[data-m]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); api.send('island:media', b.dataset.m); }));
+    el.querySelector('#mcTv').onclick = (e) => { e.stopPropagation(); api.send('island:moodplay'); };
   }
   const pp = $('mcPlay'); const icon = md.playing ? ICON.pause : ICON.play;
   if (pp.dataset.s !== String(md.playing)) { // play/pause morph
@@ -685,6 +687,8 @@ function drawMusic(now) {
   $('mcPos').textContent = mclock(Math.min(pos, dur || pos)); $('mcLeft').textContent = dur ? '-' + mclock(Math.max(0, dur - pos)) : '';
 }
 $('music').onclick = () => { hovering = true; render(); };
+// Mood PLAY on: the TV button glows orange.
+api.on('island:mood', (on) => { const b = document.getElementById('mcTv'); if (b) b.style.color = on ? '#ff8f3f' : ''; });
 
 // ---------------------------------------------------------------- sports
 const PHONE = new URLSearchParams(location.search).has('phone');
