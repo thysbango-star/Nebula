@@ -91,6 +91,7 @@ object Sports {
         val leagueLogo: String = "",     // the competition's logo from ESPN
         val stats: List<Stat> = emptyList(),
         val added: String = "",         // added time announced for this half ("4"), shown as a tab on the clock
+        val scorers: List<Scorer> = emptyList(), // who scored, for full time and the board
     ) {
         val live get() = state == "in"
     }
@@ -114,6 +115,7 @@ object Sports {
     /** A team stat for the open card ("Possession", "54%", "46%"); [h]/[a] are the numbers, for the bars. */
     data class Stat(val label: String, val home: String, val away: String, val h: Float, val a: Float)
     data class Player(val no: String, val name: String, val pos: String, val starter: Boolean)
+    data class Scorer(val home: Boolean, val name: String, val minute: String, val kind: String = "goal")
 
     /** A key event from the match summary: a scorer, a card or a substitution. */
     data class KeyEvent(val id: String, val kind: String, val teamId: String, val player: String, val player2: String, val minute: String)
@@ -127,8 +129,20 @@ object Sports {
     fun clearGoal() { _goal.value = synchronized(queue) { queue.removeFirstOrNull()?.copy(at = System.currentTimeMillis()) } }
     private fun show(m: Score) {
         val withMotif = if (m.motif.isEmpty()) m.copy(motif = motif(m)) else m
-        synchronized(queue) { if (_goal.value == null) _goal.value = withMotif else if (queue.size < 4) queue.addLast(withMotif) }
+        synchronized(queue) {
+            if (_goal.value == null) _goal.value = withMotif else if (queue.size < 4) queue.addLast(withMotif)
+            // Like the broadcast: after the goal plays in the bar, the goalscorer hangs underneath it.
+            if (m.kind == "score" && m.who.isNotBlank() && queue.size < 4) {
+                val name = m.who.substringBefore(" converts").substringBefore(" penalty").substringBefore(" drop goal")
+                val last = name.trim().split(' ').filter { it.isNotBlank() && !it.endsWith("'") && it.first().isLetter() }.lastOrNull()?.lowercase().orEmpty()
+                queue.addLast(m.copy(kind = "scorer", motif = "", extra = jerseys[m.game.id]?.get(last).orEmpty()))
+            }
+        }
     }
+    /** Shirt numbers by surname, per game (from the rosters), so the goalscorer panel can show the number. */
+    private val jerseys = HashMap<String, Map<String, String>>()
+    private val scorersByGame = HashMap<String, List<Scorer>>()
+    private val statsShownAt = HashMap<String, Long>()
 
     /**
      * Club moments, drawn by us (not copied from any broadcast): Arsenal fire a battery of cannons, Brighton get a
@@ -257,6 +271,16 @@ object Sports {
             val fresh = if (summary != null && g.live) runCatching { newEvents(g, summary, now) }.getOrDefault(emptyList()) else emptyList()
             if (summary != null) {
                 statsByGame[g.id] = runCatching { stats(g, summary) }.getOrDefault(emptyList())
+                runCatching {
+                    scorersByGame[g.id] = keyEvents(g, summary).filter { it.kind in setOf("goal", "penalty", "try", "pentry", "drop") && it.player.isNotBlank() }
+                        .map { Scorer(it.teamId == g.home.id, it.player, it.minute, it.kind) }
+                    jerseys[g.id] = rosterNumbers(summary)
+                }
+                // Now and then, the match in numbers drops under the bar on its own (about every 12 minutes of play).
+                if (g.live && prefs.sportsGoals && statsByGame[g.id].orEmpty().isNotEmpty()) {
+                    val last = statsShownAt.getOrPut(g.id) { now }
+                    if (now - last > 12 * 60_000L) { statsShownAt[g.id] = now; show(Score(g.copy(stats = statsByGame[g.id].orEmpty()), true, g.home.text, "STATS", "", kind = "stats")) }
+                }
                 if (g.live) runCatching { commentary(g, summary) }.getOrDefault(emptyList()).forEach(::show)
                 // Lineups: once per game, when they're announced (about an hour before) or at kick-off.
                 if (g.id !in lineupShown) runCatching { lineups(g, summary, teams) }.getOrNull()?.let { ls -> if (ls.isNotEmpty()) { lineupShown += g.id; ls.forEach(::show) } }
@@ -286,7 +310,7 @@ object Sports {
         for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
         val annotated = filled.map { gg ->
             val added = addedByGame[gg.id]?.takeIf { gg.live && !gg.clock.equals("HT", true) && now - it.second < 14 * 60_000L }?.first.orEmpty()
-            val g = gg.copy(cards = liveCards(gg, now), stats = statsByGame[gg.id].orEmpty(), added = added)
+            val g = gg.copy(cards = liveCards(gg, now), stats = statsByGame[gg.id].orEmpty(), added = added, scorers = scorersByGame[gg.id].orEmpty())
             if (g.league.kind != Sports.Kind.RUGBY) return@map g
             val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
                 ?: return@map g
@@ -427,6 +451,22 @@ object Sports {
         return out
     }
 
+    /** Surname (lower case) → shirt number, from every roster in the summary. */
+    private fun rosterNumbers(j: JSONObject): Map<String, String> {
+        val out = HashMap<String, String>()
+        val rosters = j.optJSONArray("rosters") ?: return out
+        for (i in 0 until rosters.length()) {
+            val list = rosters.optJSONObject(i)?.optJSONArray("roster") ?: continue
+            for (k in 0 until list.length()) {
+                val p = list.optJSONObject(k) ?: continue
+                val name = p.optJSONObject("athlete")?.optString("displayName").orEmpty()
+                val no = p.optString("jersey")
+                if (name.isNotBlank() && no.isNotBlank()) out[name.trim().split(' ').last().lowercase()] = no
+            }
+        }
+        return out
+    }
+
     /** Starting lineup + bench for the team(s) you follow, from the summary's rosters. */
     private fun lineups(g: Game, j: JSONObject, mine: List<Team>): List<Score> {
         val rosters = j.optJSONArray("rosters") ?: return emptyList()
@@ -491,7 +531,9 @@ object Sports {
         return when (e.kind) {
             "yellow" -> Score(g, home, side.text, "YELLOW CARD", e.player, kind = "yellow", minute = e.minute,
                 until = cardsByGame[g.id]?.lastOrNull { it.player == e.player && it.kind == "yellow" }?.until ?: 0)
-            "red", "red20" -> Score(g, home, side.text, "RED CARD", e.player, kind = e.kind, minute = e.minute,
+            "red", "red20" -> Score(g, home, side.text,
+                if (cardsByGame[g.id]?.any { it.player == e.player && it.kind == "yellow" } == true && g.league.kind == Kind.SOCCER) "SECOND YELLOW" else "RED CARD",
+                e.player, kind = e.kind, minute = e.minute,
                 until = cardsByGame[g.id]?.lastOrNull { it.player == e.player && it.kind == e.kind }?.until ?: 0)
             "sub" -> Score(g, home, side.text, if (g.league.kind == Kind.RUGBY) "REPLACEMENT" else "SUBSTITUTION", "", kind = "sub",
                 minute = e.minute, subs = listOf(e.player to e.player2))

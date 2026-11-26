@@ -107,10 +107,13 @@ internal fun sportsOpenGeo(g: Sports.Game): Geo = Geo(372.dp, Strip + BarH + 8.d
 internal fun momentGeo(s: Sports.Score): Geo = when (s.kind) {
     "lineup" -> Geo(372.dp, Strip + 112.dp + 12.dp, 34.dp)
     "added" -> Geo(372.dp, Strip + 74.dp + 12.dp, 34.dp)
-    "intro", "fulltime" -> Geo(372.dp, Strip + 86.dp + 12.dp, 34.dp)
+    "intro" -> Geo(372.dp, Strip + 86.dp + 12.dp, 34.dp)
+    "fulltime" -> Geo(372.dp, Strip + 86.dp + 12.dp + (if (scorersRows(s.game) > 0) (10 + 17 * scorersRows(s.game)).dp else 0.dp), 34.dp)
+    "scorer" -> Geo(372.dp, Strip + BarH + scorerPanelH() + 12.dp, 34.dp)
+    "stats" -> Geo(372.dp, Strip + BarH + 78.dp + 12.dp, 34.dp)
     "check", "decision" -> Geo(372.dp, Strip + 86.dp + 12.dp, 34.dp)
-    "sub" -> Geo(372.dp, Strip + (54 + 40 * s.subs.size.coerceIn(1, 3)).dp + 12.dp, 34.dp)
-    "yellow", "red", "red20" -> Geo(372.dp, Strip + 92.dp + 12.dp, 34.dp)
+    "sub" -> Geo(372.dp, Strip + BarH + subPanelH(s.subs.size) + 12.dp, 34.dp)
+    "yellow", "red", "red20" -> Geo(372.dp, Strip + BarH + cardPanelH() + 12.dp, 34.dp)
     else -> Geo(372.dp, Strip + MomentBarH + 12.dp, 34.dp)
 }
 
@@ -118,7 +121,9 @@ private fun wordAt(s: Sports.Score) = if (s.chant.isNotEmpty()) 1.55f else 0.75f
 private fun holdFor(s: Sports.Score) = if (s.motif in FANCY) 3.0f else 2.2f
 
 internal fun momentDuration(s: Sports.Score): Long = when (s.kind) {
-    "sub" -> 5200L + 900L * (s.subs.size - 1).coerceAtLeast(0)
+    "sub" -> 5200L + 700L * (s.subs.size - 1).coerceAtLeast(0)
+    "scorer" -> 4800L
+    "stats" -> 6500L
     "added" -> 5200L
     "check" -> 5200L
     "decision" -> 5800L
@@ -131,7 +136,46 @@ internal fun momentDuration(s: Sports.Score): Long = when (s.kind) {
 
 private fun lineupDuration(s: Sports.Score): Long {
     val st = s.players.count { it.starter }; val b = s.players.size - st
-    return 1500L + st * 850L + (if (b > 0) 700L + b * 500L else 0L) + 600L
+    return 1500L + st * 850L + (if (b > 0) 700L + b * 500L else 0L) + 600L + (if (formationOf(s) != null) 2400L else 0L)
+}
+
+/** "4-3-3" → [4, 3, 3] for a football lineup with eleven starters, else null. */
+private fun formationOf(s: Sports.Score): List<Int>? {
+    if (s.game.league.kind != Sports.Kind.SOCCER || s.players.count { it.starter } != 11) return null
+    val rows = s.extra.split('-').mapNotNull { it.trim().toIntOrNull() }
+    return rows.takeIf { it.size >= 3 && it.sum() == 10 }
+}
+
+/** Which unit a player is in, for the label above the reel (Goalkeeper / Defence / Midfield / Forwards; rugby: Forwards / Backs). */
+private fun groupOf(g: Sports.Game, p: Sports.Player, i: Int): String = when {
+    !p.starter -> "BENCH"
+    g.league.kind == Sports.Kind.RUGBY -> if ((p.no.toIntOrNull() ?: (i + 1)) <= 8) "FORWARDS" else "BACKS"
+    g.league.kind != Sports.Kind.SOCCER -> "STARTING"
+    p.pos.uppercase().startsWith("G") || i == 0 -> "GOALKEEPER"
+    p.pos.uppercase().let { it.contains("B") || it.startsWith("D") || it.startsWith("CD") } -> "DEFENCE"
+    p.pos.uppercase().let { it.contains("M") } -> "MIDFIELD"
+    else -> "FORWARDS"
+}
+
+/** The formation on the bar: the keeper on the left, each line of the team as a column of numbered tiles popping in. */
+@Composable
+private fun Formation(rows: List<Int>, starters: List<Sports.Player>, t: Float, modifier: Modifier) {
+    val gk = starters.firstOrNull { it.pos.uppercase().startsWith("G") } ?: starters.first()
+    val outfield = starters.filter { it !== gk }
+    val cols = listOf(listOf(gk)) + rows.runningFold(0) { a, b -> a + b }.zipWithNext().map { (a, b) -> outfield.subList(a.coerceAtMost(outfield.size), b.coerceAtMost(outfield.size)) }
+    BoxWithConstraints(modifier) {
+        val cw = maxWidth / cols.size
+        cols.forEachIndexed { c, col ->
+            col.forEachIndexed { r, pl ->
+                val k = seg(t, 0.4f + c * 0.22f + r * 0.05f, 0.75f + c * 0.22f + r * 0.05f, ::backOut)
+                val y = maxHeight * ((r + 1f) / (col.size + 1f))
+                Box(Modifier.offset(x = cw * c + cw / 2 - 12.dp, y = y - 12.dp).size(24.dp).graphicsLayer { scaleX = k; scaleY = k; alpha = k.coerceIn(0f, 1f) }
+                    .clip(RoundedCornerShape(6.dp)).background(if (c == 0) Color(0xFFFFE066) else Color.White.copy(alpha = 0.92f)), contentAlignment = Alignment.Center) {
+                    Text(pl.no, color = Ink, style = heavy(11))
+                }
+            }
+        }
+    }
 }
 
 /** The moment's buzz: three quick pulses and a cheer for a score; a sharp double tap for a card; a soft tick for the rest. */
@@ -443,6 +487,8 @@ internal fun Moment(s: Sports.Score) {
         "lineup" -> LineupReel(s)
         "yellow", "red", "red20" -> CardMoment(s)
         "sub" -> SubBoard(s)
+        "scorer" -> ScorerPanel(s)
+        "stats" -> StatsMoment(s)
         else -> ScoreMoment(s)
     }
 }
@@ -469,7 +515,7 @@ private fun IntroBoard(s: Sports.Score) {
     val t by rememberClock(s.at)
     val ft = s.kind == "fulltime"
     val logo = rememberLogo(g.leagueLogo)
-    MomentFrame(g, s.label) {
+    IntroColumn(s, t) {
         val pour = seg(t, 2.7f, 3.5f, ::easeInOut)
         Box(Modifier.fillMaxSize()) {
             // the black bar
@@ -634,8 +680,10 @@ private fun LineupReel(s: Sports.Score) {
     val tc = kit(side)
     val starters = s.players.filter { it.starter }; val bench = s.players.filter { !it.starter }
     var idx by remember(s.at) { mutableStateOf(-1) }
+    // Football: the formation first, the way the broadcast shows it, then the players.
+    val shape = formationOf(s)
     LaunchedEffect(s.at) {
-        delay(900)
+        delay(if (shape != null) 3300 else 900)
         for (i in s.players.indices) { idx = i; delay(if (s.players[i].starter) 850 else 500); if (i == starters.size - 1 && bench.isNotEmpty()) delay(200) }
     }
     val t by rememberClock(s.at)
@@ -644,7 +692,7 @@ private fun LineupReel(s: Sports.Score) {
     val onBench = p != null && !p.starter
     val dark by animateFloatAsState(if (onBench) 0.28f else 0f, tween(600), label = "bench")
     Column(Modifier.fillMaxSize()) {
-        StripRow(g, listOf(if (onBench) "BENCH" else s.label, side.name.uppercase(), s.extra).filter { it.isNotBlank() }.joinToString("  ·  ")) {
+        StripRow(g, listOf(if (onBench) "BENCH" else p?.let { groupOf(g, it, starters.indexOf(it)) } ?: s.label, side.abbr.uppercase(), s.extra).filter { it.isNotBlank() }.joinToString(" · ")) {
             if (p != null) Text(if (onBench) "${idx - starters.size + 1} / ${bench.size}" else "${idx + 1} / ${starters.size}", color = Dim, style = label().copy(fontFamily = Display, fontSize = 12.sp))
         }
         Box(Modifier.fillMaxWidth().weight(1f).padding(start = 8.dp, end = 8.dp, bottom = 12.dp)) {
@@ -656,6 +704,8 @@ private fun LineupReel(s: Sports.Score) {
                 drawRoundRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.18f), 0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.12f)), cornerRadius = r)
                 if (dark > 0f) drawRoundRect(Color.Black.copy(alpha = dark), cornerRadius = r)
             }
+            if (shape != null && t < 3.6f) Formation(shape, starters, t, Modifier.fillMaxSize().padding(start = 112.dp, end = 26.dp, top = 8.dp, bottom = 8.dp)
+                .graphicsLayer { alpha = 1f - seg(t, 3.0f, 3.5f) })
             // the logo breaks out of the bar, over the left end
             if (logo != null) Canvas(Modifier.fillMaxSize()) {
                 val k = seg(t, 0.25f, 0.95f, ::backOut)
@@ -681,9 +731,47 @@ private fun LineupReel(s: Sports.Score) {
     }
 }
 
-// ---- cards & substitutions
+// ---- the broadcast method: the bar stays, information hangs off it
 
-/** A card: the bar goes dark with the card's colour glowing from the team's end; the card turns over into view; the player; rugby's clock. */
+private val PanelShape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+
+/**
+ * The scorebar stays where it is and a panel drops out from under it — on the side of the team it's about
+ * (cards, substitutions, the goalscorer) or in the middle (the match in numbers). [leaveAt] is when it tucks
+ * back in. [flash] tints that team's half of the bar for a moment (a card's colour, say).
+ */
+@Composable
+private fun Attached(g: Sports.Game, top: String, side: Boolean?, panelH: Dp, t: Float, leaveAt: Float, panelW: Float = 0.66f,
+                     flash: Color? = null, right: @Composable RowScope.() -> Unit = { ClockTab(g) }, panel: @Composable BoxScope.() -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        StripRow(g, top, right)
+        Box(Modifier.padding(horizontal = 8.dp).fillMaxWidth().height(BarH)) {
+            Scorebar(g, Modifier.fillMaxSize())
+            if (flash != null && side != null) Canvas(Modifier.fillMaxSize()) {
+                val pulse = (sin(t * 7f).coerceAtLeast(0f)) * (1f - seg(t, 0.2f, 1.8f))
+                if (pulse > 0.01f) clipPath(Path().apply { addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(size.height / 2))) }) {
+                    drawRect(flash.copy(alpha = 0.55f * pulse), Offset(if (side) 0f else size.width / 2, 0f), Size(size.width / 2, size.height))
+                }
+            }
+        }
+        val drop = seg(t, 0.2f, 0.7f, ::backOut) * (1f - seg(t, leaveAt, leaveAt + 0.4f, ::easeInOut))
+        Box(Modifier.fillMaxWidth().height(panelH)) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val w = maxWidth * panelW
+                Box(Modifier.align(when (side) { true -> Alignment.TopStart; false -> Alignment.TopEnd; null -> Alignment.TopCenter })
+                    .padding(horizontal = 26.dp).width(w).height(panelH * drop.coerceIn(0f, 1.08f)).clip(PanelShape)) {
+                    Box(Modifier.requiredHeight(panelH).fillMaxWidth().align(Alignment.BottomCenter), content = panel)
+                }
+            }
+        }
+    }
+}
+
+private fun cardPanelH() = 70.dp
+private fun subPanelH(n: Int) = (26 + 28 * n.coerceIn(1, 3) + 8).dp
+private fun scorerPanelH() = 78.dp
+
+/** A card: the team's end of the bar flashes the card's colour and the card panel drops under it — the card, the player, rugby's clock. */
 @Composable
 private fun CardMoment(s: Sports.Score) {
     val g = s.game
@@ -692,74 +780,110 @@ private fun CardMoment(s: Sports.Score) {
     val cc = if (yellow) CardYellow else CardRed
     val rugby = isRugby(g)
     val t by rememberClock(s.at)
-    MomentFrame(g, "${side.name.uppercase()}  ·  ${s.minute}") {
-        Canvas(Modifier.fillMaxSize()) {
-            val r = CornerRadius(size.height / 2)
-            drawRoundRect(Brush.verticalGradient(listOf(Color(0xFF1C1C20), Color(0xFF0A0A0C))), cornerRadius = r)
-            clipPath(Path().apply { addRoundRect(RoundRect(0f, 0f, size.width, size.height, r)) }) {
-                val o = Offset(size.width * 0.12f, size.height * 0.5f)
-                drawCircle(Brush.radialGradient(listOf(cc.copy(alpha = 0.55f * seg(t, 0.1f, 0.6f)), Color.Transparent), o, size.width * 0.55f), size.width * 0.55f, o)
-                val gap = 24.dp.toPx(); var x = -size.height + (t * 0.6f % 1f) * gap
-                while (x < size.width + size.height) { drawLine(cc.copy(alpha = 0.07f), Offset(x, size.height), Offset(x + size.height, 0f), 8.dp.toPx()); x += gap }
+    Attached(g, "${side.abbr.uppercase()} · ${s.label}", s.home, cardPanelH(), t, momentDuration(s) / 1000f - 0.7f, flash = cc) {
+        Column(Modifier.fillMaxSize().background(Color(0xFF121216))) {
+            Row(Modifier.fillMaxWidth().height(24.dp).background(cc).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                val f = seg(t, 0.5f, 1.1f, ::backOut)
+                Box(Modifier.size(9.dp, 13.dp).graphicsLayer { rotationY = (1f - f) * 180f; rotationZ = -8f }.clip(RoundedCornerShape(2.dp)).background(Ink.copy(alpha = 0.85f)))
+                Text(s.label, color = Ink, style = caps(10f), modifier = Modifier.padding(start = 8.dp).weight(1f))
+                Text(s.minute, color = Ink, style = label().copy(fontFamily = Display, fontSize = 12.sp))
             }
-            drawRoundRect(cc.copy(alpha = 0.5f * seg(t, 0.1f, 0.6f)), cornerRadius = r, style = Stroke(1.2.dp.toPx()))
-        }
-        Row(Modifier.fillMaxSize().padding(start = 26.dp, end = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-            val f = seg(t, 0.15f, 0.85f, ::backOut)
-            Box(Modifier.size(42.dp, 58.dp).graphicsLayer {
-                rotationY = (1f - f) * -110f; rotationZ = -8f + (1f - f) * -24f; cameraDistance = 14f * density
-                val k = 0.6f + 0.4f * f; scaleX = k; scaleY = k; alpha = f.coerceIn(0f, 1f)
-            }.clip(RoundedCornerShape(6.dp)).background(Brush.linearGradient(listOf(cc.light(0.25f), cc, cc.deep(0.2f))))) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val sx = seg(t, 0.9f, 1.6f) * (size.width + size.height * 2) - size.height
-                    drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.6f), Color.Transparent), Offset(sx - 30f, 0f), Offset(sx + 30f, size.height)))
+            Row(Modifier.fillMaxSize().padding(start = 0.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(3.dp).fillMaxHeight().background(kit(side).light(0.2f)))
+                Column(Modifier.weight(1f).padding(start = 10.dp).graphicsLayer { val w = seg(t, 0.7f, 1.2f); alpha = w; translationX = (1f - w) * 16.dp.toPx() }) {
+                    Text(s.who.ifBlank { side.name }, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = heavy(18))
+                    val tag = when { rugby && yellow -> "SIN BIN"; rugby && s.kind == "red20" -> "REPLACEMENT IN 20"; rugby -> "OFF FOR THE MATCH"; !yellow -> "SENT OFF"; else -> "" }
+                    if (tag.isNotEmpty()) Text(tag, color = Faint, style = caps(8.5f))
                 }
+                if (s.until > 0) Countdown(s.until, cc, 22)
             }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f).graphicsLayer { val w = seg(t, 0.4f, 0.9f); alpha = w; translationX = (1f - w) * 24.dp.toPx() }) {
-                Text(s.label, color = cc, maxLines = 1, style = heavy(28))
-                if (s.who.isNotBlank()) Text(s.who, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = label().copy(fontSize = 15.sp))
-                val tag = when { rugby && yellow -> "SIN BIN"; rugby && s.kind == "red20" -> "REPLACEMENT IN"; rugby -> "OFF FOR THE MATCH"; !yellow -> "SENT OFF"; else -> "" }
-                if (tag.isNotEmpty()) Text(tag, color = Faint, style = caps(9f), modifier = Modifier.padding(top = 2.dp))
-            }
-            if (s.until > 0) Countdown(s.until, cc, 26) else TeamBadge(side, 46.dp)
         }
     }
 }
 
-/** Substitution / replacement board: an LED board in the bar's shape; numbers flicker on — green arrow on, red arrow off. */
+/** Substitution / replacement: the panel drops under the team's end; each line shows who's going off (red ◀), then turns over to who's coming on (green ▶). */
 @Composable
 private fun SubBoard(s: Sports.Score) {
     val g = s.game
     val side = if (s.home) g.home else g.away
+    val tc = kit(side)
     val t by rememberClock(s.at)
-    val green = Color(0xFF3DFF7A); val red = Color(0xFFFF4D4D)
-    fun led(c: Color) = Shadow(c.copy(alpha = 0.8f), Offset.Zero, 14f)
-    MomentFrame(g, "${side.abbr.uppercase()} · ${s.label}", right = { Text(s.minute, color = Ember, style = label().copy(fontFamily = Display)) }) {
-        val rise = seg(t, 0f, 0.6f, ::backOut)
-        Box(Modifier.fillMaxSize().graphicsLayer { translationY = (1f - rise) * 40.dp.toPx(); alpha = rise.coerceIn(0f, 1f) }.clip(RoundedCornerShape(28.dp)).background(Color(0xFF040506))) {
-            Canvas(Modifier.fillMaxSize()) {
-                val st = 4.dp.toPx(); var y = st / 2
-                while (y < size.height) { var x = st / 2; while (x < size.width) { drawCircle(Color.White.copy(alpha = 0.045f), 0.7.dp.toPx(), Offset(x, y)); x += st }; y += st }
-                drawRoundRect(kit(side).copy(alpha = 0.5f), cornerRadius = CornerRadius(28.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+    val green = Color(0xFF34E27A); val red = Color(0xFFFF4D5E)
+    Attached(g, "${side.abbr.uppercase()} · ${s.label}", s.home, subPanelH(s.subs.size), t, momentDuration(s) / 1000f - 0.7f) {
+        Column(Modifier.fillMaxSize().background(Color(0xFF121216))) {
+            Row(Modifier.fillMaxWidth().height(26.dp).background(Brush.horizontalGradient(listOf(tc.deep(0.2f), tc.light(0.1f)))).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(s.label, color = inkOn(tc), style = caps(10f), modifier = Modifier.weight(1f))
+                Text(s.minute, color = inkOn(tc), style = label().copy(fontFamily = Display, fontSize = 12.sp))
             }
-            Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                TeamBadge(side, 44.dp)
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    s.subs.forEachIndexed { i, (on, off) ->
-                        val v = seg(t, 0.6f + i * 0.7f, 0.9f + i * 0.7f)
-                        val flick = if (v < 1f) (if (sin(t * 90f + i) > 0f) 1f else 0.25f) * v else 1f
-                        Column(Modifier.padding(vertical = 2.dp).graphicsLayer { alpha = flick }) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("▲", color = green, style = TextStyle(fontSize = 12.sp, shadow = led(green))); Spacer(Modifier.width(8.dp))
-                                Text(on.uppercase(), color = green, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 18.sp, letterSpacing = 1.sp, shadow = led(green)))
-                            }
-                            if (off.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("▼", color = red, style = TextStyle(fontSize = 12.sp, shadow = led(red))); Spacer(Modifier.width(8.dp))
-                                Text(off.uppercase(), color = red, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 18.sp, letterSpacing = 1.sp, shadow = led(red)))
-                            }
-                        }
+            s.subs.take(3).forEachIndexed { i, (on, off) ->
+                val inAt = 0.7f + i * 0.25f
+                val swapAt = 1.9f + i * 0.45f
+                val onNow = off.isBlank() || t > swapAt
+                val flip = if (off.isBlank()) 1f else seg(t, swapAt - 0.15f, swapAt + 0.25f, ::easeInOut)
+                Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 12.dp).graphicsLayer {
+                    val a = seg(t, inAt, inAt + 0.35f); alpha = a; translationX = (1f - a) * 20.dp.toPx() * (if (s.home) -1 else 1)
+                    rotationX = if (flip in 0.01f..0.99f) (if (flip < 0.5f) flip * 180f else (flip - 1f) * 180f) else 0f
+                }, verticalAlignment = Alignment.CenterVertically) {
+                    val showOn = off.isBlank() || (onNow && flip >= 0.5f)
+                    Text(if (showOn) "▶" else "◀", color = if (showOn) green else red, style = TextStyle(fontSize = 12.sp))
+                    Spacer(Modifier.width(8.dp))
+                    Text((if (showOn) on else off).uppercase(), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = heavy(15))
+                }
+            }
+        }
+    }
+}
+
+/** After a score: the goalscorer hangs under the bar — the shirt number big and outlined behind, the name, and the minute. */
+@Composable
+private fun ScorerPanel(s: Sports.Score) {
+    val g = s.game
+    val side = if (s.home) g.home else g.away
+    val tc = kit(side)
+    val t by rememberClock(s.at)
+    val minute = Regex("\\d+'(\\+\\d+')?").find(s.who)?.value.orEmpty()
+    val name = s.who.replace(minute, "").replace("converts", "").replace("(pen)", "").substringBefore(" · ").trim()
+    val role = when (s.label) { "TRY" -> "TRY SCORER"; "CONVERTED" -> "KICKER"; "SIX", "FOUR" -> "BATTER"; "PENALTY", "DROP GOAL" -> "KICKER"; else -> "GOALSCORER" }
+    Attached(g, "${side.abbr.uppercase()} · $role", s.home, scorerPanelH(), t, momentDuration(s) / 1000f - 0.7f, panelW = 0.72f) {
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(tc.deep(0.5f), tc.deep(0.15f))))) {
+            if (s.extra.isNotBlank()) Text(s.extra, maxLines = 1, style = heavy(78).copy(drawStyle = Stroke(2.5f), color = tc.light(0.45f).copy(alpha = 0.55f)),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).graphicsLayer { val k = seg(t, 0.5f, 1.1f, ::backOut); scaleX = k; scaleY = k; alpha = k.coerceIn(0f, 1f) })
+            Row(Modifier.fillMaxSize().padding(start = if (s.extra.isNotBlank()) 74.dp else 14.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).graphicsLayer { val w = seg(t, 0.7f, 1.2f); alpha = w; translationX = (1f - w) * 18.dp.toPx() }) {
+                    Text(role, color = tc.light(0.55f), style = caps(8.5f))
+                    Text(name.ifBlank { side.name }, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = heavy(20))
+                    if (minute.isNotBlank()) Text(minute, color = Color.White.copy(alpha = 0.75f), style = label().copy(fontFamily = Display, fontSize = 12.sp))
+                }
+                TeamBadge(side, 40.dp, tc.light(0.35f), Modifier.graphicsLayer { val k = seg(t, 0.9f, 1.4f, ::backOut); scaleX = k; scaleY = k })
+            }
+        }
+    }
+}
+
+/** Every so often the match in numbers drops under the bar on its own — the red ESPN panel. */
+@Composable
+private fun StatsMoment(s: Sports.Score) {
+    val t by rememberClock(s.at)
+    Attached(s.game, s.game.league.name.uppercase(), null, 78.dp, t, momentDuration(s) / 1000f - 0.7f, panelW = 0.86f) { EspnStats(s.game) }
+}
+
+private fun scorersRows(g: Sports.Game) = maxOf(g.scorers.count { it.home }, g.scorers.count { !it.home }).coerceAtMost(5)
+
+/** Full time: the scorers listed under each team, like the broadcast's full-time board. */
+@Composable
+private fun IntroColumn(s: Sports.Score, t: Float, bar: @Composable BoxScope.() -> Unit) {
+    val g = s.game
+    val rows = if (s.kind == "fulltime") scorersRows(g) else 0
+    Column(Modifier.fillMaxSize()) {
+        StripRow(g, s.label) { ClockTab(g) }
+        Box(Modifier.fillMaxWidth().height(86.dp).padding(horizontal = 8.dp), content = bar)
+        if (rows > 0) Row(Modifier.fillMaxWidth().padding(start = 30.dp, end = 30.dp, top = 6.dp).graphicsLayer { val a = seg(t, 3.4f, 3.9f); alpha = a; translationY = (1f - a) * -10.dp.toPx() }) {
+            listOf(true, false).forEach { home ->
+                Column(Modifier.weight(1f), horizontalAlignment = if (home) Alignment.Start else Alignment.End) {
+                    g.scorers.filter { it.home == home }.take(5).forEach { sc ->
+                        Text("${sc.name} ${sc.minute}".trim(), color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = label().copy(fontSize = 11.sp, lineHeight = 17.sp))
                     }
                 }
             }
