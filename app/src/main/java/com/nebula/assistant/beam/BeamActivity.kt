@@ -60,6 +60,16 @@ class BeamActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         BeamController.init(this)
         if (intent.getStringExtra("action") == "open") { BeamController.open(); finish(); return }
+        if (intent.getStringExtra("action") == "hotspot") {
+            // Hotspot mode needs Android's nearby-Wi-Fi permission (location on Android 12 and older).
+            val perm = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.NEARBY_WIFI_DEVICES else android.Manifest.permission.ACCESS_FINE_LOCATION
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+                if (ok) BeamController.useHotspot()
+                else android.widget.Toast.makeText(this, "Nebula needs the nearby Wi-Fi permission to start a hotspot.", android.widget.Toast.LENGTH_LONG).show()
+                finish()
+            }.launch(perm)
+            return
+        }
         val key = intent.getStringExtra("target").orEmpty()
         val target = BeamController.target(key)
         if (target == null) { finish(); return }

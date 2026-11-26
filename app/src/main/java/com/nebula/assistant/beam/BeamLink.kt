@@ -35,10 +35,16 @@ class BeamLink(private val ctx: Context, private val items: List<BeamItem>, priv
     var url = ""; private set
     @Volatile var total = 0; private set
 
-    /** Starts serving; returns the URL, or null when there's no Wi-Fi address to serve on. */
-    fun start(): String? {
-        val ip = wifiIp() ?: return null
-        val s = ServerSocket(); s.reuseAddress = true; s.bind(InetSocketAddress(ip, 0)); server = s
+    /**
+     * Starts serving; returns the URL, or null when there's no address to serve on.
+     *
+     * Listens on every interface (so it can't be bound to a stale address), and the QR carries the address of the
+     * network the other device is actually on: the Wi-Fi this phone is connected to — read from Android's own
+     * network info, not guessed from interface names — or, in hotspot mode, the phone's own hotspot ([hostIp]).
+     */
+    fun start(hostIp: String? = null): String? {
+        val ip = hostIp ?: wifiIp(ctx) ?: return null
+        val s = ServerSocket(); s.reuseAddress = true; s.bind(InetSocketAddress(0)); server = s
         url = "http://$ip:${s.localPort}/b/$token"
         Thread({
             while (!s.isClosed) {
@@ -49,12 +55,17 @@ class BeamLink(private val ctx: Context, private val items: List<BeamItem>, priv
         return url
     }
 
-    fun stop() { runCatching { server?.close() }; server = null }
+    /** Asks our own server for the page over the network address in the QR. False = this network won't let anyone reach it. */
+    fun selfCheck(): Boolean = runCatching {
+        val u = java.net.URL(url)
+        Socket().use { so ->
+            so.connect(InetSocketAddress(u.host, u.port), 2000); so.soTimeout = 2500
+            so.getOutputStream().write("HEAD ${u.path} HTTP/1.1\r\nHost: ${u.host}\r\nX-Beam-Check: 1\r\n\r\n".toByteArray())
+            BufferedReader(InputStreamReader(so.getInputStream())).readLine()?.startsWith("HTTP/1.1 200") == true
+        }
+    }.getOrDefault(false)
 
-    private fun wifiIp(): String? = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback && (it.name.startsWith("wlan") || it.name.startsWith("ap") || it.name.startsWith("swlan")) }
-            .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }?.hostAddress
-    }.getOrNull()
+    fun stop() { runCatching { server?.close() }; server = null }
 
     private fun limited(ip: String): Boolean = synchronized(hits) {
         val now = System.currentTimeMillis()
@@ -67,6 +78,7 @@ class BeamLink(private val ctx: Context, private val items: List<BeamItem>, priv
         val r = BufferedReader(InputStreamReader(c.getInputStream()))
         val line = r.readLine() ?: return
         while (true) { val h = r.readLine() ?: break; if (h.isEmpty()) break }
+        val method = line.substringBefore(' ')
         val path = line.split(" ").getOrNull(1).orEmpty()
         val out = c.getOutputStream()
         val ip = c.inetAddress.hostAddress.orEmpty()
@@ -74,7 +86,7 @@ class BeamLink(private val ctx: Context, private val items: List<BeamItem>, priv
         if (System.currentTimeMillis() > expiresAt) return status(out, 410, "This Beam Link has expired. Ask the sender for a new one.")
         val base = "/b/$token"
         when {
-            path == base || path == "$base/" -> page(out)
+            path == base || path == "$base/" -> if (method == "HEAD") headers(out, 200, "text/html; charset=utf-8", 0) else page(out)
             path.startsWith("$base/f/") || path.startsWith("$base/p/") -> {
                 val i = path.substringAfterLast('/').toIntOrNull() ?: return status(out, 404, "Not found")
                 val it = items.getOrNull(i)?.takeIf { x -> x.uri != null } ?: return status(out, 404, "Not found")
@@ -128,8 +140,36 @@ main{max-width:560px;margin:0 auto;padding:28px 18px 40px}h1{font-size:24px;marg
     }
 
     companion object {
+        /** This phone's address on the Wi-Fi it's connected to, from Android's network info (falls back to the interfaces). */
+        fun wifiIp(ctx: Context): String? {
+            runCatching {
+                val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)
+                @Suppress("DEPRECATION")
+                for (n in cm.allNetworks) {
+                    val caps = cm.getNetworkCapabilities(n) ?: continue
+                    if (!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) continue
+                    cm.getLinkProperties(n)?.linkAddresses?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress?.let { return it }
+                }
+            }
+            return runCatching {
+                NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback && it.name.startsWith("wlan") }
+                    .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }?.hostAddress
+            }.getOrNull()
+        }
+
+        /** The phone's own hotspot address (the interface that isn't the Wi-Fi it's connected to). */
+        fun hotspotIp(ctx: Context): String? = runCatching {
+            val client = wifiIp(ctx)
+            NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback && !it.name.startsWith("rmnet") && !it.name.startsWith("p2p") }
+                .sortedBy { if (it.name.startsWith("ap") || it.name.startsWith("swlan")) 0 else 1 }
+                .flatMap { it.inetAddresses.toList() }
+                .firstOrNull { it is Inet4Address && it.isSiteLocalAddress && it.hostAddress != client }?.hostAddress
+        }.getOrNull()
+
         fun qr(text: String, size: Int = 512): Bitmap {
-            val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
+            // A proper quiet zone (4 modules) and medium error correction: phone cameras lock on far more reliably.
+            val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 4,
+                EncodeHintType.ERROR_CORRECTION to com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M))
             val px = IntArray(size * size) { i -> if (m[i % size, i / size]) Color.BLACK else Color.WHITE }
             return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
         }

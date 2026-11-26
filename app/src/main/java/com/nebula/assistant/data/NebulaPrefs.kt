@@ -160,6 +160,10 @@ class NebulaPrefs(context: Context) {
     var notchUnlock: Boolean get() = bool("notch_unlock", true); set(v) = setBool("notch_unlock", v)
     var notchTasks: Boolean get() = bool("notch_tasks", true); set(v) = setBool("notch_tasks", v)
     var notchDevices: Boolean get() = bool("notch_devices", true); set(v) = setBool("notch_devices", v)
+    var notchCharging: Boolean get() = bool("notch_charging", true); set(v) = setBool("notch_charging", v)
+    var notchRinger: Boolean get() = bool("notch_ringer", true); set(v) = setBool("notch_ringer", v)
+    /** R3cket: while you play, the notch drops its heavy effects and Nebula slows its own background work. */
+    var r3cketLite: Boolean get() = bool("r3cket_lite", true); set(v) = setBool("r3cket_lite", v)
 
     /**
      * Detection threshold handed to the wake word engine. Lower = triggers more easily.

@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
  * moment a bigger view is coming, lets the island animate inside it, then shrinks to fit once
  * the animation has settled.
  */
-class NotchController(private val service: AccessibilityService) {
+class NotchController(private val service: AccessibilityService) : NotchHost {
 
     private val wm = service.getSystemService(WindowManager::class.java)
     private val audio = service.getSystemService(AudioManager::class.java)
@@ -69,19 +69,20 @@ class NotchController(private val service: AccessibilityService) {
     private val owner = OverlayOwner()
 
     /** Transient states driven from here. */
-    var volume by mutableStateOf<Pair<Float, Boolean>?>(null)   // level 0..1, muted
-        private set
-    var unlock by mutableStateOf<UnlockPhase?>(null)
-        private set
+    override var volume by mutableStateOf<Pair<Float, Boolean>?>(null)   // level 0..1, muted
+    override var unlock by mutableStateOf<UnlockPhase?>(null)
+    /** Charger plugged in / out, and ring / vibrate / silent — each shows for a moment. */
+    override var charge by mutableStateOf<NotchBus.Charge?>(null)
+    override var ringer by mutableStateOf<NotchBus.Ringer?>(null)
+    private val hideCharge = Runnable { charge = null }
+    private val hideRinger = Runnable { ringer = null }
 
     /** Phone really ringing / in a call (WhatsApp calls too)? From the audio system, so stale notifications can't fake one. */
-    var phoneInCall by mutableStateOf(false)
-        private set
+    override var phoneInCall by mutableStateOf(false)
 
     data class Layout(val scale: Float, val height: Float, val x: Float, val y: Float)
     /** Live size/position from Settings — sliders move the island instantly. */
-    var layout by mutableStateOf(readLayout())
-        private set
+    override var layout by mutableStateOf(readLayout())
     private fun readLayout() = Layout(prefs.notchScale, prefs.notchHeight, prefs.notchX, prefs.notchY)
 
     enum class UnlockPhase { SCANNING, SUCCESS }
@@ -149,6 +150,10 @@ class NotchController(private val service: AccessibilityService) {
         registeredDevicesAt = System.currentTimeMillis()
         audio.registerAudioDeviceCallback(deviceCallback, main)
         ContextCompat.registerReceiver(service, budsBattery, IntentFilter("android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"), ContextCompat.RECEIVER_EXPORTED)
+        ContextCompat.registerReceiver(service, powerReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED); addAction(AudioManager.RINGER_MODE_CHANGED_ACTION)
+        }, ContextCompat.RECEIVER_EXPORTED)
+        lastRinger = audio.ringerMode
         lastVol = audio.getStreamVolume(stream())
 
         // Calls: a call card is only real while the audio system is in call/ringing mode. Clears leftovers.
@@ -250,6 +255,7 @@ class NotchController(private val service: AccessibilityService) {
     fun stop() {
         runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
         runCatching { service.unregisterReceiver(budsBattery) }
+        runCatching { service.unregisterReceiver(powerReceiver) }
         scope.cancel()
         runCatching { service.contentResolver.unregisterContentObserver(volumeObserver) }
         runCatching { service.unregisterReceiver(screenReceiver) }
@@ -259,13 +265,41 @@ class NotchController(private val service: AccessibilityService) {
         owner.stop()
     }
 
+    // ------------------------------------------------------------------ charging & ringer
+
+    private var lastRinger = -1
+    private val powerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            when (i.action) {
+                Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED -> {
+                    if (!prefs.notchEnabled || !prefs.notchCharging) return
+                    val b = service.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val level = b?.let { it.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, 0) * 100 / it.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1) } ?: 0
+                    val bm = service.getSystemService(android.os.BatteryManager::class.java)
+                    // "Fast" when the charger pushes more than ~1.5 A (where the phone reports it).
+                    val fast = runCatching { kotlin.math.abs(bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)) > 1_500_000 }.getOrDefault(false)
+                    charge = NotchBus.Charge(level, i.action == Intent.ACTION_POWER_CONNECTED, fast)
+                    main.removeCallbacks(hideCharge); main.postDelayed(hideCharge, 3600)
+                }
+                AudioManager.RINGER_MODE_CHANGED_ACTION -> {
+                    val m = audio.ringerMode
+                    if (m == lastRinger) return
+                    lastRinger = m
+                    if (!prefs.notchEnabled || !prefs.notchRinger) return
+                    ringer = NotchBus.Ringer(m)
+                    main.removeCallbacks(hideRinger); main.postDelayed(hideRinger, 2200)
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ island window sizing
 
     private var shrinkTo: Pair<Int, Int>? = null
     private val shrink = Runnable { shrinkTo?.let { (w, h) -> setSize(w, h) } }
 
     /** Make room right away for a view of up to [w]×[h] px (never shrinks). */
-    fun reserve(w: Int, h: Int) {
+    override fun reserve(w: Int, h: Int) {
         val p = lp ?: return
         main.removeCallbacks(shrink)
         val nw = maxOf(p.width, w); val nh = maxOf(p.height, h)
@@ -273,7 +307,7 @@ class NotchController(private val service: AccessibilityService) {
     }
 
     /** Once the island has settled at [w]×[h] px, trim the window to it so it never blocks touches. */
-    fun fit(w: Int, h: Int, afterMs: Long = 420) {
+    override fun fit(w: Int, h: Int, afterMs: Long) {
         shrinkTo = w.coerceAtLeast(1) to h.coerceAtLeast(1)
         main.removeCallbacks(shrink); main.postDelayed(shrink, afterMs)
     }
@@ -369,26 +403,26 @@ class NotchController(private val service: AccessibilityService) {
         return cut.centerX() - m.bounds.width() / 2
     }
 
-    fun cutoutHeightPx(): Int {
+    override fun cutoutHeightPx(): Int {
         if (Build.VERSION.SDK_INT < 30) return 0
         val m = wm.currentWindowMetrics
         return m.windowInsets.displayCutout?.boundingRects?.minByOrNull { it.top }?.let { it.bottom } ?: 0
     }
 
-    fun openApp(tab: String? = null, taskId: String? = null) {
+    override fun openApp(tab: String?, taskId: String?) {
         service.startActivity(Intent(service, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(MainActivity.EXTRA_TAB, tab).putExtra(MainActivity.EXTRA_TASK, taskId))
     }
 
     /** Tap-to-talk from the island (goes through an invisible activity so the mic may start). */
-    fun talk() {
+    override fun talk() {
         service.startActivity(Intent(service, com.nebula.assistant.ui.TalkActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
-    val notchPrefs get() = prefs
-    fun later(ms: Long, f: () -> Unit) { main.postDelayed(f, ms) }
-    val context: Context get() = service
+    override val notchPrefs get() = prefs
+    override fun later(ms: Long, f: () -> Unit) { main.postDelayed(f, ms) }
+    override val context: Context get() = service
 
     /** Minimal lifecycle so Compose can run inside a service window. */
     private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {

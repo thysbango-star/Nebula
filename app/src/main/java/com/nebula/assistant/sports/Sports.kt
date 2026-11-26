@@ -90,6 +90,7 @@ object Sports {
         val cards: List<Card> = emptyList(),
         val leagueLogo: String = "",     // the competition's logo from ESPN
         val stats: List<Stat> = emptyList(),
+        val added: String = "",         // added time announced for this half ("4"), shown as a tab on the clock
     ) {
         val live get() = state == "in"
     }
@@ -205,7 +206,8 @@ object Sports {
     suspend fun run(prefs: NebulaPrefs) {
         while (true) {
             val wait = runCatching { withContext(Dispatchers.Default) { poll(prefs) } }.getOrElse { 60_000L }
-            delay(wait)
+            // R3cket lite: while you play, scores still come in, just less often (fewer wake-ups competing with the game).
+            delay(if (com.nebula.assistant.game.R3cket.inGame.value && prefs.r3cketLite) maxOf(wait, 40_000L) else wait)
         }
     }
 
@@ -269,13 +271,22 @@ object Sports {
             moments.filter { it.kind == "sub" }.groupBy { it.home }.forEach { (_, subs) ->
                 subs.flatMap { it.subs }.chunked(2).forEach { pair -> show(subs.first().copy(subs = pair, minute = subs.last().minute)) }
             }
+            // Broadcast-style bookends: the teams and competition at kick-off / the restart, and at full time.
+            if (prev != null && prefs.sportsGoals) {
+                when {
+                    prev.state == "pre" && g.state == "in" -> show(Score(g, true, g.home.text, "KICK-OFF", "", kind = "intro"))
+                    prev.clock.equals("HT", true) && g.live && !g.clock.equals("HT", true) -> show(Score(g, true, g.home.text, "SECOND HALF", "", kind = "intro"))
+                    prev.state == "in" && g.state == "post" -> show(Score(g, true, g.home.text, "FULL TIME", "", kind = "fulltime"))
+                }
+            }
             if (prev?.state == "in" && g.state == "post") finishedAt[g.id] = now
             last[g.id] = g
         }
         // Rugby conversions: a try with no kick by the end of the window means it was missed (or not taken).
         for ((k, at) in awaitingKick.toMap()) if (now - at > KICK_WINDOW) { awaitingKick.remove(k); missedAt[k] = now }
         val annotated = filled.map { gg ->
-            val g = gg.copy(cards = liveCards(gg, now), stats = statsByGame[gg.id].orEmpty())
+            val added = addedByGame[gg.id]?.takeIf { gg.live && !gg.clock.equals("HT", true) && now - it.second < 14 * 60_000L }?.first.orEmpty()
+            val g = gg.copy(cards = liveCards(gg, now), stats = statsByGame[gg.id].orEmpty(), added = added)
             if (g.league.kind != Sports.Kind.RUGBY) return@map g
             val side = listOf(true, false).firstOrNull { awaitingKick.containsKey(key(g, it)) || now - (missedAt[key(g, it)] ?: 0L) < 60_000L }
                 ?: return@map g
@@ -352,6 +363,7 @@ object Sports {
 
     private val lineupShown = HashSet<String>()
     private val statsByGame = HashMap<String, List<Stat>>()
+    private val addedByGame = HashMap<String, Pair<String, Long>>()
     private val seenCommentary = HashMap<String, MutableSet<String>>()
 
     /** Team stats from the summary's box score, football's favourites first, then whatever the sport has. */
@@ -396,6 +408,7 @@ object Sports {
             if (!seen.add(id) || text.isBlank()) continue
             Regex("(\\d+)\\s+minutes?\\s+of\\s+(?:added|additional|stoppage)\\s+time", RegexOption.IGNORE_CASE).find(text)?.let { m ->
                 out += Score(g, true, "", "+" + m.groupValues[1], "minutes of added time", kind = "added", minute = minute, extra = m.groupValues[1])
+                addedByGame[g.id] = m.groupValues[1] to System.currentTimeMillis()
             }
             val ref = when { Regex("\\bVAR\\b").containsMatchIn(text) -> "VAR"; Regex("\\bTMO\\b").containsMatchIn(text) -> "TMO"; else -> null } ?: continue
             if (text.contains("decision", true) || text.contains("overturned", true) || text.contains("stands", true)) {
@@ -834,6 +847,14 @@ object Sports {
                 val g = Game("demo", lg, Side("1", "SA", "South Africa", 167, 0xFF00843D, "167/5", 5, "17.5 ov", cricLogo(3)),
                     Side("2", "AUS", "Australia", 182, 0xFFF2B51C, "182/7", 7, "20 ov", cricLogo(2)), "in", "17.5 ov", "South Africa need 16 runs from 13 balls", 0)
                 g to listOf(Score(g, true, "161/5", "SIX", g.lastPlay, "PROTEAS"))
+            }
+            "intro" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 0, 0xFFE20520), Side("2", "CHE", "Chelsea", 0, 0xFF034694), "in", "1'", "", 0)
+                g to listOf(Score(g, true, "0", "KICK-OFF", "", kind = "intro"))
+            }
+            "fulltime" -> {
+                val g = Game("demo", epl, Side("1", "ARS", "Arsenal", 2, 0xFFE20520), Side("2", "CHE", "Chelsea", 1, 0xFF034694), "post", "Full time", "B. Saka 67'", 0, stats = demoStats)
+                g to listOf(Score(g, true, "2", "FULL TIME", "", kind = "fulltime"))
             }
             "gulls" -> {
                 val g = Game("demo", epl, Side("1", "BHA", "Brighton", 2, 0xFF0057B8), Side("2", "NEW", "Newcastle", 1, 0xFF3A3A3A), "in", "71'", "K. Mitoma 71'", 0)

@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Beam Link's hotspot mode: Android's temporary "local-only" hotspot, for when the other device isn't on your Wi-Fi -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
     <!-- Hearing "Hey Nebula" and your questions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- live audio bars on the music card (android.media.audiofx.Visualizer) -->

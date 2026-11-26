@@ -98,23 +98,33 @@ object R3cket {
         _session.value = Session(name, pkg)
         panel.value = false
         scope.launch {
-            // 1. Free memory: ask Android to close apps sitting in the background.
+            // 1. Free memory — but only if the phone is actually short of it, and only once the game has finished
+            //    loading. Closing apps while a game loads (or when there's plenty free) just makes them restart and
+            //    competes with the game for the CPU, which is what made the old boost feel slower, not faster.
             var freed = 0; var closed = 0
             if (prefs.r3cketBoost) {
                 val am = c.getSystemService(android.app.ActivityManager::class.java)
-                val before = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
-                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    val pm = c.packageManager
-                    val launcher = pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
-                    val keep = setOf(pkg, c.packageName, launcher, "com.spotify.music", "com.google.android.apps.youtube.music") +
-                        (com.nebula.assistant.notch.NotchBus.media.value?.pkg?.let { setOf(it) } ?: emptySet())
-                    pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-                        .map { it.activityInfo.packageName }.distinct().filter { it !in keep }
-                        .forEach { p -> runCatching { am.killBackgroundProcesses(p); closed++ } }
+                val mi = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+                val short = mi.lowMemory || mi.availMem < mi.totalMem * 0.25
+                if (short) {
+                    delay(5000)
+                    if (_session.value?.pkg != pkg) return@launch
+                    val before = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val pm = c.packageManager
+                        val launcher = pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
+                        val keep = setOf(pkg, c.packageName, launcher, "com.spotify.music", "com.google.android.apps.youtube.music") +
+                            (com.nebula.assistant.notch.NotchBus.media.value?.pkg?.let { setOf(it) } ?: emptySet())
+                        // Only apps that are really sitting in memory right now, not every installed app.
+                        val running = runCatching { am.runningAppProcesses.orEmpty().flatMap { it.pkgList.orEmpty().toList() }.toSet() }.getOrDefault(emptySet())
+                        pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                            .map { it.activityInfo.packageName }.distinct().filter { it !in keep && (running.isEmpty() || it in running) }
+                            .forEach { p -> runCatching { am.killBackgroundProcesses(p); closed++ } }
+                    }
+                    delay(900)
+                    val after = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
+                    freed = ((after - before) / 1_048_576L).toInt().coerceAtLeast(0)
                 }
-                delay(900)
-                val after = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
-                freed = ((after - before) / 1_048_576L).toInt().coerceAtLeast(0)
             }
             // 2. Do not disturb (only with permission), restored when you leave the game.
             var dnd = false
@@ -171,6 +181,10 @@ object R3cket {
     private fun label(c: Context, pkg: String) = runCatching {
         c.packageManager.getApplicationLabel(c.packageManager.getApplicationInfo(pkg, 0)).toString()
     }.getOrDefault(pkg)
+
+    /** The phone's thermal state (0 none … 3+ severe/throttling), straight from Android. */
+    fun thermal(context: Context): Int = if (android.os.Build.VERSION.SDK_INT >= 29)
+        runCatching { context.getSystemService(android.os.PowerManager::class.java).currentThermalStatus }.getOrDefault(0) else 0
 
     /** Battery level/temperature for the R3cket bar. */
     fun battery(context: Context): Pair<Int, Float> {

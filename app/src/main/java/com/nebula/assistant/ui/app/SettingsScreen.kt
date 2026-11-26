@@ -127,6 +127,8 @@ fun SettingsScreen(prefs: NebulaPrefs, perms: List<Perm>, a: SettingsActions, ve
                 Toggle("Live Activities", "Rides, deliveries, directions, timers and downloads from your apps, live in the notch.", prefs.notchLive) { prefs.notchLive = it; tick++ }
                 Toggle("Volume", "Animated level when you press the volume keys.", prefs.notchVolume) { prefs.notchVolume = it; tick++ }
                 Toggle("Earbuds & headphones", "Shows when AirPods, Buds or headphones connect.", prefs.notchDevices) { prefs.notchDevices = it; tick++ }
+                Toggle("Charging", "A battery fills in the notch when you plug in or unplug.", prefs.notchCharging) { prefs.notchCharging = it; tick++ }
+                Toggle("Ring / silent", "Shows the bell when you switch between ring, vibrate and silent.", prefs.notchRinger) { prefs.notchRinger = it; tick++ }
                 Toggle("Unlock animation", "Scan ring → tick when your phone unlocks.", prefs.notchUnlock) { prefs.notchUnlock = it; tick++ }
                 Toggle("Nebula tasks", "Live progress of what Nebula is doing.", prefs.notchTasks) { prefs.notchTasks = it; tick++ }
             }
@@ -362,7 +364,8 @@ private fun R3cketGroup(prefs: NebulaPrefs) {
                 if (it && !com.nebula.assistant.game.R3cket.dndAllowed(ctx)) runCatching {
                     ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
-            Toggle("Game HUD", "Game time, ping and phone temperature around the camera. Tap it for the R3cket panel.", prefs.r3cketHud) { prefs.r3cketHud = it; tick++ }
+            Toggle("Game HUD", "Game time, ping and the phone's heat state, no bigger than the notch. Tap it for R3cket's tools.", prefs.r3cketHud) { prefs.r3cketHud = it; tick++ }
+            Toggle("Lite island while playing", "The notch drops its heavy effects and Nebula checks scores less often, so the game gets the phone.", prefs.r3cketLite) { prefs.r3cketLite = it; tick++ }
             Toggle("Crosshair", "A centre aim dot for shooters (can also be switched from the panel).", prefs.r3cketCrosshair) { prefs.r3cketCrosshair = it; tick++ }
         }
         val cps = 1000f / interval
@@ -434,7 +437,7 @@ private fun SportsGroup(prefs: NebulaPrefs) {
             Toggle("Cards & substitutions", "Yellow and red cards (with rugby's sin-bin and 20-minute timers), substitution boards, and who scored.", prefs.sportsEvents) { prefs.sportsEvents = it; tick++ }
         }
         Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            listOf("Arsenal goal" to "goal", "Seagulls" to "gulls", "Springbok try" to "try", "Lineup" to "lineup", "VAR" to "var", "TMO" to "tmo",
+            listOf("Arsenal goal" to "goal", "Kick-off" to "intro", "Full time" to "fulltime", "Seagulls" to "gulls", "Springbok try" to "try", "Lineup" to "lineup", "VAR" to "var", "TMO" to "tmo",
                 "Added time" to "added", "Red card" to "cards", "Substitution" to "sub", "A six" to "six")
                 .forEachIndexed { i, (label, which) ->
                     if (i > 0) Spacer(Modifier.size(8.dp))

@@ -52,6 +52,11 @@ object NotchBus {
     data class Device(val name: String, val connected: Boolean, val kind: String, val at: Long = System.currentTimeMillis(), val battery: Int? = null)
     val device = MutableStateFlow<Device?>(null)
 
+    /** Charger plugged in / out: [level] is the battery percentage. */
+    data class Charge(val level: Int, val plugged: Boolean, val fast: Boolean = false, val at: Long = System.currentTimeMillis())
+    /** Ring / vibrate / silent switched (AudioManager.RINGER_MODE_*). */
+    data class Ringer(val mode: Int, val at: Long = System.currentTimeMillis())
+
     /** True while the user drags the Notch size sliders, so the island shows itself for preview. */
     val preview = MutableStateFlow(false)
 

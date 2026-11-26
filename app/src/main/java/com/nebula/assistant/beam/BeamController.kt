@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -81,7 +82,7 @@ object BeamController {
         open = false
         scanJob?.cancel(); sendJob?.cancel()
         discovery.stopScan()
-        link?.stop(); link = null
+        stopLink()
         pendingOffer?.complete(false); pendingOffer = null
         if (!visible) stopReceiver()
         _ui.value = BeamUi.Idle
@@ -131,17 +132,97 @@ object BeamController {
         }
     }
 
-    private fun startLink(items: List<BeamItem>) {
-        link?.stop()
-        if (!discovery.wifiOn()) { _ui.value = BeamUi.Failed("Wi-Fi unavailable — Beam Link needs both devices on the same Wi-Fi", canLink = false, canRetry = true); return }
-        val l = BeamLink(app, items, discovery.deviceName(), onDownload = { n -> (_ui.value as? BeamUi.Link)?.let { _ui.value = it.copy(downloads = n) } })
-        val url = runCatching { l.start() }.getOrNull()
-        if (url == null) { _ui.value = BeamUi.Failed("Couldn't start Beam Link on this network", canLink = false, canRetry = true); return }
-        link = l
-        _ui.value = BeamUi.Link(url, BeamLink.qr(url), l.expiresAt, items.size, 0, items.map { it.name })
-        record("Beam Link", items, "link")
-        scope.launch { delay(l.expiresAt - System.currentTimeMillis()); if (link === l) { l.stop(); link = null; if (_ui.value is BeamUi.Link) _ui.value = BeamUi.Failed("Link expired", canLink = true, canRetry = false) } }
+    private var hotspot: android.net.wifi.WifiManager.LocalOnlyHotspotReservation? = null
+
+    /**
+     * Beam Link. What used to go wrong: the QR could carry an address the other phone couldn't reach (a guessed
+     * interface), and the files were read straight from the picker's temporary permission, which Android can take
+     * back once the picker has closed. Now: the files are copied into Nebula first, the server listens on every
+     * interface with the real Wi-Fi address in the QR, and the phone asks its own server for the page through that
+     * address before showing the code — if this network blocks it, you're offered the phone's own hotspot instead.
+     */
+    private fun startLink(items: List<BeamItem>, hotspotMode: Boolean = false) {
+        link?.stop(); link = null
+        if (!hotspotMode && !discovery.wifiOn()) { _ui.value = BeamUi.Failed("You're not on Wi-Fi — use the phone's own hotspot instead", canLink = false, canRetry = false, canHotspot = true); return }
+        _ui.value = BeamUi.Preparing(if (hotspotMode) "Starting your hotspot…" else "Getting the link ready…")
+        sendJob?.cancel()
+        sendJob = scope.launch {
+            val local = withContext(Dispatchers.IO) { copyForLink(items) }
+            val host = if (hotspotMode) BeamLink.hotspotIp(app) else null
+            if (hotspotMode && host == null) { _ui.value = BeamUi.Failed("The hotspot started but has no address yet — try again", canLink = false, canRetry = true, canHotspot = true); return@launch }
+            val l = BeamLink(app, local, discovery.deviceName(), onDownload = { n -> scope.launch { (_ui.value as? BeamUi.Link)?.let { _ui.value = it.copy(downloads = n) } } })
+            val url = withContext(Dispatchers.IO) { runCatching { l.start(host) }.getOrNull() }
+            if (url == null) { _ui.value = BeamUi.Failed("Couldn't start Beam Link on this network", canLink = false, canRetry = true, canHotspot = !hotspotMode); return@launch }
+            val reachable = withContext(Dispatchers.IO) { l.selfCheck() }
+            if (!reachable && !hotspotMode) {
+                l.stop()
+                _ui.value = BeamUi.Failed("This Wi-Fi doesn't let devices reach each other (common on guest and public networks)", canLink = false, canRetry = true, canHotspot = true)
+                return@launch
+            }
+            link = l
+            val r = hotspot
+            val (ssid, pass) = if (hotspotMode && r != null) hotspotCredentials(r) else "" to ""
+            val joinQr = if (hotspotMode && ssid.isNotEmpty()) BeamLink.qr("WIFI:T:WPA;S:${wifiEsc(ssid)};P:${wifiEsc(pass)};;") else null
+            _ui.value = BeamUi.Link(url, BeamLink.qr(url), l.expiresAt, items.size, 0, items.map { it.name }, joinQr, ssid, pass, if (joinQr != null) 0 else 1)
+            record(if (hotspotMode) "Beam Link (hotspot)" else "Beam Link", items, "link")
+            delay(l.expiresAt - System.currentTimeMillis())
+            if (link === l) { stopLink(); if (_ui.value is BeamUi.Link) _ui.value = BeamUi.Failed("Link expired", canLink = true, canRetry = false) }
+        }
     }
+
+    /** Copies picked files into Nebula's cache so the link can always read them (the picker's permission can lapse). */
+    private fun copyForLink(items: List<BeamItem>): List<BeamItem> {
+        val dir = java.io.File(app.cacheDir, "beamlink").apply { deleteRecursively(); mkdirs() }
+        return items.mapIndexed { i, it ->
+            val u = it.uri ?: return@mapIndexed it
+            runCatching {
+                val f = java.io.File(dir, "$i-" + it.name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(80))
+                app.contentResolver.openInputStream(u)?.use { inp -> f.outputStream().use { out -> inp.copyTo(out, 256 * 1024) } } ?: return@mapIndexed it
+                it.copy(uri = Uri.fromFile(f), size = f.length())
+            }.getOrDefault(it)
+        }
+    }
+
+    private fun stopLink() {
+        link?.stop(); link = null
+        runCatching { hotspot?.close() }; hotspot = null
+        runCatching { java.io.File(app.cacheDir, "beamlink").deleteRecursively() }
+    }
+
+    /** Hotspot mode: Android makes a temporary Wi-Fi just for this; the other device joins it from the first QR. */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun useHotspot() {
+        if (lastItems.isEmpty()) return
+        val needs = if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.NEARBY_WIFI_DEVICES else android.Manifest.permission.ACCESS_FINE_LOCATION
+        if (androidx.core.content.ContextCompat.checkSelfPermission(app, needs) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            app.startActivity(Intent(app, BeamActivity::class.java).putExtra("action", "hotspot").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return
+        }
+        link?.stop(); link = null
+        runCatching { hotspot?.close() }; hotspot = null
+        _ui.value = BeamUi.Preparing("Starting your hotspot…")
+        val wm = app.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        runCatching {
+            wm.startLocalOnlyHotspot(object : android.net.wifi.WifiManager.LocalOnlyHotspotCallback() {
+                override fun onStarted(reservation: android.net.wifi.WifiManager.LocalOnlyHotspotReservation) {
+                    hotspot = reservation
+                    scope.launch { delay(600); startLink(lastItems, hotspotMode = true) }
+                }
+                override fun onFailed(reason: Int) {
+                    _ui.value = BeamUi.Failed(if (reason == ERROR_TETHERING_DISALLOWED) "Hotspots are turned off on this phone" else "Couldn't start a hotspot (turn off your normal hotspot and try again)", canLink = false, canRetry = false)
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+        }.onFailure { _ui.value = BeamUi.Failed("Couldn't start a hotspot: ${it.message ?: "not allowed"}", canLink = false, canRetry = false) }
+    }
+
+    private fun hotspotCredentials(r: android.net.wifi.WifiManager.LocalOnlyHotspotReservation): Pair<String, String> = runCatching {
+        if (Build.VERSION.SDK_INT >= 30) { val c = r.softApConfiguration; (if (Build.VERSION.SDK_INT >= 33) c.wifiSsid?.toString()?.trim('"') else @Suppress("DEPRECATION") c.ssid).orEmpty() to c.passphrase.orEmpty() }
+        else { @Suppress("DEPRECATION") val c = r.wifiConfiguration; c?.SSID.orEmpty().trim('"') to c?.preSharedKey.orEmpty().trim('"') }
+    }.getOrDefault("" to "")
+
+    private fun wifiEsc(s: String) = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace(":", "\\:").replace("\"", "\\\"")
+
+    /** Hotspot mode: they've joined — show the link's QR. */
+    fun linkStep(step: Int) { (_ui.value as? BeamUi.Link)?.let { _ui.value = it.copy(step = step) } }
 
     fun retry() { val t = lastTarget ?: return; if (lastItems.isNotEmpty()) send(t, lastItems) }
     fun useLink() { if (lastItems.isNotEmpty()) send(BeamTarget.Link, lastItems) }

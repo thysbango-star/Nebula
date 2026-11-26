@@ -28,8 +28,15 @@ sealed class BeamUi {
     /** [progress] is the real fraction sent, or null when the route doesn't report it. */
     data class Sending(val to: String, val progress: Float?, val count: Int, val code: String) : BeamUi()
     data class Sent(val to: String, val count: Int, val how: String) : BeamUi()
-    data class Failed(val reason: String, val canLink: Boolean, val canRetry: Boolean) : BeamUi()
-    data class Link(val url: String, val qr: Bitmap, val expiresAt: Long, val count: Int, val downloads: Int, val names: List<String>) : BeamUi()
+    data class Failed(val reason: String, val canLink: Boolean, val canRetry: Boolean, val canHotspot: Boolean = false) : BeamUi()
+    /**
+     * Beam Link is live. Same Wi-Fi: one QR (the link). Hotspot: two steps — [joinQr] joins the phone's own
+     * temporary Wi-Fi ([ssid]), then [qr] opens the link. [step] is which one is showing.
+     */
+    data class Link(val url: String, val qr: Bitmap, val expiresAt: Long, val count: Int, val downloads: Int, val names: List<String>,
+                    val joinQr: Bitmap? = null, val ssid: String = "", val pass: String = "", val step: Int = 1) : BeamUi()
+    /** Getting Beam Link ready (copying the files so they stay readable, starting the server, checking it answers). */
+    data class Preparing(val what: String) : BeamUi()
     data class Incoming(val offer: Offer) : BeamUi()
     data class Receiving(val from: String, val progress: Float, val count: Int) : BeamUi()
     data class Received(val from: String, val count: Int, val saved: List<Uri>, val text: String?) : BeamUi()

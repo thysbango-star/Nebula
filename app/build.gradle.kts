@@ -57,6 +57,21 @@ android {
     androidResources { noCompress += listOf("onnx", "txt") }
 
     packaging { jniLibs { useLegacyPackaging = true } }
+
+    // The notch film (app/src/test/.../NotchFilm.kt) renders every notch animation with Robolectric.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.maxHeapSize = "4g"
+                it.systemProperty("robolectric.graphicsMode", "NATIVE")
+                it.systemProperty("nebula.film", if (project.hasProperty("film")) "1" else "0")
+                it.systemProperty("nebula.filmDir", rootProject.layout.buildDirectory.dir("notch-film").get().asFile.absolutePath)
+                it.systemProperty("nebula.ffmpeg", (project.findProperty("ffmpeg") ?: "").toString())
+                it.testLogging { showStandardStreams = true }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -78,4 +93,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // Nebula Beam: QR codes for Beam Link
     implementation("com.google.zxing:core:3.5.3")
+
+    // Only for recording the notch film on CI (not in the app).
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("junit:junit:4.13.2")
 }

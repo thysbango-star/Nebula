@@ -1,0 +1,69 @@
+name: Notch film
+
+# Records every notch animation from the real composables (Robolectric, test clock, 30 fps) into one video.
+# The video is uploaded as an artifact and committed to the `notch-film` branch so it can be fetched with git.
+
+on:
+  push:
+    branches: [nebula-2.0]
+    paths:
+      - 'app/src/main/java/com/nebula/assistant/notch/**'
+      - 'app/src/test/**'
+      - '.github/workflows/notch-film.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: notch-film
+  cancel-in-progress: true
+
+jobs:
+  film:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Record
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.nebula.assistant.notch.NotchFilm' -Pfilm -Pffmpeg="$(which ffmpeg)" 2>&1 | tee film.log
+          ls -la build/notch-film | head -20
+
+      - name: Save log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: film-log
+          path: |
+            film.log
+            app/build/reports/tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notch-animations
+          path: |
+            build/notch-film/notch-animations.mp4
+            build/notch-film/still-*.png
+
+      - name: Publish to the notch-film branch
+        run: |
+          mkdir /tmp/film && cp build/notch-film/notch-animations.mp4 build/notch-film/still-*.png /tmp/film/
+          cd /tmp/film
+          git init -q -b notch-film
+          git config user.name "Nebula CI"; git config user.email "ci@nebula.local"
+          git add . && git commit -q -m "Notch film from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" notch-film
