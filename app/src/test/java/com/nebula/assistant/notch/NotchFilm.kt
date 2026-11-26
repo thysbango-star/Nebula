@@ -37,7 +37,6 @@ import com.nebula.assistant.sports.Logos
 import com.nebula.assistant.sports.Sports
 import com.nebula.assistant.voice.VoiceState
 import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,8 +44,6 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Records every notch animation, frame by frame, from the real composables (the same code the phone runs),
@@ -315,38 +312,20 @@ class NotchFilm {
         return b
     }
 
-    /** Real ESPN logos for the teams and competitions in the reel. */
+    /**
+     * Real ESPN logos for the teams and competitions in the reel. CI downloads them before the test
+     * (map.tsv + key.png); they're put into Nebula's own logo cache, then loaded the normal way.
+     */
     private suspend fun fetchLogos(ctx: android.content.Context): Map<String, String> {
-        val outMap = HashMap<String, String>()
-        // The JDK's own HTTP client (Android's URLConnection doesn't work inside Robolectric).
-        val http = java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NORMAL).connectTimeout(java.time.Duration.ofSeconds(10)).build()
-        fun bytes(u: String): ByteArray? = runCatching {
-            val r = http.send(java.net.http.HttpRequest.newBuilder(java.net.URI(u)).header("User-Agent", "Mozilla/5.0").GET().build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray())
-            if (r.statusCode() in 200..299) r.body() else { println("Film: HTTP ${r.statusCode()} for $u"); null }
-        }.onFailure { println("Film: fetch failed $u: $it") }.getOrNull()
-        fun get(u: String) = bytes(u)?.let { runCatching { JSONObject(String(it)) }.getOrNull() }
-        val base = "https://site.api.espn.com/apis/site/v2/sports/"
-        for ((path, keys) in listOf("soccer/eng.1" to listOf("arsenal", "chelsea", "brighton", "newcastle"), "rugby/289234" to listOf("southafrica", "england"))) {
-            val arr = get(base + path + "/teams")?.optJSONArray("sports")?.optJSONObject(0)?.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("teams") ?: continue
-            for (i in 0 until arr.length()) {
-                val t = arr.optJSONObject(i)?.optJSONObject("team") ?: continue
-                val n = t.optString("displayName").lowercase().replace(Regex("[^a-z]"), "")
-                val k = keys.firstOrNull { n.startsWith(it) } ?: continue
-                val logo = t.optJSONArray("logos")?.optJSONObject(0)?.optString("href").orEmpty()
-                if (logo.isNotBlank()) outMap.putIfAbsent(k, logo)
-            }
-            get(base + path + "/scoreboard")?.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("logos")?.optJSONObject(0)?.optString("href")?.takeIf { it.isNotBlank() }
-                ?.let { outMap[if (path.startsWith("rugby")) "rugbyleague" else "league"] = it }
-        }
-        if (outMap["southafrica"] == null) runCatching { Sports.nationLogos() }.getOrNull()?.let { m -> m["southafrica"]?.let { outMap["southafrica"] = it }; m["england"]?.let { outMap["england"] = it } }
-        // Seed Nebula's own logo cache on disk, then load them the normal way.
+        val src = File(System.getProperty("nebula.filmLogos").orEmpty())
+        val map = File(src, "map.tsv").takeIf { it.exists() }?.readLines().orEmpty()
+            .mapNotNull { l -> l.split('\t').takeIf { it.size == 2 && it[1].isNotBlank() }?.let { it[0] to it[1] } }.toMap()
         val dir = File(ctx.cacheDir, "logos").apply { mkdirs() }
-        for (u in outMap.values) {
-            val f = File(dir, java.security.MessageDigest.getInstance("SHA-1").digest(u.toByteArray()).joinToString("") { "%02x".format(it) } + ".png")
-            bytes(u)?.let { f.writeBytes(it) }
-            println("Film: logo $u -> ${Logos.get(ctx, u) != null}")
+        for ((k, u) in map) {
+            val png = File(src, "$k.png")
+            if (png.exists()) png.copyTo(File(dir, java.security.MessageDigest.getInstance("SHA-1").digest(u.toByteArray()).joinToString("") { "%02x".format(it) } + ".png"), overwrite = true)
+            println("Film: logo $k -> ${Logos.get(ctx, u) != null}")
         }
-        println("Film logos: $outMap")
-        return outMap
+        return map
     }
 }

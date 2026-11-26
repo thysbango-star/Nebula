@@ -68,6 +68,7 @@ android {
                 it.systemProperty("nebula.film", if (project.hasProperty("film")) "1" else "0")
                 it.systemProperty("nebula.filmDir", rootProject.layout.buildDirectory.dir("notch-film").get().asFile.absolutePath)
                 it.systemProperty("nebula.ffmpeg", (project.findProperty("ffmpeg") ?: "").toString())
+                it.systemProperty("nebula.filmLogos", (project.findProperty("filmLogos") ?: "").toString())
                 it.testLogging { showStandardStreams = true }
             }
         }

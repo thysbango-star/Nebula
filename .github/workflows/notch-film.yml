@@ -36,11 +36,29 @@ jobs:
       - name: ffmpeg
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
+      - name: ESPN logos for the reel
+        run: |
+          mkdir -p build/film-logos && cd build/film-logos
+          B=https://site.api.espn.com/apis/site/v2/sports
+          : > map.tsv
+          pick() { # league path, keys...
+            path=$1; shift
+            curl -sfL "$B/$path/teams" | jq -r '.sports[0].leagues[0].teams[].team | [(.displayName|ascii_downcase|gsub("[^a-z]";"")), (.logos[0].href // "")] | @tsv' > teams.tsv || true
+            for k in "$@"; do grep -m1 "^$k" teams.tsv | awk -v k="$k" -F'\t' '{print k"\t"$2}' >> map.tsv || true; done
+            lg=$(curl -sfL "$B/$path/scoreboard" | jq -r '.leagues[0].logos[0].href // empty' || true)
+            [ -n "$lg" ] && printf '%s\t%s\n' "$2league" "$lg" >> map.tsv || true
+          }
+          pick soccer/eng.1 arsenal chelsea brighton newcastle
+          pick rugby/289234 southafrica england
+          sed -i 's/^chelsealeague/league/; s/^englandleague/rugbyleague/' map.tsv
+          while IFS=$'\t' read -r k u; do [ -n "$u" ] && curl -sfL "$u" -o "$k.png" || true; done < map.tsv
+          cat map.tsv; ls -la
+
       - name: Record
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.nebula.assistant.notch.NotchFilm' -Pfilm -Pffmpeg="$(which ffmpeg)" 2>&1 | tee film.log
+          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.nebula.assistant.notch.NotchFilm' -Pfilm -Pffmpeg="$(which ffmpeg)" -PfilmLogos="$PWD/build/film-logos" 2>&1 | tee film.log
           ls -la build/notch-film | head -20
 
       - name: Save log
