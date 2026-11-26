@@ -2,7 +2,7 @@ name: Build Nebula APK
 
 on:
   push:
-    branches: [main, nebula-2.0]
+    branches: [main, nebula-2.0, nebula-3.0]
     paths-ignore:
       - 'desktop/**'
       - '.github/workflows/desktop.yml'
