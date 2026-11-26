@@ -42,6 +42,7 @@ class Utterance(private val maxSeconds: Int = 15, private val waitSeconds: Int =
     private var quiet = 0
     private var total = 0
     private val noise = mutableListOf<Double>()
+    private var floor = -1.0
     var done = false; private set
     var empty = false; private set
 
@@ -49,9 +50,15 @@ class Utterance(private val maxSeconds: Int = 15, private val waitSeconds: Int =
         if (done) return true
         val r = Audio.rms(chunk, len)
         total += len
-        if (!heard && noise.size < 3) noise += r
-        val floor = if (noise.isEmpty()) 0.005 else noise.average()
-        val thr = max(0.014, floor * 2.8)
+        if (!heard) {
+            // Room noise = the quietest 150 ms seen while waiting. If you were already talking when
+            // listening began (e.g. right after "Hey Nebula"), your voice must not become the "noise".
+            noise += r; if (noise.size > 3) noise.removeAt(0)
+            if (noise.size == 3) floor = if (floor < 0) noise.average() else minOf(floor, noise.average())
+        }
+        val f = if (floor < 0) (if (noise.isEmpty()) 0.005 else noise.minOrNull()!!) else floor
+        // Capped so a loud start can never push the bar above normal speech.
+        val thr = max(0.014, minOf(f * 2.8, 0.04))
         if (!heard) {
             pre.addLast(chunk.copyOf(len)); if (pre.size > 4) pre.removeFirst()
             if (r > thr) { heard = true; pre.forEach { append(it, it.size) }; pre.clear() }
