@@ -59,7 +59,7 @@ internal fun moodGeo(ui: MoodUi, full: Dp): Geo = when (ui) {
     is MoodUi.Finding -> Geo(full, 214.dp, 34.dp)
     is MoodUi.Opening -> Geo(full, 136.dp, 34.dp)
     is MoodUi.Manual -> Geo(full, 290.dp, 36.dp)
-    is MoodUi.Live -> Geo(full, 206.dp, 34.dp)
+    is MoodUi.Live -> Geo(full, 228.dp, 34.dp)
 }
 
 @Composable
