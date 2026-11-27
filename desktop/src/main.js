@@ -16,7 +16,7 @@ const { Widgets } = require('./widgets');
 const { WinHelper, NOT_GAMES, isGamePath } = require('./win32');
 const os = require('os');
 const net = require('net');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { Store } = require('./store');
 const { Agent, TOOLS: AGENT_TOOLS, step: agentStep, toolMsg: agentToolMsg } = require('./agent');
 const { Workspace } = require('./workspace');
@@ -205,7 +205,17 @@ function createGlow() {
  */
 function liteMode() {
   const p = configData.performance || 'auto';
-  return p === 'lite' || (p === 'auto' && powerMonitor.isOnBatteryPower());
+  return p === 'lite' || (p === 'auto' && (powerMonitor.isOnBatteryPower() || weakPc()));
+}
+/** Laptops without GPU compositing, or with few cores and little memory, get the light visuals automatically. */
+let weak = null;
+function weakPc() {
+  if (weak != null) return weak;
+  let gpu = '';
+  try { gpu = String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch { /* */ }
+  weak = /disabled|unavailable|software/.test(gpu) || (os.cpus().length <= 4 && os.totalmem() < 8.5 * 1024 ** 3);
+  log('perf', `gpu_compositing=${gpu} cores=${os.cpus().length} mem=${Math.round(os.totalmem() / 1024 ** 3)}GB → ${weak ? 'lite' : 'full'}`);
+  return weak;
 }
 let glowKill = null;
 /** The glow window only exists while it's needed (frees the graphics chip the rest of the time). */
@@ -236,6 +246,7 @@ function createEar() {
 
 /** The Nebula app window (Chat · Tasks · Files · Settings), in the phone app's design. */
 function openApp(view) {
+  if (Date.now() - lastUpdateCheck > 10 * 60000) updateCheck();
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();
     settings.show(); settings.focus();
@@ -448,20 +459,23 @@ function initAgent() {
 
 // ------------------------------------------------------------------ Nebula Workspace window
 function openWorkspace(open) {
+  if (Date.now() - lastUpdateCheck > 10 * 60000) updateCheck();
   if (wsWin && !wsWin.isDestroyed()) {
     if (wsWin.isMinimized()) wsWin.restore();
     wsWin.show(); wsWin.focus();
     if (open) send(wsWin, 'ws:open', open);
     return;
   }
+  const wa = screen.getPrimaryDisplay().workArea;
+  const small = wa.width < 1440 || wa.height < 900;
   wsWin = new BrowserWindow({
-    width: 1380, height: 880, minWidth: 1000, minHeight: 640, title: 'Nebula Workspace',
+    width: Math.min(1380, wa.width), height: Math.min(880, wa.height), minWidth: Math.min(1000, wa.width), minHeight: Math.min(640, wa.height), title: 'Nebula Workspace',
     backgroundColor: workspace.data.profile.onboarded ? '#0B0A10' : '#5200F4', icon: iconPath(), show: false,
     titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: '#FFFFFF', height: 44 },
     webPreferences: { ...baseWebPrefs, backgroundThrottling: true },
   });
   wsWin.loadFile(asset('workspace.html'), open ? { query: { open: JSON.stringify(open) } } : undefined);
-  wsWin.once('ready-to-show', () => wsWin.show());
+  wsWin.once('ready-to-show', () => { if (small) wsWin.maximize(); wsWin.show(); });
   wsWin.on('show', () => send(wsWin, 'ws:state', workspace.snapshot()));
   wsWin.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
@@ -489,6 +503,37 @@ async function wsOpenJson() {
   const r = await dialog.showOpenDialog(wsWin, { properties: ['openFile'], filters: [{ name: 'Nebula file', extensions: ['json'] }] });
   if (r.canceled || !r.filePaths[0]) return null;
   return JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+}
+
+/** One click: download the new installer and run it (Windows), or swap the AppImage (Linux). Anything else opens the page. */
+async function installUpdate() {
+  if (!update) return;
+  const base = `https://github.com/${support.REPO}/releases/download/desktop/`;
+  const appImage = process.platform === 'linux' && process.env.APPIMAGE;
+  if (process.platform !== 'win32' && !appImage) { shell.openExternal(update.url); return; }
+  if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_FILE) { shell.openExternal(update.url); return; } // portable: just get the new file
+  const name = process.platform === 'win32' ? 'Nebula-Setup.exe' : 'Nebula-Linux.AppImage';
+  const dest = process.platform === 'win32' ? path.join(app.getPath('temp'), `Nebula-Setup-${update.version}.exe`) : `${appImage}.new`;
+  updateProgress = { pct: 0, version: update.version }; broadcastSettings();
+  const r = await fetch(base + name, { redirect: 'follow' });
+  if (!r.ok) throw new Error(`Download failed (${r.status})`);
+  const total = Number(r.headers.get('content-length')) || 0; let got = 0; let lastSent = 0;
+  const out = fs.createWriteStream(dest);
+  for await (const chunk of r.body) {
+    got += chunk.length; out.write(chunk);
+    if (total && Date.now() - lastSent > 400) { lastSent = Date.now(); updateProgress = { pct: Math.round(got / total * 100), version: update.version }; broadcastSettings(); }
+  }
+  await new Promise((res, rej) => out.end((e) => (e ? rej(e) : res())));
+  if (total && got < total) throw new Error('The download was cut short.');
+  updateProgress = { pct: 100, version: update.version, installing: true }; broadcastSettings();
+  if (process.platform === 'win32') {
+    // The one-click installer closes the running Nebula, installs, and starts the new one.
+    spawn(dest, ['--updated'], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => { app.isQuitting = true; app.quit(); }, 800);
+  } else {
+    fs.chmodSync(dest, 0o755); fs.renameSync(dest, appImage);
+    app.relaunch({ execPath: appImage }); app.exit(0);
+  }
 }
 function wireWorkspace() {
   const W = () => workspace;
@@ -588,7 +633,7 @@ const session = {
 const timer = { endsAt: 0, label: '', handle: null };
 
 // ------------------------------------------------------------------ updates & reports
-let update = null; let notifiedUpdate = ''; let lastCrash = '';
+let update = null; let notifiedUpdate = ''; let lastCrash = ''; let updateCheck = async () => {}; let lastUpdateCheck = 0; let updateProgress = null;
 process.on('uncaughtException', (e) => {
   try { fs.writeFileSync(path.join(app.getPath('userData'), 'last-crash.txt'), `${e && e.stack || e}`.slice(0, 4000)); } catch { /* */ }
   log('uncaught', e);
@@ -675,7 +720,7 @@ function pushIslandState() {
   pushWidgets();
   if (mood.server) mood.update(); // the TV follows what's playing
   send(island, 'island:state', {
-    active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
+    lite: liteMode(), active: session.active, phase: session.phase, transcript: session.transcript, reply: session.reply,
     sources: session.sources, timerEndsAt: timer.endsAt, intensity: configData.intensity,
     hasKey: !!getKey(), hotkey: registeredHotkey || configData.hotkey, wakeEnabled: configData.wakeEnabled && !!wake,
     gaming: r3.gaming, game: r3.exe, clicker: clickerState, clickHotkey: configData.clickHotkey,
@@ -1046,7 +1091,7 @@ function settingsPayload() {
     groqExtraEnc: undefined, keyCount: allKeys().length, activeKeyNumber: allKeys().length ? ((configData.activeKey || 0) % allKeys().length) + 1 : 0,
     dark: configData.theme === 'dark' || (configData.theme !== 'light' && nativeTheme.shouldUseDarkColors), platform: process.platform,
     version: app.getVersion(),
-    update, lastCrash: lastCrash ? lastCrash.split('\n')[0].slice(0, 160) : '',
+    update, updateProgress, lastCrash: lastCrash ? lastCrash.split('\n')[0].slice(0, 160) : '',
   };
 }
 
@@ -1243,11 +1288,12 @@ function wireIpc() {
   });
   ipcMain.on('support:update', (_e, act) => {
     if (!update) return;
-    if (act === 'open') shell.openExternal(update.url);
+    if (act === 'open') installUpdate().catch((e) => { updateProgress = { error: e.message }; broadcastSettings(); shell.openExternal(update.url); });
     if (act === 'skip') config.set('skipUpdate', update.version);
     if (act === 'skip' || act === 'later') update = null;
     broadcastSettings();
   });
+  ipcMain.handle('support:check', async () => { await updateCheck(); return update ? update.version : null; });
   ipcMain.on('support:dismissCrash', () => { lastCrash = ''; broadcastSettings(); });
   ipcMain.handle('sports:teams', async (_e, path) => { try { return await sportsTeamList(path); } catch (e) { return { error: e.message }; } });
   ipcMain.on('sports:demo', (_e, kind) => sports.demo(kind));
@@ -1284,7 +1330,8 @@ app.whenReady().then(() => {
   setTimeout(pollMedia, 6000);
   setTimeout(beamApplyVisible, 4000);
   // Is there a newer Nebula? On launch and every 12 hours; one notification per version.
-  const updateCheck = async () => {
+  updateCheck = async () => {
+    lastUpdateCheck = Date.now();
     try {
       const u = await support.checkUpdate(app.getVersion());
       update = u && u.version !== configData.skipUpdate ? u : null;
@@ -1296,7 +1343,8 @@ app.whenReady().then(() => {
       broadcastSettings();
     } catch (e) { log('update check', e.message); }
   };
-  setTimeout(updateCheck, 20000); setInterval(updateCheck, 12 * 3600000);
+  // Nebula lives in the tray for days, so look often (it's one tiny file), and again whenever you open a window.
+  setTimeout(updateCheck, 20000); setInterval(updateCheck, 30 * 60000);
   // Crashed last time? Offer to report it.
   try { const f = path.join(app.getPath('userData'), 'last-crash.txt'); if (fs.existsSync(f)) { lastCrash = fs.readFileSync(f, 'utf8'); fs.unlinkSync(f); } } catch { /* */ }
   ear.webContents.on('did-finish-load', () => { earRunning = false; connectEarPort(); updateEar(); });

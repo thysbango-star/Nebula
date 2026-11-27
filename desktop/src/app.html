@@ -693,10 +693,15 @@ function renderSettings() {
   <div class="group"><h3>Appearance</h3><div class="chiprow">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button class="chip press ${(d.theme || 'system') === v ? 'on' : ''}" data-theme="${v}">${l}</button>`).join('')}</div></div>
 
   <div class="group"><h3>About</h3><p class="sub">Nebula for ${d.platform === 'linux' ? 'Linux' : 'Windows'} ${esc(d.version || '')}${d.update ? ` · <b>${esc(d.update.version)} is available</b>` : ''}</p>
+    <div class="row"><button class="chip press" id="chkUpd">Check for updates</button>${d.update ? '<button class="pill press" data-up="open">Update now</button>' : ''}</div>
     <div class="row"><button class="pill press" id="reportBtn">Report a problem to Claude</button></div>
     <p class="sub">Opens a pre-filled report on GitHub for you to check and send. Claude reads new reports daily, fixes them and ships an update.</p></div>`;
 
   const B = $('setBody');
+  setTimeout(() => {
+    const c = $('chkUpd'); if (c) c.onclick = async () => { c.textContent = 'Checking…'; const v = await api.invoke('support:check').catch(() => null); c.textContent = v ? `${v} is available` : 'You\'re up to date'; };
+    B.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => api.send('support:update', b.dataset.up)));
+  }, 0);
   const on = (id, ev, f) => { const el = $(id); if (el) el[ev] = f; };
   on('sSave', 'onclick', async () => { const v = $('sKey').value.trim(); if (v.length < 20) { $('sKeyStatus').textContent = "That doesn't look like a full key."; return; } await setS({ groqKey: v }); renderSettings(); $('sKeyStatus').textContent = 'Saved. Tap Test to check it.'; });
   on('sTest', 'onclick', async () => { $('sKeyStatus').textContent = 'Testing…'; const v = $('sKey').value.trim(); $('sKeyStatus').textContent = await api.invoke('settings:test', v.length >= 20 ? v : ''); });
@@ -930,7 +935,9 @@ api.on('app:data', (d) => { D = d; render(); });
 api.on('app:activity', (a) => { activity = a; render(); });
 function renderBanners() {
   const d = S || {}; let h = '';
-  if (d.update) h += `<div class="banner"><div><b>Update available — Nebula ${esc(d.update.version)}</b><p class="sub">Recommended: it has the latest fixes. You can keep using this version.</p></div>
+  const up = d.updateProgress;
+  if (d.update && up && !up.error) h += `<div class="banner"><div><b>${up.installing ? `Installing Nebula ${esc(d.update.version)} — it will reopen by itself` : `Downloading Nebula ${esc(d.update.version)}… ${up.pct || 0}%`}</b><p class="sub">You can keep working.</p></div></div>`;
+  else if (d.update) h += `<div class="banner"><div><b>Update available — Nebula ${esc(d.update.version)}</b><p class="sub">${up && up.error ? `The automatic download didn't work (${esc(up.error)}), so the download page opened.` : 'Recommended: it has the latest fixes. One click downloads and installs it.'}</p></div>
     <div class="acts"><button class="pill press" data-up="open">Update</button><button class="chip press" data-up="later">Later</button><button class="chip press" data-up="skip">Skip</button></div></div>`;
   if (d.lastCrash) h += `<div class="banner"><div><b>Nebula closed unexpectedly</b><p class="sub">Send the details to Claude to get it fixed in the next update.</p></div>
     <div class="acts"><button class="pill press" id="crashReport">Report to Claude</button><button class="chip press" id="crashDismiss">Dismiss</button></div></div>`;
