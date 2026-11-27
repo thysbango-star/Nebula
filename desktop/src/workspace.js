@@ -21,6 +21,9 @@ const TOOL_INFO = {
   plan: { risk: 'none' }, ask_user: { risk: 'none' }, finish_task: { risk: 'none' },
   search_knowledge: { risk: 'none', label: 'Search its knowledge', app: 'Knowledge' },
   remember: { risk: 'none', label: 'Save a memory', app: 'Memory' },
+  update_self: { risk: 'none', label: 'Update its own job', app: 'Settings' },
+  create_routine: { risk: 'none', label: 'Schedule a routine', app: 'Routines' },
+  manage_routine: { risk: 'none', label: 'Change a routine', app: 'Routines' },
   web_search: { risk: 'none', label: 'Search the web', app: 'Web search' },
   get_document: { risk: 'none', label: 'Read a file', app: 'Files' },
   create_document: { risk: 'low', label: 'Create a file', app: 'Files', reversible: true, consequence: 'A new file is saved in Nebula Files. Nothing else changes.' },
@@ -45,7 +48,7 @@ const CAPABILITIES = [
   { id: 'clicker', label: 'Auto-clicker', desc: 'R3cket auto-click where your pointer is.', tools: ['autoclicker'] },
   { id: 'delegate', label: 'Work with other bots', desc: 'Hand parts of a task to bots you allow.', tools: ['delegate_task'] },
 ];
-const CORE_TOOLS = ['plan', 'ask_user', 'finish_task', 'search_knowledge', 'remember'];
+const CORE_TOOLS = ['plan', 'ask_user', 'finish_task', 'search_knowledge', 'remember', 'update_self', 'create_routine', 'manage_routine'];
 
 const AUTONOMY = {
   assistant: { label: 'Assistant', desc: 'Asks before every action, even creating a file.', approve: ['low', 'medium', 'high'] },
@@ -309,6 +312,9 @@ function makeBotAgent(Base, ws, extraSchemas) {
         return { content: JSON.stringify({ ok: true, verified: true, result: 'Saved.' }), step: run.taskId ? step('Saved a memory', true, true, text.slice(0, 80)) : null };
       }
       if (name === 'delegate_task') return ws.delegate(bot, a, run);
+      if (name === 'update_self') return ws.updateSelf(bot, a, run);
+      if (name === 'create_routine') return ws.routineFromChat(bot, a, run);
+      if (name === 'manage_routine') return ws.manageRoutineFromChat(bot, a, run);
       if (name.startsWith('mcp__')) {
         const x = ws.mcp.find(name);
         if (!x || !ws.mcpFor(bot).some((y) => y.key === name)) return { content: JSON.stringify({ ok: false, result: 'That tool isn\'t available.' }) };
@@ -411,12 +417,25 @@ class Workspace extends EventEmitter {
     const extra = [
       fnSchema('search_knowledge', 'Search the knowledge the user gave you (files, notes, links). Use it before answering questions about their material.', { query: { type: 'string', description: 'What to look for' } }, ['query']),
       fnSchema('remember', 'Save a lasting fact about the user or their work for future tasks (preferences, names, decisions). Never passwords or secrets.', { fact: { type: 'string', description: 'One short fact' } }, ['fact']),
+      fnSchema('update_self', 'Save your own job description, rules and style (what the user told you your job is). Call it once you have read the scope back and the user agreed, and whenever they change your job.', {
+        role: { type: 'string', description: 'Short job title, e.g. "Inbox manager"' }, job: { type: 'string', description: 'What you are responsible for, in 1-3 sentences' },
+        do: { type: 'string', description: 'Habits and must-dos' }, never: { type: 'string', description: 'Hard limits' }, sources: { type: 'string', description: 'Sources and apps to use' },
+        check_in: { type: 'string', description: 'When to check in or ask first' }, output: { type: 'string', description: 'Output format' }, style: { type: 'string', description: 'Tone and writing style' } }, ['job']),
+      fnSchema('create_routine', 'Make this work repeat on a schedule (a routine). Use when the user says things like "every weekday at 8", "every Monday", "every 2 hours", "on the 1st of each month", or "when a task finishes".', {
+        name: { type: 'string', description: 'Short name, e.g. "Morning digest"' }, instructions: { type: 'string', description: 'Exactly what to do each run, self-contained' },
+        type: { type: 'string', enum: ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly', 'interval', 'task'], description: 'Schedule kind' },
+        time: { type: 'string', description: '24h HH:MM, e.g. "08:00"' }, days: { type: 'array', items: { type: 'integer' }, description: 'weekly only: 0=Sun..6=Sat' },
+        day_of_month: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD for once/yearly' }, every_minutes: { type: 'integer', description: 'interval only, >= 15' } }, ['name', 'instructions', 'type']),
+      fnSchema('manage_routine', 'List, pause, resume, run now or delete your routines.', {
+        action: { type: 'string', enum: ['list', 'pause', 'resume', 'run', 'delete'] }, name: { type: 'string', description: 'Routine name (not needed for list)' } }, ['action']),
       fnSchema('delegate_task', 'Hand part of the work to another bot and wait for its result. Give full context — it cannot see this conversation.', {
         bot: { type: 'string', description: 'The bot\'s name' }, task: { type: 'string', description: 'What it must do' }, context: { type: 'string', description: 'Everything it needs to know' },
         expected_output: { type: 'string', description: 'What to hand back' }, deadline: { type: 'string', description: 'Optional' } }, ['bot', 'task']),
     ];
     const BotAgent = makeBotAgent(this.AgentClass, this, extra);
-    this.agent = new BotAgent({ ...this.agentDeps, store: this.store, brain: this.brain, config: this.config });
+    // Bots never take Nebula's local shortcuts ("open spotify" etc.): everything goes through their own permissions.
+    const botBrain = Object.assign(Object.create(this.brain), { handleLocal: () => null });
+    this.agent = new BotAgent({ ...this.agentDeps, store: this.store, brain: botBrain, config: this.config });
     this.store.on('change', () => this.changed());
     this.timer = setInterval(() => this.tick(), 30000);
     if (this.timer.unref) this.timer.unref();
@@ -633,7 +652,7 @@ ${name ? `The user's name is ${name}.${this.data.profile.work ? ` They work as/i
 ${L('Responsible for', I.resp)}${L('Do', I.do)}${L('Never', I.never)}${L('How to approach work', I.approach)}${L('How you communicate', I.communication)}${L('Writing style', I.style)}${L('Decision boundaries', I.boundaries)}${L('Priorities', I.priorities)}${L('When to escalate to the user', I.escalation)}${L('Output format', I.output)}${L('Quality bar', I.quality)}${L('Notes', I.notes)}
 ## Personality
 ${personalityText(bot.personality) || 'Friendly and clear.'} Personality shapes how you talk, never what you are allowed to do.
-${task ? `\n## Current task\n${task.title}${task.description && task.description !== task.title ? `\n${task.description}` : ''}${task.dueAt ? `\nDue: ${new Date(task.dueAt).toLocaleString('en-GB')}` : ''}${task.parentId ? '\nThis was handed to you by another bot. Return a complete result with finish_task.' : ''}\n` : ''}${team ? `\n## Team: ${team.name}\nPurpose: ${team.purpose || '—'}\nHow the team works: ${teamMode(team.mode)}\n${team.instructions ? `Team instructions: ${team.instructions}\n` : ''}${team.coordinator === bot.id ? 'You coordinate this team: decide what each member should do, delegate with delegate_task, check their results, then combine them into one final result.\n' : ''}` : ''}${skills.length ? `\n## Skills you know\n${skills.map((s) => `- ${s.name} (v${s.version}): ${s.instructions}${s.steps && s.steps.length ? ` Steps: ${s.steps.join(' → ')}` : ''}`).join('\n')}\n` : ''}${bot.memories.length && bot.memoryOn !== false ? `\n## What you remember\n${bot.memories.slice(0, 30).map((m) => `- ${m.text}`).join('\n')}\n` : ''}${hits.length ? `\n## From your knowledge (most relevant passages)\n${hits.map((h) => `[${h.title}] ${h.text.replace(/\s+/g, ' ').slice(0, 700)}`).join('\n---\n')}\n` : bot.knowledge.length ? `\nYou have ${bot.knowledge.length} knowledge item(s): ${bot.knowledge.slice(0, 12).map((k) => k.title).join(', ')}. Use search_knowledge to read them.\n` : ''}${peers.length ? `\n## Bots you may hand work to (delegate_task)\n${peers.map((p) => `- ${p.name}: ${p.role}${p.description ? ` — ${p.description}` : ''}`).join('\n')}\n` : ''}${this.mcpFor(bot).length ? `\n## Connected apps you can use\n${[...new Set(this.mcpFor(bot).map((x) => x.server))].map((s) => `- ${s.name}: ${this.mcpFor(bot).filter((x) => x.server === s).length} tools (named mcp__…)${s.info && s.info.instructions ? ` — ${s.info.instructions.replace(/\s+/g, ' ').slice(0, 400)}` : ''}`).join('\n')}\nThese act on the user's real accounts. Results come back from the app itself — report them faithfully.\n` : ''}${files.length ? `\nFiles you made before:\n${files.map((f) => `- ${f.fileName} (id=${f.id})`).join('\n')}\n` : ''}
+${task ? `\n## Current task\n${task.title}${task.description && task.description !== task.title ? `\n${task.description}` : ''}${task.dueAt ? `\nDue: ${new Date(task.dueAt).toLocaleString('en-GB')}` : ''}${task.parentId ? '\nThis was handed to you by another bot. Return a complete result with finish_task.' : ''}\n` : ''}${team ? `\n## Team: ${team.name}\nPurpose: ${team.purpose || '—'}\nHow the team works: ${teamMode(team.mode)}\n${team.instructions ? `Team instructions: ${team.instructions}\n` : ''}${team.coordinator === bot.id ? 'You coordinate this team: decide what each member should do, delegate with delegate_task, check their results, then combine them into one final result.\n' : ''}` : ''}${skills.length ? `\n## Skills you know\n${skills.map((s) => `- ${s.name} (v${s.version}): ${s.instructions}${s.steps && s.steps.length ? ` Steps: ${s.steps.join(' → ')}` : ''}`).join('\n')}\n` : ''}${bot.memories.length && bot.memoryOn !== false ? `\n## What you remember\n${bot.memories.slice(0, 30).map((m) => `- ${m.text}`).join('\n')}\n` : ''}${hits.length ? `\n## From your knowledge (most relevant passages)\n${hits.map((h) => `[${h.title}] ${h.text.replace(/\s+/g, ' ').slice(0, 700)}`).join('\n---\n')}\n` : bot.knowledge.length ? `\nYou have ${bot.knowledge.length} knowledge item(s): ${bot.knowledge.slice(0, 12).map((k) => k.title).join(', ')}. Use search_knowledge to read them.\n` : ''}${peers.length ? `\n## Bots you may hand work to (delegate_task)\n${peers.map((p) => `- ${p.name}: ${p.role}${p.description ? ` — ${p.description}` : ''}`).join('\n')}\n` : ''}${this.mcpFor(bot).length ? `\n## Connected apps you can use\n${[...new Set(this.mcpFor(bot).map((x) => x.server))].map((s) => `- ${s.name}: ${this.mcpFor(bot).filter((x) => x.server === s).length} tools (named mcp__…)${s.info && s.info.instructions ? ` — ${s.info.instructions.replace(/\s+/g, ' ').slice(0, 400)}` : ''}`).join('\n')}\nThese act on the user's real accounts. Results come back from the app itself — report them faithfully.\n` : ''}${bot.setup ? `\n## You were just created — learn your job first\nYou don't have a job yet. In this chat: if the user hasn't said what you're for, ask in one short message, offering 3-4 lettered options that fit your name (A, B, C… plus "something else"). Once they answer, read your scope back in a few bullets (job, sources/apps, limits, when you'll check in) and ask "Shall I go with this?" When they agree, call update_self, then offer to start the first task. Keep it warm and brief.\n` : ''}${files.length ? `\nFiles you made before:\n${files.map((f) => `- ${f.fileName} (id=${f.id})`).join('\n')}\n` : ''}
 ## Rules
 - Do the work with your tools instead of describing it. Plain questions: answer directly.
 - Multi-step work: call plan first, then act step by step.
@@ -644,7 +663,8 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
 - If you can't complete the task, call finish_task with outcome "failed" and explain why.
 - When you used tools, end with finish_task(outcome, summary). The summary is 1-2 plain sentences; put long results (reports, tables, lists with sources) in details using Markdown.
 - Save lasting facts about the user with remember. Never store passwords or secrets.
-- Ask with ask_user only when you can't reasonably decide yourself.`;
+- Ask with ask_user only when you can't reasonably decide yourself.
+- If the user wants something repeated on a schedule, call create_routine (it runs while Nebula is running on this PC). If they change your job or rules, call update_self.`;
   }
 
   delegatable(bot, task) {
@@ -656,16 +676,18 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
 
   // ------------------------------------------------------------ approval cards
   card(bot, name, a, run) {
+    // "Why" is only what the bot said during this request — never an older reply from earlier in the chat.
+    const whyText = (r) => { const ms = r.messages || []; let i = ms.length - 1; const out = []; while (i >= 0 && ms[i].role !== 'user') { if (ms[i].role === 'assistant' && ms[i].content) out.unshift(ms[i].content); i--; } return out.join(' ') || ''; };
     if (name.startsWith('mcp__')) {
       const x = this.mcp.find(name); const risk = x ? x.risk : 'medium';
-      const lastText = [...run.messages].reverse().find((m) => m.role === 'assistant' && m.content)?.content || '';
+      const lastText = whyText(run);
       const where = x ? (x.server.type === 'http' ? (() => { try { return new URL(x.server.url).host; } catch { return x.server.url; } })() : `a program on this PC (${x.server.command})`) : '';
       return { tool: name, title: x ? `${x.server.name}: ${x.tool.title || x.tool.name}` : name, why: lastText.replace(/\s+/g, ' ').trim().slice(0, 240), app: x ? x.server.name : 'Connected app', destination: where,
         content: JSON.stringify(a, null, 2).slice(0, 900), consequence: x ? (x.tool.description || '').slice(0, 220) : '', reversible: risk !== 'high',
         shares: `The details above are sent to ${where || 'that app'}.`, risk: risk === 'none' ? 'low' : risk, always: risk !== 'high', args: a, bot: bot.id };
     }
     const info = TOOL_INFO[name] || { label: name, risk: 'medium' };
-    const lastText = [...run.messages].reverse().find((m) => m.role === 'assistant' && m.content)?.content || '';
+    const lastText = whyText(run);
     const t = run.taskId ? this.store.task(run.taskId) : null;
     const dest = { open_app: a.name, open_url: a.url, play_music: a.query, update_document: (this.store.file(a.file_id) || {}).fileName, create_document: a.spec && a.spec.title, delegate_task: a.bot, set_timer: a.seconds ? `${Math.round(a.seconds / 60) || 1} min` : '', autoclicker: a.action }[name] || '';
     let content = '';
@@ -693,10 +715,10 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
     const t = this.store.task(run.taskId);
     if (input.kind === 'approval') {
       this.log(bot, 'approval', `Asked to: ${input.card.title}`, run.taskId);
-      if (bot.notify?.approval !== false) this.notify(`${bot.name} needs your OK`, input.card.title, { view: 'approvals', taskId: run.taskId });
+      if (bot.notify?.approval !== false) this.notify(`${bot.name} needs your OK`, input.card.title, { view: 'approvals', taskId: run.taskId }, { botId: bot.id, kind: 'need' });
     } else {
       this.log(bot, 'waiting', `Asked you: ${input.question}`, run.taskId);
-      if (bot.notify?.approval !== false) this.notify(`${bot.name} has a question`, input.question, { view: 'task', taskId: run.taskId });
+      if (bot.notify?.approval !== false) this.notify(`${bot.name} has a question`, input.question, { view: 'task', taskId: run.taskId }, { botId: bot.id, kind: 'ask' });
     }
     void t;
   }
@@ -707,7 +729,7 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
     if (bot) {
       this.log(bot, t.status === 'COMPLETED' ? 'done' : t.status === 'FAILED' ? 'failed' : 'cancelled', `${t.status === 'COMPLETED' ? 'Finished' : t.status === 'FAILED' ? 'Failed' : 'Stopped'}: ${t.title}`, taskId);
       const want = t.status === 'COMPLETED' ? bot.notify?.done !== false : t.status === 'FAILED' ? bot.notify?.failed !== false : false;
-      if (want && !t.parentId) this.notify(`${bot.name} ${t.status === 'COMPLETED' ? 'finished' : 'couldn\'t finish'}`, t.summary || t.title, { view: 'task', taskId });
+      if (want && !t.parentId) this.notify(`${bot.name} ${t.status === 'COMPLETED' ? 'finished' : 'couldn\'t finish'}`, t.summary || t.title, { view: 'task', taskId }, { botId: bot.id, kind: t.status === 'COMPLETED' ? 'done' : 'fail' });
       // Routines triggered by "a task finished" (never by a routine's own task, so they can't loop).
       if (!t.routineId && !t.parentId) for (const r of this.data.routines) if (r.active && r.schedule?.type === 'task' && (!r.schedule.bot || r.schedule.bot === bot.id) && (!r.schedule.when || r.schedule.when === t.status)) this.runRoutine(r.id, 'task');
     }
@@ -861,6 +883,86 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
     if (this.running.has(tid)) return;
     this.running.add(tid);
     this.agent.answer(tid, choices, true, edited).catch(() => {}).finally(() => { this.running.delete(tid); this.changed(); this.pump(t.botId); });
+  }
+
+  // ------------------------------------------------------------ chat-first (Grok-style) helpers
+  /** A visible event line in the bot's chat (not sent to the AI). */
+  event(cid, kind, text, extra = {}) {
+    if (!cid || !this.store.conversation(cid)) return;
+    this.store.addMessage(cid, { role: 'event', kind, text: String(text).slice(0, 300), ...extra });
+  }
+
+  /** The one ongoing chat with a bot (Grok-style): the newest non-task conversation, or a new one. */
+  mainConv(bid, create = true) {
+    const cs = this.store.data.conversations.filter((c) => c.botId === bid && !c.taskId && !c.archived);
+    let c = cs.find((x) => x.main) || cs.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (!c && create) { const b = this.bot(bid); c = this.store.newConversation({ botId: bid, main: true, title: b ? b.name : 'Chat' }); }
+    if (c && !c.main) { c.main = true; this.store.save(); }
+    return c;
+  }
+
+  /** The 3-second create: shape, colour, name. The bot then learns its job by chatting. */
+  quickCreate(o) {
+    const t = o.template && TEMPLATES.find((x) => x.key === o.template);
+    const bot = t ? this.installTemplate(t.key) : this.saveBot({ name: o.name, shape: o.shape | 0, color: o.color || '#7A3CFF', role: '', caps: ['web', 'files', 'delegate'], autonomy: 'supervised', setup: true,
+      ins: { resp: '', do: '', never: '', approach: '', communication: '', style: '', boundaries: '', priorities: '', escalation: 'If something is unclear or risky, ask before going on.', output: '', quality: '', notes: '' } });
+    if (t && (o.name || o.color || o.shape != null)) Object.assign(bot, { name: String(o.name || bot.name).slice(0, 40), color: o.color || bot.color, shape: o.shape != null ? o.shape | 0 : bot.shape });
+    if (!this.primary()) bot.primary = true;
+    const c = this.mainConv(bot.id);
+    const name = this.data.profile.name ? `, ${this.data.profile.name}` : '';
+    this.store.addMessage(c.id, { role: 'assistant', text: t ? `Hi${name}! I'm ${bot.name}. ${t.desc}\n\nWhat should I start with? For example: ${(t.samples || []).slice(0, 2).map((x) => `“${x}”`).join(' or ')}.`
+      : `Hi${name}! I'm ${bot.name}. 👋\n\nWhat's my job? Tell me what you'd like me to take off your plate — the result you want, the apps or sources to use, any limits, and when I should check in with you.` });
+    this.save();
+    return { id: bot.id, cid: c.id };
+  }
+
+  markRead(bid) {
+    const now = Date.now(); let changed = false;
+    for (const c of this.store.data.conversations) if (c.botId === bid && (c.readAt || 0) < c.updatedAt) { c.readAt = now; changed = true; }
+    for (const t of this.tasks()) if (t.botId === bid && t.status === 'FAILED' && !t.seen) { t.seen = true; changed = true; }
+    if (changed) { this.store.save(); this.changed(); }
+  }
+
+  updateSelf(bot, a, run) {
+    const { step } = this.engine;
+    const I = bot.ins || (bot.ins = {});
+    if (a.role) bot.role = String(a.role).slice(0, 60);
+    if (a.job) I.resp = String(a.job).slice(0, 1200);
+    for (const [k, f] of [['do', 'do'], ['never', 'never'], ['style', 'style'], ['output', 'output'], ['check_in', 'escalation']]) if (a[k]) I[f] = String(a[k]).slice(0, 1200);
+    if (a.sources) I.approach = `Sources and apps: ${String(a.sources).slice(0, 1000)}`;
+    if (!bot.description && a.job) bot.description = String(a.job).split(/(?<=[.!?])\s/)[0].slice(0, 160);
+    bot.setup = false; bot.updatedAt = Date.now();
+    this.log(bot, 'edit', `${bot.name} saved its job: ${String(a.role || a.job).slice(0, 80)}`);
+    this.event(run.cid, 'job', `Saved its job${a.role ? ` as ${a.role}` : ''}`);
+    this.save();
+    return { content: JSON.stringify({ ok: true, verified: true, result: 'Saved. Your job and rules are now part of your instructions.' }), step: run.taskId ? step('Saved its job', true, true, String(a.role || '')) : null };
+  }
+
+  routineFromChat(bot, a, run) {
+    const { step } = this.engine;
+    try {
+      const sched = { type: a.type, time: a.time || '08:00', days: Array.isArray(a.days) ? a.days.map((d) => d | 0) : undefined, dom: a.day_of_month || undefined, date: a.date || undefined, every: a.every_minutes || undefined, bot: a.type === 'task' ? bot.id : undefined };
+      const id = this.saveRoutine({ name: a.name, botId: bot.id, instructions: a.instructions, schedule: sched }).id;
+      const r = this.data.routines.find((x) => x.id === id);
+      const when = describeSchedule(r.schedule);
+      this.event(run.cid, 'routine', `Created routine “${r.name}” · ${when}`, { routineId: id });
+      return { content: JSON.stringify({ ok: true, verified: true, result: `Routine “${r.name}” created: ${when}.${r.nextRun ? ` First run ${new Date(r.nextRun).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}.` : ''} It runs while Nebula is running on this PC.` }), step: run.taskId ? step(`Created routine “${r.name}”`, true, true, when) : null };
+    } catch (e) { return { content: JSON.stringify({ ok: false, result: e.message }) }; }
+  }
+
+  manageRoutineFromChat(bot, a, run) {
+    const mine = this.data.routines.filter((r) => r.botId === bot.id);
+    if (a.action === 'list') return { content: JSON.stringify({ ok: true, routines: mine.map((r) => ({ name: r.name, when: describeSchedule(r.schedule), active: r.active, next: r.nextRun ? new Date(r.nextRun).toISOString() : null })) }) };
+    const q = String(a.name || '').toLowerCase();
+    const r = mine.find((x) => x.name.toLowerCase() === q) || mine.find((x) => x.name.toLowerCase().includes(q));
+    if (!r) return { content: JSON.stringify({ ok: false, result: `No routine called "${a.name}". You have: ${mine.map((x) => x.name).join(', ') || 'none'}.` }) };
+    if (a.action === 'pause' && r.active) this.routineAct(r.id, 'toggle');
+    if (a.action === 'resume' && !r.active) this.routineAct(r.id, 'toggle');
+    if (a.action === 'run') this.runRoutine(r.id, 'manual');
+    if (a.action === 'delete') this.routineAct(r.id, 'delete');
+    const verb = { pause: 'Paused', resume: 'Resumed', run: 'Started', delete: 'Deleted' }[a.action];
+    this.event(run.cid, 'routine', `${verb} routine “${r.name}”`);
+    return { content: JSON.stringify({ ok: true, verified: true, result: `${verb} “${r.name}”.` }) };
   }
 
   // ------------------------------------------------------------ chat
@@ -1033,7 +1135,11 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
       const st = botStatus({ ...b, _convs: byBot[b.id] }, tasks, activity, this.running);
       const mine = tasks.filter((t) => t.botId === b.id);
       const cur = mine.find((t) => t.status === 'IN_PROGRESS' || t.status === 'REQUIRES_INPUT');
-      return { ...b, status: st, current: cur ? { id: cur.id, title: cur.title } : null, counts: { done: mine.filter((t) => t.status === 'COMPLETED').length, failed: mine.filter((t) => t.status === 'FAILED').length, open: mine.filter((t) => !TERMINAL.has(t.status)).length } };
+      const bc = convs.filter((c) => c.botId === b.id);
+      let last = null; let unread = 0;
+      for (const c of bc) for (const m of c.messages) { if (m.role !== 'event' && (!last || m.at > last.at)) last = m; if (m.role === 'assistant' && m.at > (c.readAt || 0)) unread++; }
+      const main = bc.filter((c) => !c.taskId && !c.archived).sort((x, y) => (y.main ? 1 : 0) - (x.main ? 1 : 0) || y.updatedAt - x.updatedAt)[0];
+      return { ...b, mainCid: main ? main.id : null, last: last ? { text: last.text.slice(0, 140), role: last.role, at: last.at } : null, unread, status: st, current: cur ? { id: cur.id, title: cur.title } : null, counts: { done: mine.filter((t) => t.status === 'COMPLETED').length, failed: mine.filter((t) => t.status === 'FAILED').length, open: mine.filter((t) => !TERMINAL.has(t.status)).length } };
     });
     const taskIds = new Set(tasks.map((t) => t.id));
     return {

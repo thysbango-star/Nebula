@@ -72,14 +72,14 @@ class FakeBrain {
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nebula-ws-'));
-  const notes = [];
+  const notes = []; const pings = [];
   const make = () => {
     const store = new Store(dir);
     const brain = new FakeBrain();
     const config = { get: () => '', set() {} };
     const ws = new Workspace({ dir, store, brain, config, AgentClass: Agent, engine: { step, toolMsg, TOOLS },
       agentDeps: { printPdf: async () => Buffer.from(''), launch: async () => ({ ok: true }), foreground: null, timer() {}, clicker: async () => 'ok', onActivity() {}, screenshot: null, sound() {}, hasKey: () => true },
-      notify: (t, b) => notes.push(`${t}: ${b}`) });
+      notify: (t, b, _o, x) => { notes.push(`${t}: ${b}`); if (x) pings.push(x); } });
     return { store, brain, ws };
   };
   let { store, brain, ws } = make();
@@ -249,6 +249,31 @@ async function main() {
   assert.ok(snap.tasks.every((t) => t.checkpoint === undefined), 'checkpoints are not sent to the window');
   assert.ok(snap.catalogue.templates.length >= 10);
   const inst = ws.installTemplate('research'); assert.strictEqual(inst.caps.includes('web'), true);
+
+  // 14. Grok-style: create in one step, the bot learns its job by chatting, and schedules routines by chatting.
+  const q = ws.quickCreate({ name: 'Nova', shape: 2, color: '#3B93F0' });
+  const nova = ws.bot(q.id);
+  assert.strictEqual(nova.setup, true);
+  assert.match(store.conversation(q.cid).messages[0].text, /What's my job/);
+  brain.scripts.Nova = [(m) => { assert.match(m[0].content, /learn your job first/); return say('A) Inbox  B) Research  C) Planning'); }];
+  ws.chat(nova.id, q.cid, 'hi');
+  await until(() => store.conversation(q.cid).messages.length === 3);
+  brain.scripts.Nova = [call('update_self', { role: 'Researcher', job: 'Research AI news every morning.', never: 'Never pay for sources.' }),
+    call('create_routine', { name: 'Morning AI news', instructions: 'Find the top 5 AI stories.', type: 'weekdays', time: '07:30' }), say('All set!')];
+  ws.chat(nova.id, q.cid, 'B, and do it every weekday at 7:30');
+  await until(() => ws.data.routines.some((r) => r.name === 'Morning AI news') && store.conversation(q.cid).messages.some((m) => m.text === 'All set!'));
+  assert.strictEqual(ws.bot(q.id).setup, false); assert.strictEqual(ws.bot(q.id).role, 'Researcher'); assert.strictEqual(ws.bot(q.id).ins.never, 'Never pay for sources.');
+  const evs = store.conversation(q.cid).messages.filter((m) => m.role === 'event').map((m) => m.text);
+  assert.ok(evs.some((t) => /Saved its job/.test(t)) && evs.some((t) => /Created routine “Morning AI news” · Weekdays at 07:30/.test(t)), evs.join(' | '));
+  const bsnap = ws.snapshot().bots.find((b) => b.id === q.id);
+  assert.strictEqual(bsnap.mainCid, q.cid); assert.ok(bsnap.unread >= 2); assert.strictEqual(bsnap.last.text, 'All set!');
+  ws.markRead(q.id); assert.strictEqual(ws.snapshot().bots.find((b) => b.id === q.id).unread, 0);
+  brain.scripts.Nova = [call('manage_routine', { action: 'pause', name: 'morning' }), say('Paused.')];
+  ws.chat(nova.id, q.cid, 'pause it');
+  await until(() => ws.data.routines.find((r) => r.name === 'Morning AI news').active === false);
+  // 15. Every notification says which bot and what kind, so the notch can show that bot's character.
+  assert.ok(pings.length && pings.every((x) => x.botId && ['need', 'ask', 'done', 'fail'].includes(x.kind)), JSON.stringify(pings.slice(0, 3)));
+  assert.ok(pings.some((x) => x.kind === 'done'));
   ws.close();
   console.log('workspace-test: all good');
   process.exit(0);

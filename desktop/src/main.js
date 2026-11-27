@@ -454,7 +454,11 @@ function initAgent() {
     },
     notify: wsNotify, fetchText: wsFetch, encrypt, decrypt,
   });
-  workspace.on('change', () => { if (wsWin && !wsWin.isDestroyed() && wsWin.isVisible()) send(wsWin, 'ws:state', workspace.snapshot()); });
+  workspace.on('change', () => {
+    if (wsWin && !wsWin.isDestroyed() && wsWin.isVisible()) send(wsWin, 'ws:state', workspace.snapshot());
+    // A question answered somewhere else (the Workspace window, the phone) takes the bot back off the notch.
+    if (botPing && (botPing.kind === 'need' || botPing.kind === 'ask')) { const t = botPing.taskId && workspace.store.task(botPing.taskId); if (!t || t.status !== 'REQUIRES_INPUT') botPingDone(); }
+  });
 }
 
 // ------------------------------------------------------------------ Nebula Workspace window
@@ -479,7 +483,31 @@ function openWorkspace(open) {
   wsWin.on('show', () => send(wsWin, 'ws:state', workspace.snapshot()));
   wsWin.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
-function wsNotify(title, body, open) {
+// ---------------------------------------------------------------- bots ping the notch
+// When a bot needs you (an approval or a question), finishes or gets stuck, its character pops out of the island
+// with what it wants and real buttons (Allow / Deny / Open). Only when the Workspace window isn't in front.
+let botShapes = null;
+function shapesFor(i) {
+  if (!botShapes) { try { const w = {}; new Function('window', fs.readFileSync(asset('ws-shapes.js'), 'utf8'))(w); botShapes = w.NB_SHAPES.chars; } catch { botShapes = []; } }
+  return botShapes.length ? botShapes[((i | 0) % botShapes.length + botShapes.length) % botShapes.length] : null;
+}
+let botPing = null;
+function pingIsland(extra, title, body) {
+  if (!island || island.isDestroyed() || !extra || !extra.botId) return;
+  if (wsWin && !wsWin.isDestroyed() && wsWin.isFocused()) return;
+  if (r3.gaming && configData.r3cketQuiet) return; // never pop over a game when quiet mode is on
+  const b = workspace.bot(extra.botId); const sh = b && shapesFor(b.shape); if (!b || !sh) return;
+  const t = extra.taskId ? workspace.store.task(extra.taskId) : null;
+  const card = t && t.input && t.input.kind === 'approval' ? t.input.card : null;
+  botPing = { id: Date.now(), kind: extra.kind, botId: b.id, taskId: extra.taskId || null, name: b.name, color: b.color, d: sh.d, cap: sh.cap || '', capc: sh.capc || '', e: sh.e,
+    title: String(title || ''), body: String(body || '').replace(/\s+/g, ' ').slice(0, 160), approval: !!card, risk: card ? card.risk : '', always: !!(card && card.always),
+    options: t && t.input && t.input.kind === 'question' ? (t.input.options || []).slice(0, 3) : [] };
+  island.showInactive();
+  send(island, 'island:bot', botPing);
+}
+function botPingDone() { botPing = null; send(island, 'island:bot', null); applyIslandMode(); }
+function wsNotify(title, body, open, extra) {
+  try { pingIsland(extra && { ...extra, taskId: open && open.taskId }, title, body); } catch (e) { log('ws', `ping: ${e.message}`); }
   if (!workspace.data.settings.notifyOn || !Notification.isSupported()) return;
   if (wsWin && !wsWin.isDestroyed() && wsWin.isFocused()) return;
   const n = new Notification({ title, body: String(body || '').slice(0, 180) });
@@ -542,6 +570,8 @@ function wireWorkspace() {
   ipcMain.handle('ws:profile', safe((p) => { W().setProfile(p); if (p.name && !configData.userName) config.set('userName', String(p.name).slice(0, 40)); return true; }));
   ipcMain.handle('ws:settings', safe((p) => W().setSettings(p)));
   ipcMain.handle('ws:bot-save', safe((b) => W().saveBot(b).id));
+  ipcMain.handle('ws:quick-create', safe((o) => W().quickCreate(o)));
+  ipcMain.handle('ws:read', safe(({ botId }) => { W().markRead(botId); return true; }));
   ipcMain.handle('ws:template', safe(({ key }) => W().installTemplate(key).id));
   ipcMain.handle('ws:bot-act', safe(async ({ id, act, arg }) => {
     if (act === 'export') { const o = W().botAct(id, 'export'); const f = await wsSaveJson(`${o.bot.name}.rovbot.json`, o); return f; }
@@ -1198,6 +1228,15 @@ function wireIpc() {
   });
   ipcMain.on('island:cancel-timer', () => setTimer(0));
   ipcMain.on('island:focus', () => { if (island) island.focus(); });
+  ipcMain.on('island:bot', (_e, a) => {
+    const p = botPing; if (!a || !p) return;
+    if (a.act === 'open') { botPingDone(); openWorkspace(p.taskId ? { taskId: p.taskId } : { botId: p.botId }); return; }
+    if (a.act === 'dismiss') { botPingDone(); return; }
+    if ((a.act === 'answer') && p.taskId) {
+      try { workspace.answer(p.taskId, [String(a.choice || '')]); } catch (e) { log('ws', e.message); }
+      botPingDone();
+    }
+  });
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
   ipcMain.on('open:settings', openSettings);
   ipcMain.on('open:app', (_e, view) => openApp(view));
