@@ -18,7 +18,8 @@ const os = require('os');
 const net = require('net');
 const { execFile } = require('child_process');
 const { Store } = require('./store');
-const { Agent } = require('./agent');
+const { Agent, TOOLS: AGENT_TOOLS, step: agentStep, toolMsg: agentToolMsg } = require('./agent');
+const { Workspace } = require('./workspace');
 
 // Never interrupt the user with crash dialogs: log quietly and keep running.
 const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
@@ -280,6 +281,7 @@ function refreshTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Nebula', click: () => openApp() },
+    { label: 'Open Nebula Workspace', click: () => openWorkspace() },
     { label: `Talk to Nebula   (${configData.hotkey})`, click: () => startSession('tray') },
     { type: 'separator' },
     {
@@ -395,7 +397,7 @@ function onAudio(samples) {
 // ------------------------------------------------------------------ the conversation
 
 const brain = new Brain(config, getKey, rotateKey);
-let store = null; let agent = null;
+let store = null; let agent = null; let workspace = null; let wsWin = null;
 let voiceConv = null; // the chat that voice requests go into (kept for 10 minutes)
 
 /** Screen share: a ~1280px JPEG of the main screen (base64), straight from Windows — no picker needed. */
@@ -430,7 +432,145 @@ function initAgent() {
     screenshot: captureScreen,
     sound: (kind) => send(settings, 'app:sound', kind),
   });
+  // Nebula Workspace: RovBots run on the same task engine and store (tasks tagged with their bot).
+  workspace = new Workspace({
+    dir: app.getPath('userData'), store, brain, config, AgentClass: Agent, engine: { step: agentStep, toolMsg: agentToolMsg, TOOLS: AGENT_TOOLS },
+    agentDeps: {
+      printPdf, launch: async (name) => { const r = brain.open(name.toLowerCase()); return { ok: !/couldn't/i.test(r.text) }; },
+      foreground: process.platform === 'win32' ? () => helper.foreground() : null,
+      timer: (s) => setTimer(s), clicker: (cmd) => clicker(cmd), screenshot: null,
+      onActivity: () => workspace && workspace.changed(), sound: (kind) => send(wsWin, 'ws:sound', kind), hasKey: () => !!getKey(),
+    },
+    notify: wsNotify, fetchText: wsFetch,
+  });
+  workspace.on('change', () => { if (wsWin && !wsWin.isDestroyed() && wsWin.isVisible()) send(wsWin, 'ws:state', workspace.snapshot()); });
 }
+
+// ------------------------------------------------------------------ Nebula Workspace window
+function openWorkspace(open) {
+  if (wsWin && !wsWin.isDestroyed()) {
+    if (wsWin.isMinimized()) wsWin.restore();
+    wsWin.show(); wsWin.focus();
+    if (open) send(wsWin, 'ws:open', open);
+    return;
+  }
+  wsWin = new BrowserWindow({
+    width: 1380, height: 880, minWidth: 1000, minHeight: 640, title: 'Nebula Workspace',
+    backgroundColor: workspace.data.profile.onboarded ? '#0B0A10' : '#5200F4', icon: iconPath(), show: false,
+    titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: '#FFFFFF', height: 44 },
+    webPreferences: { ...baseWebPrefs, backgroundThrottling: true },
+  });
+  wsWin.loadFile(asset('workspace.html'), open ? { query: { open: JSON.stringify(open) } } : undefined);
+  wsWin.once('ready-to-show', () => wsWin.show());
+  wsWin.on('show', () => send(wsWin, 'ws:state', workspace.snapshot()));
+  wsWin.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+}
+function wsNotify(title, body, open) {
+  if (!workspace.data.settings.notifyOn || !Notification.isSupported()) return;
+  if (wsWin && !wsWin.isDestroyed() && wsWin.isFocused()) return;
+  const n = new Notification({ title, body: String(body || '').slice(0, 180) });
+  n.on('click', () => openWorkspace(open)); n.show();
+}
+async function wsFetch(url) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 NebulaWorkspace' } });
+    if (!r.ok) throw new Error(`That page answered ${r.status}.`);
+    if (!/text|html|json|xml/i.test(r.headers.get('content-type') || 'text/html')) throw new Error('That link isn\'t a web page or text.');
+    const buf = Buffer.from(await r.arrayBuffer()); return buf.slice(0, 3 * 1024 * 1024).toString('utf8');
+  } finally { clearTimeout(t); }
+}
+async function wsSaveJson(name, obj) {
+  const r = await dialog.showSaveDialog(wsWin, { defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'Nebula file', extensions: ['json'] }] });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, JSON.stringify(obj, null, 2)); return r.filePath;
+}
+async function wsOpenJson() {
+  const r = await dialog.showOpenDialog(wsWin, { properties: ['openFile'], filters: [{ name: 'Nebula file', extensions: ['json'] }] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+}
+function wireWorkspace() {
+  const W = () => workspace;
+  const safe = (fn) => async (_e, a) => { try { return { ok: true, value: await fn(a || {}) } } catch (e) { log('ws', e.message); return { ok: false, error: e.message } } };
+  ipcMain.handle('ws:init', () => W().snapshot());
+  ipcMain.handle('ws:profile', safe((p) => { W().setProfile(p); if (p.name && !configData.userName) config.set('userName', String(p.name).slice(0, 40)); return true; }));
+  ipcMain.handle('ws:settings', safe((p) => W().setSettings(p)));
+  ipcMain.handle('ws:bot-save', safe((b) => W().saveBot(b).id));
+  ipcMain.handle('ws:template', safe(({ key }) => W().installTemplate(key).id));
+  ipcMain.handle('ws:bot-act', safe(async ({ id, act, arg }) => {
+    if (act === 'export') { const o = W().botAct(id, 'export'); const f = await wsSaveJson(`${o.bot.name}.rovbot.json`, o); return f; }
+    const r = W().botAct(id, act, arg); return r && r.id;
+  }));
+  ipcMain.handle('ws:bot-import', safe(async () => { const o = await wsOpenJson(); return o ? W().importBot(o).id : null; }));
+  ipcMain.handle('ws:chat', safe(({ botId, cid, text, replyTo }) => W().chat(botId, cid, String(text || '').slice(0, 60000), replyTo)));
+  ipcMain.handle('ws:new-chat', safe(({ botId }) => store.newConversation({ botId }).id));
+  ipcMain.handle('ws:conv-act', safe(async ({ cid, act, arg }) => {
+    const c = store.conversation(cid); if (!c || !c.botId) throw new Error('No such chat');
+    if (act === 'rename') c.title = String(arg || c.title).slice(0, 80);
+    if (act === 'pin') c.pinned = !c.pinned;
+    if (act === 'archive') c.archived = !c.archived;
+    if (act === 'delete') { agent.stop(cid, true); workspace.agent.stop(cid, true); store.deleteConversation(cid); return true; }
+    if (act === 'stop') workspace.agent.stop(cid);
+    if (act === 'react') { const m = c.messages.find((x) => x.id === arg.mid); if (m) { m.reactions = m.reactions || {}; if (m.reactions[arg.emoji]) delete m.reactions[arg.emoji]; else m.reactions[arg.emoji] = 1; } }
+    if (act === 'branch') { const i = c.messages.findIndex((x) => x.id === arg); const nc = store.newConversation({ botId: c.botId, title: `${c.title} (branch)` }); nc.messages = JSON.parse(JSON.stringify(c.messages.slice(0, i + 1))); store.save(); return nc.id; }
+    if (act === 'truncate') { const i = c.messages.findIndex((x) => x.id === arg); if (i >= 0) c.messages = c.messages.slice(0, i); }
+    if (act === 'export') {
+      const bot = W().bot(c.botId); const md = `# ${c.title}\n\n${c.messages.map((m) => `**${m.role === 'user' ? (W().data.profile.name || 'You') : bot?.name || 'Bot'}** · ${new Date(m.at).toLocaleString('en-GB')}\n\n${m.text}`).join('\n\n---\n\n')}\n`;
+      const r = await dialog.showSaveDialog(wsWin, { defaultPath: path.join(app.getPath('documents'), `${c.title.replace(/[<>:"/\\|?*]/g, '')}.md`), filters: [{ name: 'Markdown', extensions: ['md'] }] });
+      if (!r.canceled && r.filePath) fs.writeFileSync(r.filePath, md); return r.filePath || null;
+    }
+    store.save(); return true;
+  }));
+  ipcMain.handle('ws:assign', safe((o) => W().assign({ ...o, source: o.source || 'you' }).id));
+  ipcMain.handle('ws:task-act', safe(({ id, act, arg }) => !!W().taskAct(id, act, arg)));
+  ipcMain.handle('ws:answer', safe(({ taskId, choices, edited }) => W().answer(taskId, choices, edited)));
+  ipcMain.handle('ws:knowledge', safe(async ({ botId, act, kid, text, title, url, category }) => {
+    if (act === 'note') return W().addKnowledge(botId, { kind: 'note', title, text, category }).id;
+    if (act === 'url') return (await W().addUrl(botId, String(url || '').trim(), category)).id;
+    if (act === 'files') {
+      const r = await dialog.showOpenDialog(wsWin, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Text files', extensions: ['txt', 'md', 'csv', 'tsv', 'json', 'html', 'htm', 'xml', 'log', 'yaml', 'yml', 'js', 'ts', 'py', 'java', 'kt', 'c', 'cpp', 'cs', 'go', 'rs', 'sql', 'css', 'srt', 'vtt'] }, { name: 'All files', extensions: ['*'] }] });
+      const errors = []; let n = 0;
+      for (const f of r.canceled ? [] : r.filePaths) { try { W().addKnowledge(botId, { kind: 'file', path: f, category }); n++; } catch (e) { errors.push(e.message); } }
+      if (errors.length && !n) throw new Error(errors.join(' '));
+      return { added: n, errors };
+    }
+    if (act === 'remove') return W().removeKnowledge(botId, kid);
+    if (act === 'edit') return W().setKnowledge(botId, kid, { category, title });
+    if (act === 'preview') return W().knowledgeText(kid).slice(0, 20000);
+    return null;
+  }));
+  ipcMain.handle('ws:memory', safe(({ botId, act, mid, text }) => W().memoryAct(botId, act, mid, text)));
+  ipcMain.handle('ws:skill-save', safe(({ skill, applyAll }) => W().saveSkill(skill, applyAll !== false).id));
+  ipcMain.handle('ws:skill-act', safe(async ({ id, act, arg }) => {
+    if (act === 'export') { const o = W().skillAct(id, 'export'); return wsSaveJson(`${o.skill.name}.skill.json`, o); }
+    const r = W().skillAct(id, act, arg); return r && r.id;
+  }));
+  ipcMain.handle('ws:skill-import', safe(async () => { const o = await wsOpenJson(); return o ? W().importSkill(o).id : null; }));
+  ipcMain.handle('ws:skill-template', safe(({ i }) => W().installSkillTemplate(i).id));
+  ipcMain.handle('ws:skill-ai', safe(({ text }) => W().draftSkill(text)));
+  ipcMain.handle('ws:instructions-ai', safe(({ text, role }) => W().draftInstructions(text, role)));
+  ipcMain.handle('ws:routine-save', safe((r) => W().saveRoutine(r).id));
+  ipcMain.handle('ws:routine-act', safe(({ id, act }) => { const r = W().routineAct(id, act); return r && r.id; }));
+  ipcMain.handle('ws:team-save', safe((t) => W().saveTeam(t).id));
+  ipcMain.handle('ws:team-act', safe(({ id, act, arg }) => { const r = W().teamAct(id, act, arg); return r && r.id; }));
+  ipcMain.handle('ws:pin', safe(({ kind, id }) => W().pin(kind, id)));
+  ipcMain.handle('ws:dismiss', safe(({ key }) => W().dismiss(key)));
+  ipcMain.handle('ws:file', safe(({ id, act }) => {
+    const f = store.file(id); if (!f) throw new Error('That file is gone');
+    if (act === 'open') shell.openPath(f.path); if (act === 'show') shell.showItemInFolder(f.path); if (act === 'delete') store.deleteFile(id); return true;
+  }));
+  ipcMain.handle('ws:test', safe(async ({ what }) => {
+    if (what === 'ai') { const r = await brain.test(getKey()); return r; }
+    if (what === 'web') { const r = await brain.search('Nebula Workspace test'); return `${r.sources.length} sources found`; }
+    if (what === 'files') { fs.accessSync(store.filesDir, fs.constants.W_OK); return `Files folder is writable: ${store.filesDir}`; }
+    return 'ok';
+  }));
+  ipcMain.on('ws:voice', () => startSession('workspace'));
+  ipcMain.on('ws:open-nebula', (_e, view) => openApp(view));
+  ipcMain.on('ws:files-folder', () => shell.openPath(store.filesDir));
+}
+
 const session = {
   active: false, phase: 'idle', transcript: '', reply: '', sources: [], error: '',
   listening: 0, lastEnd: 0, endTimer: null, token: 0,
@@ -1007,6 +1147,7 @@ function wireIpc() {
   ipcMain.on('open:url', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
   ipcMain.on('open:settings', openSettings);
   ipcMain.on('open:app', (_e, view) => openApp(view));
+  ipcMain.on('open:workspace', () => openWorkspace());
 
   // ---- the app window (Chat · Tasks · Files)
   ipcMain.handle('app:init', () => ({ data: store.snapshot(), activity: agent.activity, settings: settingsPayload() }));
@@ -1119,6 +1260,7 @@ app.whenReady().then(() => {
 
   initAgent();
   wireIpc();
+  wireWorkspace();
   nativeTheme.on('updated', () => broadcastSettings());
   createIsland(); // the glow window is created only when Nebula wakes
   widgets = new Widgets({ asset, webPrefs: baseWebPrefs, config: () => configData, save: (patch) => { Object.assign(configData, patch); saveConfig(); } });
@@ -1167,4 +1309,4 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', (e) => e.preventDefault()); // keep running in the tray
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); try { beam.close(); } catch { /* */ } try { if (ears) ears.kill(); } catch { /* */ } helper.stopClicking().finally(() => helper.stop()); });
+app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); try { beam.close(); } catch { /* */ } try { if (ears) ears.kill(); } catch { /* */ } helper.stopClicking().finally(() => helper.stop()); try { workspace.close(); workspace.flush(); } catch { /* */ } });

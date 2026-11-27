@@ -47,6 +47,7 @@ class Agent {
     this.runs = new Map();       // conversationId → { cancelled }
     this.paused = new Map();     // taskId → saved run (waiting for the user)
     this.activity = {};          // conversationId → status line
+    this.held = new Map();       // taskId → run paused by the user (Workspace)
   }
 
   setActivity(cid, text) {
@@ -82,9 +83,9 @@ class Agent {
     }
   }
 
-  async answer(taskId, choices, echo = true) {
+  async answer(taskId, choices, echo = true, edited = null) {
     const t = this.store.task(taskId);
-    const run = this.paused.get(taskId);
+    const run = this.paused.get(taskId) || (this.restore ? this.restore(t) : null);
     if (!t || !t.input || !run) return { text: 'That task is gone.', taskId, status: t?.status, needsInput: false };
     const input = t.input;
     if (echo) this.store.addMessage(t.conversationId, { role: 'user', text: choices.join(', '), taskId });
@@ -93,7 +94,22 @@ class Agent {
     run.cancelled = false;
     this.runs.set(run.cid, run);
     try {
-      run.messages.push(toolMsg(run.pendingCallId, JSON.stringify({ answer: choices.join(', ') })));
+      if (run.pendingApproval) {
+        const ap = run.pendingApproval; run.pendingApproval = null;
+        const yes = /^(approve|always)/i.test(String(choices[0] || ''));
+        if (this.onApproval) this.onApproval(run, ap, choices[0], edited);
+        if (yes) {
+          const a = edited && typeof edited === 'object' ? edited : ap.args;
+          const out = await this.exec(ap.name, a, run).catch((e) => ({ content: JSON.stringify({ ok: false, result: `Tool error: ${e.message}` }), step: step(`${ap.name} failed`, false, false, e.message) }));
+          this.record(run, out);
+          run.messages.push(toolMsg(ap.callId, out.content));
+          if (out.finish) { run.details = out.details || null; return this.finalize(run, out.finish, null); }
+        } else {
+          this.record(run, { step: step(`Not allowed: ${ap.title || ap.name}`, false, false, 'You said no') });
+          const t = this.store.task(taskId); if (t) { const last = t.steps[t.steps.length - 1]; if (last) { last.status = 'DENIED'; } this.store.save(); }
+          run.messages.push(toolMsg(ap.callId, JSON.stringify({ ok: false, denied: true, result: 'The user DENIED this action. Do not try it again or work around it. Continue without it if possible, otherwise finish_task and explain.' })));
+        }
+      } else run.messages.push(toolMsg(run.pendingCallId, JSON.stringify({ answer: choices.join(', ') })));
       return await this.loop(run);
     } catch (e) { return this.fail(run, e); } finally { this.runs.delete(run.cid); void input; }
   }
@@ -101,7 +117,7 @@ class Agent {
   cancel(taskId) {
     const t = this.store.task(taskId); if (!t) return;
     const run = this.runs.get(t.conversationId); if (run) run.cancelled = true;
-    this.paused.delete(taskId);
+    this.paused.delete(taskId); this.held.delete(taskId);
     this.store.updateTask(taskId, (x) => { x.status = 'CANCELLED'; x.input = null; x.summary = x.summary || 'Cancelled.'; });
     this.setActivity(t.conversationId, null);
   }
@@ -117,9 +133,10 @@ class Agent {
   async loop(run) {
     while (run.turns < MAX_TURNS) {
       if (run.cancelled) return { text: 'Stopped.', taskId: run.taskId, status: 'CANCELLED', needsInput: false };
+      if (run.hold && run.taskId) return this.holdRun(run);
       run.turns++;
       this.setActivity(run.cid, run.turns === 1 ? 'Thinking…' : 'Working on it…');
-      const msg = await this.brain.agentChat(run.messages, TOOLS, (w) => this.setActivity(run.cid, w));
+      const msg = await this.brain.agentChat(run.messages, this.toolsFor ? this.toolsFor(run) : TOOLS, (w) => this.setActivity(run.cid, w));
       if (run.cancelled) return { text: 'Stopped.', taskId: run.taskId, status: 'CANCELLED', needsInput: false };
       for (const s of msg.sources || []) if (!run.sources.some((x) => x.url === s.url)) run.sources.push(s);
       const calls = msg.tool_calls || [];
@@ -129,8 +146,16 @@ class Agent {
         const call = calls[i];
         const name = call.function?.name;
         let args = {}; try { args = JSON.parse(call.function?.arguments || '{}'); } catch { /* */ }
-        if (ACTION.has(name) && !run.taskId) this.createTask(run, name);
-        this.setActivity(run.cid, label(name, args));
+        if ((ACTION.has(name) || (this.isAction && this.isAction(name))) && !run.taskId) this.createTask(run, name);
+        const g = this.guard ? this.guard(name, args, run) : null;
+        if (g && g.deny) { this.record(run, { step: step(`Blocked: ${name}`, false, false, g.deny) }); run.messages.push(toolMsg(call.id, JSON.stringify({ ok: false, blocked: true, result: g.deny }))); continue; }
+        if (g && g.approve) {
+          if (!run.taskId) this.createTask(run, name);
+          run.pendingApproval = { name, args, callId: call.id, title: g.card.title };
+          for (const c of calls.slice(i + 1)) run.messages.push(toolMsg(c.id, 'Not run yet.'));
+          return this.pause(run, { kind: 'approval', question: `Allow this? ${g.card.title}`, options: g.card.always ? ['Approve', 'Always allow', 'Deny'] : ['Approve', 'Deny'], multiple: false, card: g.card });
+        }
+        this.setActivity(run.cid, (this.labelFor && this.labelFor(name, args)) || label(name, args));
         const out = await this.exec(name, args, run).catch((e) => ({ content: JSON.stringify({ ok: false, result: `Tool error: ${e.message}` }), step: step(`${name} failed`, false, false, e.message) }));
         this.record(run, out);
         if (out.finish) {
@@ -146,11 +171,13 @@ class Agent {
         }
         run.messages.push(toolMsg(call.id, out.content));
       }
+      if (this.onTurn) this.onTurn(run);
     }
     return this.finalize(run, ['failed', `I stopped after ${MAX_TURNS} steps without finishing.`], null);
   }
 
   async exec(name, a, run) {
+    if (this.extraExec) { const r = await this.extraExec(name, a, run); if (r) return r; }
     const ok = (good, verified, result, extra = {}) => JSON.stringify({ ok: good, verified: good && verified, result, ...extra });
     switch (name) {
       case 'plan': {
@@ -253,11 +280,28 @@ class Agent {
     } catch { /* carry on without it */ }
   }
 
+  /** Workspace: pause a running task at the next safe point (after the current step). */
+  hold(taskId) {
+    const t = this.store.task(taskId); if (!t) return false;
+    const run = this.runs.get(t.conversationId);
+    if (run && run.taskId === taskId) { run.hold = true; return true; }
+    return false;
+  }
+
+  holdRun(run) {
+    run.hold = false;
+    this.held.set(run.taskId, run);
+    this.setActivity(run.cid, null);
+    this.store.updateTask(run.taskId, (t) => { t.status = 'PAUSED'; });
+    if (this.onHeld) this.onHeld(run);
+    return { text: 'Paused.', taskId: run.taskId, status: 'PAUSED', needsInput: false };
+  }
+
   // ------------------------------------------------------------ bookkeeping
 
   createTask(run, firstTool) {
     const userText = [...run.messages].reverse().find((m) => m.role === 'user')?.content || 'Task';
-    const t = this.store.createTask({ title: titleOf(userText), kind: KIND[firstTool] || 'general', conversationId: run.cid });
+    const t = this.store.createTask({ title: titleOf(userText), kind: KIND[firstTool] || 'general', conversationId: run.cid, ...(this.taskExtras ? this.taskExtras(run) : {}) });
     run.taskId = t.id;
   }
 
@@ -323,7 +367,7 @@ class Agent {
     const conv = this.store.conversation(cid);
     const history = (conv?.messages || []).filter((m) => m.role === 'user' || m.role === 'assistant').slice(-14)
       .map((m) => ({ role: m.role, content: m.text.slice(0, 1500) + (m.fileIds?.length ? `\n[files: ${m.fileIds.map((id) => { const f = this.store.file(id); return f ? `${f.fileName} id=${f.id}` : id; }).join(', ')}]` : '') }));
-    return [{ role: 'system', content: this.systemPrompt() }, ...history];
+    return [{ role: 'system', content: this.systemPrompt(cid) }, ...history];
   }
 
   systemPrompt() {
@@ -374,4 +418,4 @@ function label(name, a) {
     open_app: `Opening ${cleanAppName(a.name)}…`, open_url: 'Opening…', play_music: 'Finding music…', plan: 'Planning…', set_timer: 'Setting a timer…', autoclicker: 'Auto-click…' })[name] || 'Working on it…';
 }
 
-module.exports = { Agent, TOOLS, cleanAppName, matchAnswer };
+module.exports = { Agent, TOOLS, cleanAppName, matchAnswer, step, toolMsg, label };

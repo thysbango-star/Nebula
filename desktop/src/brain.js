@@ -37,7 +37,7 @@ class Brain {
     const tried = new Set(); let waits = 0;
     for (;;) {
       tried.add(model);
-      const body = { model, messages, tools, tool_choice: 'auto', parallel_tool_calls: false, temperature: 0.3, max_completion_tokens: 2048 };
+      const body = tools && tools.length ? { model, messages, tools, tool_choice: 'auto', parallel_tool_calls: false, temperature: 0.3, max_completion_tokens: 2048 } : { model, messages, temperature: 0.3, max_completion_tokens: 2048 };
       if (model.startsWith('openai/gpt-oss')) body.reasoning_effort = 'medium';
       try {
         const json = await this.request('POST', '/chat/completions', this.getKey(), JSON.stringify(body));

@@ -18,7 +18,12 @@ class Store extends EventEmitter {
     try { fs.mkdirSync(this.filesDir, { recursive: true }); } catch { /* */ }
     try { Object.assign(this.data, JSON.parse(fs.readFileSync(this.dataFile, 'utf8'))); } catch { /* first run */ }
     // Anything that was running when the app closed can't still be running.
-    for (const t of this.data.tasks) if (t.status === 'IN_PROGRESS') { t.status = 'FAILED'; t.summary = t.summary || 'Nebula was closed while this was running.'; }
+    for (const t of this.data.tasks) {
+      if (t.status !== 'IN_PROGRESS') continue;
+      // Workspace tasks keep a checkpoint, so they can carry on from where they were.
+      if (t.botId && t.checkpoint) { t.status = 'PAUSED'; t.interrupted = true; t.summary = 'Nebula was closed mid-task. Resume to carry on from the last checkpoint.'; }
+      else { t.status = 'FAILED'; t.summary = t.summary || 'Nebula was closed while this was running.'; }
+    }
     this.files = this.data.files.filter((f) => fs.existsSync(f.path));
     this.data.files = this.files;
     this.timer = null;
@@ -36,8 +41,8 @@ class Store extends EventEmitter {
 
   // ------------------------------------------------------------ conversations
   conversation(cid) { return this.data.conversations.find((c) => c.id === cid); }
-  newConversation() {
-    const c = { id: id(), title: 'New chat', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+  newConversation(extra = {}) {
+    const c = { id: id(), title: 'New chat', messages: [], createdAt: Date.now(), updatedAt: Date.now(), ...extra };
     this.data.conversations.unshift(c); this.save(); return c;
   }
   addMessage(cid, m) {
