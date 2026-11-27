@@ -417,8 +417,10 @@
   }
   function toolsForm(e) {
     return S.catalogue.capabilities.map((c) => { const risks = [...new Set(c.tools.map((t) => S.catalogue.tools[t]?.risk))].filter((r) => r && r !== 'none'); return `<div class="opt ${e.caps.includes(c.id) ? 'on' : ''}" data-act="ed-cap" data-c="${c.id}"><span class="box"></span><div style="flex:1"><b>${esc(c.label)} ${risks.map((r) => `<span class="risk ${r}">${r}</span>`).join(' ')}</b><small>${esc(c.desc)}</small></div></div>`; }).join('')
-      + '<div class="helpline">Always on: planning, asking you questions, searching its own knowledge and saving memories. Email, calendar, Slack and other apps aren\'t available yet — see Connect Apps.</div>';
+      + `<div class="field" style="margin-top:16px"><label>Connected apps (MCP servers)</label>${(S.mcp || []).length ? S.mcp.map((s) => { const on = !!(e.mcp || {})[s.id]; const tools = (s.tools || []).filter((t) => (s.toolCfg[t.name] || {}).on !== false); return `<div class="opt ${on ? 'on' : ''}" data-act="ed-mcp" data-id="${s.id}"><span class="box"></span><div style="flex:1"><b>${esc(s.name)} ${mcpPill(s)}</b><small>${tools.length} action${tools.length === 1 ? '' : 's'}${tools.length ? `: ${esc(tools.slice(0, 6).map((t) => t.title || t.name).join(', '))}${tools.length > 6 ? '…' : ''}` : ''}</small></div></div>`; }).join('') : '<div class="helpline">None yet. <a class="linkbtn" data-act="mcp-add">Add an MCP server</a> to connect real apps like GitHub, a browser, or your files.</div>'}</div>`
+      + '<div class="helpline">Always on: planning, asking you questions, searching its own knowledge and saving memories.</div>';
   }
+  function mcpPill(s) { return s.status === 'connected' ? pill('ok', 'Connected') : s.status === 'connecting' ? pill('queued', 'Connecting…') : s.status === 'error' ? pill('attention', 'Problem') : pill('paused', s.enabled === false ? 'Off' : 'Not connected'); }
   function autonomyForm(e) {
     return Object.entries(S.catalogue.autonomy).map(([k, a]) => `<div class="opt ${e.autonomy === k ? 'on' : ''}" data-act="ed-set" data-p="autonomy" data-v="${k}"><span class="box"></span><div><b>${esc(a.label)}</b><small>${esc(a.desc)} Asks before: ${a.approve.map((r) => `${r}-risk`).join(', ')} actions.</small></div></div>`).join('')
       + '<div class="helpline">Every level still respects its tool permissions, and irreversible actions (like overwriting a file) always need your OK.</div>';
@@ -561,7 +563,13 @@
   ];
   VIEWS.connect = () => {
     const q = (R.f.cq || '').toLowerCase();
-    return ['Connect Apps', `<div class="hero"><div><h2>Connect <em>apps</em></h2><p>Only what really works is marked connected. Everything else needs a sign-in service Nebula doesn't have yet — click one to see what it needs.</p></div></div>
+    return ['Connect Apps', `<div class="hero"><div><h2>Connect <em>apps</em></h2><p>Connect real apps through MCP servers below — paste a config, pick which bots may use it. The list further down shows what's built in, and what still needs a direct sign-in Nebula doesn't have yet.</p></div></div>
+      <div class="card" style="margin-bottom:18px;background:linear-gradient(140deg,rgba(82,0,244,.22),rgba(82,0,244,.03) 60%),var(--card);border-color:rgba(139,92,255,.25)">
+        <h3 style="font-size:15px;color:var(--text)">MCP servers — connect real apps<span class="sp"></span><button class="pillbtn" data-act="url" data-url="https://mcp.so">Browse mcp.so</button><button class="pillbtn pri" data-act="mcp-add">${I('plus')}Add MCP server</button></h3>
+        <p class="helpline" style="margin:-4px 0 14px">Paste the config block from a server's page (mcp.so, GitHub, the app's docs). Nebula connects, lists what it can do, and you choose which bots may use it. Risky actions still need your approval.</p>
+        ${(S.mcp || []).length ? `<div class="grid g2">${S.mcp.map(mcpCard).join('')}</div>` : ''}
+        <div class="chips" style="margin-top:${(S.mcp || []).length ? 14 : 0}px"><span class="helpline" style="align-self:center">Quick add:</span>${MCP_PRESETS.map((p, i) => `<button class="qa" data-act="mcp-preset" data-i="${i}">${I('plus')}${esc(p.label)}</button>`).join('')}</div>
+      </div>
       <div class="toolbar"><input type="search" placeholder="Search apps" data-keep="cq" id="cq" value="${esc(R.f.cq || '')}"><span class="helpline">${S.catalogue.capabilities.length} built in · switch them on per bot in its Tools settings</span></div>
       ${CONNECTORS.map(([cat, items]) => { const it = items.filter((x) => !q || x[0].toLowerCase().includes(q)); return it.length ? `<h3 style="margin:18px 0 10px;font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">${cat}</h3><div class="conn">${it.map(([n, cap, st]) => `<button class="c" data-act="conn" data-n="${esc(n)}" data-cap="${cap || ''}"><span class="lg" style="background:${st ? 'var(--brand)' : '#2a2838'}">${esc(n.slice(0, 1))}</span><div style="flex:1;min-width:0"><b>${esc(n)}</b><small>${st ? 'Built in · working' : 'Not available yet'}</small></div>${st ? pill('ok', 'Connected') : ''}</button>`).join('')}</div>` : ''; }).join('')}`];
   };
@@ -898,9 +906,82 @@
       if (test) $('tGo').onclick = async () => { $('testOut').textContent = 'Testing…'; const r = await call('ws:test', { what: test }); $('testOut').textContent = r ? `✓ ${typeof r === 'string' ? r : 'Working'}` : '✗ The test failed.'; };
       return;
     }
-    const mcp = /MCP|Custom API/.test(d.n);
-    modal(esc(d.n), `<div class="kv"><span>Status</span><b style="color:var(--faint)">Not available yet</b></div><p style="color:var(--dim)">${mcp ? 'Connecting your own MCP servers and custom APIs (endpoint, sign-in, tool discovery, per-tool permissions, encrypted secrets) is the next part of RovBots being built. Until it ships, nothing here will pretend to connect.' : `Connecting ${esc(d.n)} needs a secure sign-in (OAuth) app registered with ${esc(d.n)} and a place to keep your tokens encrypted. Nebula doesn't have those yet, so bots can't read or change anything in ${esc(d.n)} — they'll tell you so instead of guessing.`}</p><div class="note">Meanwhile, paste the content in (an email, a doc, a table) or add it as Knowledge, and your bots can work with it.</div>`, '<button class="pillbtn pri" data-act="close">OK</button>');
+    if (/MCP/.test(d.n)) { A['mcp-add'](); return; }
+    const mcp = /Custom API/.test(d.n);
+    modal(esc(d.n), `<div class="kv"><span>Status</span><b style="color:var(--faint)">Not available yet</b></div><p style="color:var(--dim)">${mcp ? 'Custom API tools aren\'t built yet. Most APIs already have an MCP server — search mcp.so for one and add it under MCP servers.' : `Connecting ${esc(d.n)} needs a secure sign-in (OAuth) app registered with ${esc(d.n)} and a place to keep your tokens encrypted. Nebula doesn't have those yet, so bots can't read or change anything in ${esc(d.n)} — they'll tell you so instead of guessing.`}</p><div class="note">Many apps already have an <b>MCP server</b> — search mcp.so for “${esc(d.n)}” and add it with <b>Add MCP server</b>; it often only needs a key. Or paste the content in (an email, a doc, a table) or add it as Knowledge, and your bots can work with it.</div>`, '<button class="pillbtn pri" data-act="close">OK</button>');
   };
+
+  // ---------------------------------------------------------------- MCP servers (real app connections)
+  const MCP_PRESETS = [
+    { label: 'Web browser (Playwright)', cfg: { name: 'Browser', type: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'] }, note: 'Lets a bot open pages, click, type and read them in a real browser window. Needs Node.js.' },
+    { label: 'Files in a folder', folder: true, cfg: { name: 'Files', type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] }, note: 'Read and write files — only inside the folder you pick. Needs Node.js.' },
+    { label: 'GitHub', cfg: { name: 'GitHub', type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer <YOUR_GITHUB_TOKEN>' } }, note: 'Repos, issues, pull requests. Make a token at github.com → Settings → Developer settings → Personal access tokens, and paste it after “Bearer ”.' },
+  ];
+  const PLACEHOLDER = /<[^>]+>|your[_-]?|xxx|_here\b|^\s*$|\$\{/i;
+  function mcpCard(s) {
+    const open = R.f[`mcp${s.id}`];
+    const tools = s.tools || [];
+    const users = (s.botsUsing || []).map(bot).filter(Boolean);
+    return `<div class="card" style="background:var(--bg2)">
+      <div style="display:flex;gap:10px;align-items:center"><span class="lg" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:${s.status === 'connected' ? 'var(--brand)' : '#2a2838'};font-weight:800">${esc(s.name.slice(0, 1).toUpperCase())}</span><div style="flex:1;min-width:0"><b>${esc(s.name)}</b><div class="helpline" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.type === 'http' ? esc(s.url) : esc(`${s.command} ${(s.args || []).join(' ')}`)}</div></div>${mcpPill(s)}</div>
+      ${s.status === 'error' && s.error ? `<div class="note warn" style="margin:10px 0 0">${esc(s.error)}</div>` : ''}
+      <div class="kv"><span>Actions</span><b>${tools.length ? `${tools.filter((t) => (s.toolCfg[t.name] || {}).on !== false).length} of ${tools.length} on` : '—'}</b></div>
+      <div class="kv"><span>Bots allowed</span><b>${users.length ? users.map((b) => esc(b.name)).join(', ') : 'None yet — switch it on in a bot\'s Tools settings'}</b></div>
+      ${open ? `<div style="margin-top:10px;max-height:320px;overflow:auto">${tools.map((t) => { const c = s.toolCfg[t.name] || { on: true, risk: t.risk }; return `<div class="row" style="cursor:default;align-items:flex-start"><div class="opt ${c.on !== false ? 'on' : ''}" style="margin:0;padding:0;border:0;background:none" data-act="mcp-tool" data-id="${s.id}" data-t="${esc(t.name)}"><span class="box"></span></div><div class="tx"><b>${esc(t.title || t.name)}</b><small style="white-space:normal">${esc((t.description || '').slice(0, 160))}</small></div><select data-act-change="mcp-risk" data-id="${s.id}" data-t="${esc(t.name)}" style="width:auto;height:30px;padding:0 8px;font-size:12px">${['none', 'low', 'medium', 'high'].map((r) => `<option value="${r}" ${(c.risk || t.risk) === r ? 'selected' : ''}>${{ none: 'Read-only', low: 'Low risk', medium: 'Ask (medium)', high: 'Always ask' }[r]}</option>`).join('')}</select></div>`; }).join('') || '<div class="empty">No actions listed.</div>'}<div class="helpline" style="margin-top:6px">Risk decides when bots must ask first (by their autonomy). “Always ask” can never be auto-approved.</div></div>` : ''}
+      <div class="chips" style="margin-top:12px">${tools.length ? `<button class="pillbtn" data-act="filter" data-k="mcp${s.id}" data-v="${open ? '' : '1'}">${open ? 'Hide actions' : 'Choose actions'}</button>` : ''}<button class="pillbtn" data-act="mcp-do" data-a="connect" data-id="${s.id}">${I('retry')}Reconnect</button><button class="pillbtn" data-act="mcp-edit" data-id="${s.id}">Edit</button><button class="pillbtn" data-act="mcp-do" data-a="toggle" data-id="${s.id}">${s.enabled === false ? 'Turn on' : 'Turn off'}</button><button class="pillbtn danger" data-act="mcp-remove" data-id="${s.id}">Remove</button></div></div>`;
+  }
+  /** The review/edit form for one or more servers. */
+  function mcpForm(list, editing) {
+    R.mxEdit = editing || null;
+    R.mx = list.map((c) => ({ ...c, args: [...(c.args || [])], env: { ...(c.env || {}) }, headers: { ...(c.headers || {}) } }));
+    const kvRows = (i, kind, o) => Object.entries(o).map(([k, v]) => `<div class="two" style="grid-template-columns:1fr 1.4fr auto;margin-bottom:6px"><input type="text" data-mxk="${i}.${kind}" value="${esc(k)}" placeholder="${kind === 'env' ? 'NAME' : 'Header'}"><input type="password" data-mxv="${i}.${kind}" value="${esc(v)}" placeholder="value" style="${PLACEHOLDER.test(v) ? 'border-color:var(--warn)' : ''}"><button class="ico" data-act="mx-del" data-i="${i}" data-kind="${kind}" data-k="${esc(k)}">${I('x')}</button></div>`).join('');
+    const body = R.mx.map((c, i) => `<div class="card" style="background:var(--bg2);margin-bottom:12px"><div class="two"><div class="field"><label>Name</label><input type="text" data-mx="${i}.name" value="${esc(c.name)}"></div><div class="field"><label>How it connects</label><select data-mx="${i}.type"><option value="stdio" ${c.type === 'stdio' ? 'selected' : ''}>Runs on this PC (command)</option><option value="http" ${c.type === 'http' ? 'selected' : ''}>Online server (URL)</option></select></div></div>
+      ${c.type === 'http' ? `<div class="field"><label>Server URL</label><input type="url" data-mx="${i}.url" value="${esc(c.url || '')}" placeholder="https://…/mcp"></div><div class="field"><label>Headers (keys and tokens — stored encrypted)</label>${kvRows(i, 'headers', c.headers)}<button class="linkbtn" data-act="mx-addkv" data-i="${i}" data-kind="headers">+ Add header</button></div>`
+        : `<div class="two" style="grid-template-columns:1fr 3fr"><div class="field"><label>Command</label><input type="text" data-mx="${i}.command" value="${esc(c.command || '')}" placeholder="npx"></div><div class="field"><label>Arguments (one per line)</label><textarea data-mx="${i}.args" rows="3" style="min-height:0;font:12.5px ui-monospace,Consolas,monospace">${esc((c.args || []).join('\n'))}</textarea></div></div><div class="field"><label>Environment (keys and tokens — stored encrypted)</label>${kvRows(i, 'env', c.env)}<button class="linkbtn" data-act="mx-addkv" data-i="${i}" data-kind="env">+ Add variable</button></div>`}
+      ${[...Object.values(c.env || {}), ...Object.values(c.headers || {})].some((v) => PLACEHOLDER.test(v) && v !== '••••••••') ? '<div class="note warn" style="margin:0">Fill in the highlighted values (the config had placeholders like &lt;YOUR_TOKEN&gt;).</div>' : ''}
+      ${c.note ? `<div class="helpline" style="margin-top:8px">${esc(c.note)}</div>` : ''}</div>`).join('');
+    const bots = S.bots.filter((b) => !b.archived && !b.draft);
+    modal(editing ? `Edit ${esc(list[0].name)}` : 'Add MCP server', `${body}${editing ? '' : `<div class="field"><label>Let this bot use it now (optional)</label><select id="mxBot"><option value="">Decide later</option>${bots.map((b) => `<option value="${b.id}" ${b.id === R.bot ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>`}<div class="helpline">Servers that run on this PC start when Nebula starts and stop when it quits. Only add servers you trust — they run with your permissions. Servers that need “Sign in with…” (OAuth) aren't supported yet; use ones that take a key.</div>`,
+      `<button class="pillbtn" data-act="close">Cancel</button><button class="pillbtn pri" id="mxGo">${editing ? 'Save & reconnect' : 'Add & connect'}</button>`, 'xl');
+    $('mxGo').onclick = async () => {
+      mxRead();
+      for (const c of R.mx) { if (c.type === 'http' && !/^https?:\/\//.test(c.url || '')) { toast('Add the server URL (https://…).', true); return; } if (c.type === 'stdio' && !c.command) { toast('Add the command that starts the server.', true); return; } }
+      $('mxGo').textContent = 'Connecting…'; $('mxGo').disabled = true;
+      let last = null;
+      for (const c of R.mx) last = editing ? await call('ws:mcp', { act: 'update', id: editing, ...c }) : await call('ws:mcp', { act: 'add', ...c, bot: $('mxBot').value || null });
+      closeLayer();
+      const s = last && (await api.invoke('ws:init')).mcp.find((x) => x.id === last);
+      if (s && s.status === 'connected') toast(`${s.name} connected — ${s.tools.length} actions.`); else if (s) toast(`${s.name}: ${s.error || 'couldn\'t connect'}`, true);
+      if (R.view !== 'connect') go('connect');
+    };
+  }
+  function mxRead() {
+    for (const el of $('layer').querySelectorAll('[data-mx]')) { const [i, f] = el.dataset.mx.split('.'); R.mx[i][f] = f === 'args' ? el.value.split('\n').map((x) => x.trim()).filter(Boolean) : el.value.trim(); }
+    for (const c of R.mx) { c.env = {}; c.headers = {}; }
+    const ks = [...$('layer').querySelectorAll('[data-mxk]')]; const vs = [...$('layer').querySelectorAll('[data-mxv]')];
+    ks.forEach((k, j) => { const [i, kind] = k.dataset.mxk.split('.'); if (k.value.trim()) R.mx[i][kind][k.value.trim()] = vs[j].value; });
+  }
+  A['mcp-add'] = async () => {
+    const chk = await call('ws:mcp-check');
+    modal('Add MCP server', `<div class="field"><label>Paste the server's config</label><textarea id="mxPaste" rows="9" style="font:12.5px ui-monospace,Consolas,monospace" placeholder='{\n  "mcpServers": {\n    "github": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-github"],\n      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "<YOUR_TOKEN>" }\n    }\n  }\n}'></textarea><div class="help">On mcp.so open a server, find “Server Config” and copy it. A server URL (https://…) works too.</div></div>
+      <div class="chips" style="margin-bottom:12px"><span class="helpline" style="align-self:center">Or quick add:</span>${MCP_PRESETS.map((p, i) => `<button class="qa" data-act="mcp-preset" data-i="${i}">${esc(p.label)}</button>`).join('')}</div>
+      ${chk ? `<div class="kv"><span>Node.js (for npx servers)</span><b style="color:${chk.npx ? 'var(--ok)' : 'var(--warn)'}">${chk.npx ? `Installed (${esc(chk.node || chk.npx)})` : 'Not found — <a class="linkbtn" data-act="url" data-url="https://nodejs.org">install from nodejs.org</a>'}</b></div><div class="kv"><span>uv (for uvx servers)</span><b style="color:${chk.uvx ? 'var(--ok)' : 'var(--faint)'}">${chk.uvx ? 'Installed' : 'Not found — only needed for Python servers (<a class="linkbtn" data-act="url" data-url="https://docs.astral.sh/uv/">get uv</a>)'}</b></div>` : ''}`,
+      '<button class="pillbtn" data-act="close">Cancel</button><button class="pillbtn" id="mxManual">Fill in a form instead</button><button class="pillbtn pri" id="mxNext">Next</button>');
+    $('mxManual').onclick = () => mcpForm([{ name: '', type: 'stdio', command: 'npx', args: [], env: {} }]);
+    $('mxNext').onclick = async () => { const r = await call('ws:mcp-parse', { text: $('mxPaste').value }); if (r) mcpForm(r); };
+  };
+  A['mcp-preset'] = async (d) => {
+    const p = MCP_PRESETS[+d.i]; const cfg = JSON.parse(JSON.stringify(p.cfg));
+    if (p.folder) { const f = await call('ws:mcp-folder'); if (!f) return; cfg.args.push(f); cfg.name = `Files (${f.split(/[\\/]/).pop()})`; }
+    mcpForm([{ ...cfg, note: p.note }]);
+  };
+  A['mcp-edit'] = async (d) => { const s = S.mcp.find((x) => x.id === d.id); mcpForm([{ name: s.name, type: s.type, command: s.command, args: s.args, url: s.url, env: s.env, headers: s.headers }], s.id); };
+  A['mx-addkv'] = (d) => { mxRead(); R.mx[+d.i][d.kind][`NEW_${Object.keys(R.mx[+d.i][d.kind]).length + 1}`] = ''; mcpForm(R.mx, R.mxEdit); };
+  A['mx-del'] = (d) => { mxRead(); delete R.mx[+d.i][d.kind][d.k]; mcpForm(R.mx, R.mxEdit); };
+  A['mcp-do'] = async (d) => { const r = await call('ws:mcp', { act: d.a, id: d.id }); if (d.a === 'connect' && r != null) toast(`Connected — ${r} actions.`); };
+  A['mcp-remove'] = (d) => { const s = S.mcp.find((x) => x.id === d.id); confirmBox(`Remove ${esc(s.name)}?`, 'Bots lose access to it and its saved keys are deleted.', 'Remove', () => call('ws:mcp', { act: 'remove', id: d.id })); };
+  A['mcp-tool'] = (d) => { const s = S.mcp.find((x) => x.id === d.id); const c = s.toolCfg[d.t] || {}; call('ws:mcp', { act: 'tool', id: d.id, tool: d.t, patch: { on: c.on === false } }); };
+  A['ed-mcp'] = (d) => { const e = edTarget(); e.mcp = { ...(e.mcp || {}) }; if (e.mcp[d.id]) delete e.mcp[d.id]; else e.mcp[d.id] = true; redraw(); };
 
   // settings
   A['pf-save'] = () => call('ws:profile', { name: $('pfName').value.trim(), work: $('pfWork').value.trim(), team: $('pfTeam').value, heard: $('pfHeard').value.trim() }, 'Saved.');
@@ -921,7 +1002,8 @@
     const el = e.target;
     if (el.dataset.actChange) {
       const k = el.dataset.actChange;
-      if (k === 't-pri') call('ws:task-act', { id: el.dataset.id, act: 'priority', arg: el.value });
+      if (k === 'mcp-risk') call('ws:mcp', { act: 'tool', id: el.dataset.id, tool: el.dataset.t, patch: { risk: el.value } });
+      else if (k === 't-pri') call('ws:task-act', { id: el.dataset.id, act: 'priority', arg: el.value });
       else if (k === 't-bot') call('ws:task-act', { id: el.dataset.id, act: 'reassign', arg: el.value }, 'Reassigned.');
       else { R.f[k] = el.value; render(true); }
       return;

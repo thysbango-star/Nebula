@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { id } = require('./store');
+const { McpHub } = require('./mcp');
 
 // ------------------------------------------------------------------ catalogue
 
@@ -170,8 +171,8 @@ function describeSchedule(s) {
 }
 
 /** Does this bot need the user's OK for this tool? */
-function needsApproval(bot, tool) {
-  const info = TOOL_INFO[tool]; const risk = info ? info.risk : 'medium';
+function needsApproval(bot, tool, riskOverride) {
+  const info = TOOL_INFO[tool]; const risk = riskOverride || (info ? info.risk : 'medium');
   if (risk === 'none') return false;
   const lvl = AUTONOMY[bot.autonomy] || AUTONOMY.supervised;
   let need = lvl.approve.includes(risk);
@@ -256,16 +257,23 @@ function makeBotAgent(Base, ws, extraSchemas) {
   const { step, toolMsg, TOOLS } = ws.engine;
   return class BotAgent extends Base {
     botFor(run) { const c = this.store.conversation(run.cid); return c && ws.bot(c.botId); }
-    isAction(name) { return name === 'delegate_task'; }
+    isAction(name) { return name === 'delegate_task' || name.startsWith('mcp__'); }
 
     toolsFor(run) {
       const bot = this.botFor(run); if (!bot) return TOOLS;
       const allow = allowedTools(bot);
-      return [...TOOLS, ...extraSchemas].filter((t) => allow.has(t.function.name));
+      return [...[...TOOLS, ...extraSchemas].filter((t) => allow.has(t.function.name)), ...ws.mcpFor(bot).map((x) => x.schema)];
     }
 
     guard(name, args, run) {
       const bot = this.botFor(run); if (!bot) return null;
+      if (name.startsWith('mcp__')) {
+        const x = ws.mcpFor(bot).find((y) => y.key === name);
+        if (!x) return { deny: `${bot.name} isn't allowed to use that connected app tool. The user can switch it on in this bot's Tools settings.` };
+        if (run.routineMode === 'always' && x.risk !== 'none') return { approve: true, card: ws.card(bot, name, args, run) };
+        if (!needsApproval(bot, name, x.risk)) return null;
+        return { approve: true, card: ws.card(bot, name, args, run) };
+      }
       if (!allowedTools(bot).has(name)) return { deny: `${bot.name} isn't allowed to use "${TOOL_INFO[name]?.label || name}". The user can switch it on in this bot's Tools settings. Continue without it.` };
       if (run.routineMode === 'always' && TOOL_INFO[name] && TOOL_INFO[name].risk !== 'none') return { approve: true, card: ws.card(bot, name, args, run) };
       if (!needsApproval(bot, name)) return null;
@@ -276,6 +284,7 @@ function makeBotAgent(Base, ws, extraSchemas) {
       if (name === 'search_knowledge') return 'Searching its knowledge…';
       if (name === 'remember') return 'Saving to memory…';
       if (name === 'delegate_task') return `Handing work to ${a.bot}…`;
+      if (name.startsWith('mcp__')) { const x = ws.mcp.find(name); return x ? `Using ${x.server.name}: ${x.tool.title || x.tool.name}…` : 'Using a connected app…'; }
       return null;
     }
 
@@ -300,6 +309,17 @@ function makeBotAgent(Base, ws, extraSchemas) {
         return { content: JSON.stringify({ ok: true, verified: true, result: 'Saved.' }), step: run.taskId ? step('Saved a memory', true, true, text.slice(0, 80)) : null };
       }
       if (name === 'delegate_task') return ws.delegate(bot, a, run);
+      if (name.startsWith('mcp__')) {
+        const x = ws.mcp.find(name);
+        if (!x || !ws.mcpFor(bot).some((y) => y.key === name)) return { content: JSON.stringify({ ok: false, result: 'That tool isn\'t available.' }) };
+        const label = `${x.server.name}: ${x.tool.title || x.tool.name}`;
+        try {
+          const r = await ws.mcp.call(name, a);
+          return { content: JSON.stringify({ ok: r.ok, verified: r.ok, result: r.text }), step: step(label, r.ok, r.ok, r.text.replace(/\s+/g, ' ').slice(0, 140)) };
+        } catch (e) {
+          return { content: JSON.stringify({ ok: false, result: `${x.server.name} failed: ${e.message}` }), step: step(label, false, false, e.message.slice(0, 140)) };
+        }
+      }
       return null;
     }
 
@@ -380,10 +400,14 @@ class Workspace extends EventEmitter {
     this.kDir = path.join(this.dir, 'Workspace', 'knowledge');
     try { fs.mkdirSync(this.kDir, { recursive: true }); } catch { /* */ }
     this.data = { v: 1, profile: { name: '', heard: '', work: '', team: '', onboarded: false }, settings: { proactivity: 'balanced', quietFrom: '22:00', quietTo: '07:00', notifyOn: true },
-      bots: [], skills: [], routines: [], teams: [], activity: [], pins: [], dismissed: [] };
+      bots: [], skills: [], routines: [], teams: [], activity: [], pins: [], dismissed: [], mcp: [] };
     try { const d = JSON.parse(fs.readFileSync(this.file, 'utf8')); this.data = { ...this.data, ...d, profile: { ...this.data.profile, ...d.profile }, settings: { ...this.data.settings, ...d.settings } }; } catch { /* first run */ }
     this.running = new Set();
     this.kCache = new Map();
+    if (!Array.isArray(this.data.mcp)) this.data.mcp = [];
+    this.mcp = new McpHub({ list: () => this.data.mcp, save: () => this.save(), encrypt: this.encrypt || ((s) => s), decrypt: this.decrypt || ((s) => s), fetch: this.fetchImpl });
+    this.mcp.on('change', () => this.changed());
+    if (this.mcpAutoConnect !== false) setTimeout(() => this.mcp.connectAll(), 2500).unref?.();
     const extra = [
       fnSchema('search_knowledge', 'Search the knowledge the user gave you (files, notes, links). Use it before answering questions about their material.', { query: { type: 'string', description: 'What to look for' } }, ['query']),
       fnSchema('remember', 'Save a lasting fact about the user or their work for future tasks (preferences, names, decisions). Never passwords or secrets.', { fact: { type: 'string', description: 'One short fact' } }, ['fact']),
@@ -399,7 +423,25 @@ class Workspace extends EventEmitter {
     setTimeout(() => { this.tick(); for (const b of this.data.bots) this.pump(b.id); }, 3000).unref?.();
   }
 
-  close() { clearInterval(this.timer); }
+  close() { clearInterval(this.timer); try { this.mcp.closeAll(); } catch { /* */ } }
+
+  /** Connected-app tools this bot may use (servers it's allowed, tools switched on). */
+  mcpFor(bot) { const allow = bot.mcp || {}; return this.mcp.catalogue().filter((x) => allow[x.server.id]); }
+
+  mcpAct(act, a = {}) {
+    const h = this.mcp;
+    switch (act) {
+      case 'add': { const s = h.add(a); this.log(null, 'connect', `Added ${s.name}`); if (a.bot) { const b = this.bot(a.bot); if (b) { b.mcp = { ...(b.mcp || {}), [s.id]: true }; } } return h.connect(s.id).then(() => { this.log(null, 'connect', `${s.name} connected — ${s.tools.length} tools`); return s.id; }, (e) => { this.log(null, 'error', `${s.name}: ${e.message}`); return s.id; }); }
+      case 'update': h.update(a.id, a); return h.connect(a.id).then(() => a.id, () => a.id);
+      case 'connect': return h.connect(a.id).then((s) => s.tools.length);
+      case 'disconnect': h.disconnect(a.id); return true;
+      case 'toggle': { const s = h.server(a.id); s.enabled = !s.enabled; if (s.enabled) h.connect(s.id).catch(() => {}); else h.disconnect(s.id); this.save(); return s.enabled; }
+      case 'tool': h.toolCfg(a.id, a.tool, a.patch); return true;
+      case 'remove': { const s = h.server(a.id); h.remove(a.id); for (const b of this.data.bots) if (b.mcp) delete b.mcp[a.id]; if (s) this.log(null, 'connect', `Removed ${s.name}`); this.save(); return true; }
+      case 'secrets': { const s = h.server(a.id); const sec = h.secrets(s); return { env: Object.keys(sec.env), headers: Object.keys(sec.headers) }; }
+      default: throw new Error('Unknown action');
+    }
+  }
 
   save() {
     clearTimeout(this.saveT);
@@ -504,7 +546,7 @@ class Workspace extends EventEmitter {
   importBot(json) {
     const o = typeof json === 'string' ? JSON.parse(json) : json;
     if (!o || o.kind !== 'nebula-rovbot') throw new Error('That isn\'t a Nebula bot file.');
-    const bot = newBot({ ...o.bot, id: id(), primary: false, paused: false, archived: false, knowledge: [], memories: [], alwaysAllow: {}, createdAt: Date.now() });
+    const bot = newBot({ ...o.bot, mcp: {}, id: id(), primary: false, paused: false, archived: false, knowledge: [], memories: [], alwaysAllow: {}, createdAt: Date.now() });
     this.data.bots.push(bot);
     for (const k of o.knowledge || []) this.addKnowledge(bot.id, { kind: 'note', title: k.title, text: k.text, category: k.category });
     this.log(bot, 'bot', `Imported ${bot.name}`); this.save();
@@ -591,7 +633,7 @@ ${name ? `The user's name is ${name}.${this.data.profile.work ? ` They work as/i
 ${L('Responsible for', I.resp)}${L('Do', I.do)}${L('Never', I.never)}${L('How to approach work', I.approach)}${L('How you communicate', I.communication)}${L('Writing style', I.style)}${L('Decision boundaries', I.boundaries)}${L('Priorities', I.priorities)}${L('When to escalate to the user', I.escalation)}${L('Output format', I.output)}${L('Quality bar', I.quality)}${L('Notes', I.notes)}
 ## Personality
 ${personalityText(bot.personality) || 'Friendly and clear.'} Personality shapes how you talk, never what you are allowed to do.
-${task ? `\n## Current task\n${task.title}${task.description && task.description !== task.title ? `\n${task.description}` : ''}${task.dueAt ? `\nDue: ${new Date(task.dueAt).toLocaleString('en-GB')}` : ''}${task.parentId ? '\nThis was handed to you by another bot. Return a complete result with finish_task.' : ''}\n` : ''}${team ? `\n## Team: ${team.name}\nPurpose: ${team.purpose || '—'}\nHow the team works: ${teamMode(team.mode)}\n${team.instructions ? `Team instructions: ${team.instructions}\n` : ''}${team.coordinator === bot.id ? 'You coordinate this team: decide what each member should do, delegate with delegate_task, check their results, then combine them into one final result.\n' : ''}` : ''}${skills.length ? `\n## Skills you know\n${skills.map((s) => `- ${s.name} (v${s.version}): ${s.instructions}${s.steps && s.steps.length ? ` Steps: ${s.steps.join(' → ')}` : ''}`).join('\n')}\n` : ''}${bot.memories.length && bot.memoryOn !== false ? `\n## What you remember\n${bot.memories.slice(0, 30).map((m) => `- ${m.text}`).join('\n')}\n` : ''}${hits.length ? `\n## From your knowledge (most relevant passages)\n${hits.map((h) => `[${h.title}] ${h.text.replace(/\s+/g, ' ').slice(0, 700)}`).join('\n---\n')}\n` : bot.knowledge.length ? `\nYou have ${bot.knowledge.length} knowledge item(s): ${bot.knowledge.slice(0, 12).map((k) => k.title).join(', ')}. Use search_knowledge to read them.\n` : ''}${peers.length ? `\n## Bots you may hand work to (delegate_task)\n${peers.map((p) => `- ${p.name}: ${p.role}${p.description ? ` — ${p.description}` : ''}`).join('\n')}\n` : ''}${files.length ? `\nFiles you made before:\n${files.map((f) => `- ${f.fileName} (id=${f.id})`).join('\n')}\n` : ''}
+${task ? `\n## Current task\n${task.title}${task.description && task.description !== task.title ? `\n${task.description}` : ''}${task.dueAt ? `\nDue: ${new Date(task.dueAt).toLocaleString('en-GB')}` : ''}${task.parentId ? '\nThis was handed to you by another bot. Return a complete result with finish_task.' : ''}\n` : ''}${team ? `\n## Team: ${team.name}\nPurpose: ${team.purpose || '—'}\nHow the team works: ${teamMode(team.mode)}\n${team.instructions ? `Team instructions: ${team.instructions}\n` : ''}${team.coordinator === bot.id ? 'You coordinate this team: decide what each member should do, delegate with delegate_task, check their results, then combine them into one final result.\n' : ''}` : ''}${skills.length ? `\n## Skills you know\n${skills.map((s) => `- ${s.name} (v${s.version}): ${s.instructions}${s.steps && s.steps.length ? ` Steps: ${s.steps.join(' → ')}` : ''}`).join('\n')}\n` : ''}${bot.memories.length && bot.memoryOn !== false ? `\n## What you remember\n${bot.memories.slice(0, 30).map((m) => `- ${m.text}`).join('\n')}\n` : ''}${hits.length ? `\n## From your knowledge (most relevant passages)\n${hits.map((h) => `[${h.title}] ${h.text.replace(/\s+/g, ' ').slice(0, 700)}`).join('\n---\n')}\n` : bot.knowledge.length ? `\nYou have ${bot.knowledge.length} knowledge item(s): ${bot.knowledge.slice(0, 12).map((k) => k.title).join(', ')}. Use search_knowledge to read them.\n` : ''}${peers.length ? `\n## Bots you may hand work to (delegate_task)\n${peers.map((p) => `- ${p.name}: ${p.role}${p.description ? ` — ${p.description}` : ''}`).join('\n')}\n` : ''}${this.mcpFor(bot).length ? `\n## Connected apps you can use\n${[...new Set(this.mcpFor(bot).map((x) => x.server))].map((s) => `- ${s.name}: ${this.mcpFor(bot).filter((x) => x.server === s).length} tools (named mcp__…)${s.info && s.info.instructions ? ` — ${s.info.instructions.replace(/\s+/g, ' ').slice(0, 400)}` : ''}`).join('\n')}\nThese act on the user's real accounts. Results come back from the app itself — report them faithfully.\n` : ''}${files.length ? `\nFiles you made before:\n${files.map((f) => `- ${f.fileName} (id=${f.id})`).join('\n')}\n` : ''}
 ## Rules
 - Do the work with your tools instead of describing it. Plain questions: answer directly.
 - Multi-step work: call plan first, then act step by step.
@@ -614,6 +656,14 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
 
   // ------------------------------------------------------------ approval cards
   card(bot, name, a, run) {
+    if (name.startsWith('mcp__')) {
+      const x = this.mcp.find(name); const risk = x ? x.risk : 'medium';
+      const lastText = [...run.messages].reverse().find((m) => m.role === 'assistant' && m.content)?.content || '';
+      const where = x ? (x.server.type === 'http' ? (() => { try { return new URL(x.server.url).host; } catch { return x.server.url; } })() : `a program on this PC (${x.server.command})`) : '';
+      return { tool: name, title: x ? `${x.server.name}: ${x.tool.title || x.tool.name}` : name, why: lastText.replace(/\s+/g, ' ').trim().slice(0, 240), app: x ? x.server.name : 'Connected app', destination: where,
+        content: JSON.stringify(a, null, 2).slice(0, 900), consequence: x ? (x.tool.description || '').slice(0, 220) : '', reversible: risk !== 'high',
+        shares: `The details above are sent to ${where || 'that app'}.`, risk: risk === 'none' ? 'low' : risk, always: risk !== 'high', args: a, bot: bot.id };
+    }
     const info = TOOL_INFO[name] || { label: name, risk: 'medium' };
     const lastText = [...run.messages].reverse().find((m) => m.role === 'assistant' && m.content)?.content || '';
     const t = run.taskId ? this.store.task(run.taskId) : null;
@@ -633,7 +683,8 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
   approvalDecided(bot, run, ap, choice, edited) {
     if (!bot) return;
     const yes = /^(approve|always)/i.test(String(choice));
-    if (/^always/i.test(String(choice)) && TOOL_INFO[ap.name] && TOOL_INFO[ap.name].risk !== 'high') { bot.alwaysAllow[ap.name] = true; }
+    const risk = ap.name.startsWith('mcp__') ? this.mcp.find(ap.name)?.risk : TOOL_INFO[ap.name]?.risk;
+    if (/^always/i.test(String(choice)) && risk && risk !== 'high') { bot.alwaysAllow[ap.name] = true; }
     this.log(bot, yes ? 'approved' : 'denied', `${yes ? (edited ? 'Approved (edited)' : /^always/i.test(choice) ? 'Always allowed' : 'Approved') : 'Denied'}: ${ap.title || ap.name}`, run.taskId);
   }
 
@@ -992,6 +1043,7 @@ ${task ? `\n## Current task\n${task.title}${task.description && task.description
       tasks: tasks.map((t) => { const { checkpoint, ...rest } = t; return { ...rest, hasCheckpoint: !!checkpoint, running: this.running.has(t.id), activity: activity[t.conversationId] || null }; }),
       conversations: convs.map((c) => ({ ...c, messages: c.messages.slice(-200) })),
       files: this.store.data.files.filter((f) => f.taskId && taskIds.has(f.taskId)),
+      mcp: this.data.mcp.map(({ envEnc, headersEnc, ...s }) => ({ ...s, botsUsing: this.data.bots.filter((b) => b.mcp && b.mcp[s.id]).map((b) => b.id) })),
       live: { ...this.agent.activity }, suggestions: this.suggestions(), keyOk: !!this.agentDeps.hasKey?.(),
       catalogue: { capabilities: CAPABILITIES, autonomy: AUTONOMY, tools: TOOL_INFO, templates: TEMPLATES, skillTemplates: SKILL_TEMPLATES.map((s, i) => ({ i, name: s[0], category: s[1], description: s[2], tools: s[3] })), personality: PERSONALITY, sliders: SLIDERS },
     };

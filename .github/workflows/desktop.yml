@@ -57,6 +57,8 @@ jobs:
         run: node test/moodplay-test.js
       - name: Workspace (RovBots) test
         run: node test/workspace-test.js
+      - name: MCP connections test (stdio + remote servers, permissions, approvals)
+        run: node test/mcp-test.js
 
       - name: Test the document writers (docx, xlsx, pptx, csv, md, txt, html)
         run: node test/docs-test.js
@@ -134,6 +136,8 @@ jobs:
         run: node test/moodplay-test.js
       - name: Workspace (RovBots) test
         run: node test/workspace-test.js
+      - name: MCP connections test (stdio + remote servers, permissions, approvals)
+        run: node test/mcp-test.js
 
       - name: Test the Linux media reader (playerctl)
         run: |

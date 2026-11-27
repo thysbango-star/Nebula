@@ -441,7 +441,7 @@ function initAgent() {
       timer: (s) => setTimer(s), clicker: (cmd) => clicker(cmd), screenshot: null,
       onActivity: () => workspace && workspace.changed(), sound: (kind) => send(wsWin, 'ws:sound', kind), hasKey: () => !!getKey(),
     },
-    notify: wsNotify, fetchText: wsFetch,
+    notify: wsNotify, fetchText: wsFetch, encrypt, decrypt,
   });
   workspace.on('change', () => { if (wsWin && !wsWin.isDestroyed() && wsWin.isVisible()) send(wsWin, 'ws:state', workspace.snapshot()); });
 }
@@ -565,6 +565,15 @@ function wireWorkspace() {
     if (what === 'web') { const r = await brain.search('Nebula Workspace test'); return `${r.sources.length} sources found`; }
     if (what === 'files') { fs.accessSync(store.filesDir, fs.constants.W_OK); return `Files folder is writable: ${store.filesDir}`; }
     return 'ok';
+  }));
+  ipcMain.handle('ws:mcp', safe(({ act, ...a }) => W().mcpAct(act, a)));
+  ipcMain.handle('ws:mcp-parse', safe(({ text }) => require('./mcp').parseConfig(text)));
+  ipcMain.handle('ws:mcp-folder', safe(async () => { const r = await dialog.showOpenDialog(wsWin, { properties: ['openDirectory'] }); return r.canceled ? null : r.filePaths[0]; }));
+  ipcMain.handle('ws:mcp-check', safe(async () => {
+    const { execFile } = require('child_process');
+    const ver = (cmd) => new Promise((res) => execFile(cmd, ['--version'], { shell: process.platform === 'win32', timeout: 8000, windowsHide: true }, (e, out) => res(e ? null : String(out).trim().split('\n')[0].slice(0, 40))));
+    const [node, npx, uvx] = await Promise.all([ver('node'), ver('npx'), ver('uvx')]);
+    return { node, npx, uvx };
   }));
   ipcMain.on('ws:voice', () => startSession('workspace'));
   ipcMain.on('ws:open-nebula', (_e, view) => openApp(view));
