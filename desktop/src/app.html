@@ -228,6 +228,8 @@
   .moodbig b { display: block; font-size: 15px; } .moodbig small { color: var(--dim); }
   .moodaddr { padding: 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); margin: 10px 0; display: flex; flex-direction: column; gap: 3px; }
   .moodaddr small { color: var(--dim); font-weight: 800; font-size: 10.5px; letter-spacing: 1.2px; } .moodaddr b { font-size: 22px; margin-bottom: 8px; } .moodaddr b.code { font-size: 30px; letter-spacing: 6px; color: #ff7a2f; }
+  .wsopen { display: flex; align-items: center; gap: 10px; height: 42px; margin: 10px 0 0; padding: 0 12px; border-radius: 14px; background: #5200F4; color: #fff; font-weight: 800; text-align: left; }
+  .wsopen:hover { filter: brightness(1.12); }
 </style>
 </head>
 <body>
@@ -240,6 +242,7 @@
       <button data-view="files" class="press"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Files</button>
       <button data-view="beam" class="press"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>Beam</button>
     </div>
+    <button class="wsopen press" id="openWs" title="Your RovBots"><svg viewBox="0 0 100 92" width="20" height="18"><path d="M8 18 L80 14 L96 78 L80 90 L0 90 L0 40Z" fill="#fff"/><rect x="44" y="26" width="22" height="10" rx="5" transform="rotate(-38 55 31)" fill="#5200F4"/><rect x="58" y="40" width="22" height="10" rx="5" transform="rotate(-42 69 45)" fill="#5200F4"/></svg><span>Nebula Workspace</span></button>
     <button class="newchat press" id="newChat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
     <div class="label">Recent</div>
     <div class="convs" id="convs"></div>
@@ -344,6 +347,7 @@ function go(v) {
   setTimeout(() => (v === 'chat' ? $('chatInput') : v === 'tasks' ? $('taskInput') : document.body).focus(), 60);
 }
 document.querySelectorAll('.nav button').forEach((b) => (b.onclick = () => go(b.dataset.view)));
+$('openWs').onclick = () => api.send('open:workspace');
 $('newChat').onclick = () => { convId = null; go('chat'); };
 $('openSettings').onclick = () => openSheet('set');
 $('scrim').onclick = closeSheets;
@@ -403,7 +407,7 @@ async function sendChat(t) { convId = await api.invoke('app:send', { conversatio
 // ------------------------------------------------------------ sidebar
 function renderSide() {
   $('needDot').classList.toggle('on', D.tasks.some((t) => t.status === 'REQUIRES_INPUT'));
-  const list = D.conversations.filter((c) => c.messages.length);
+  const list = D.conversations.filter((c) => c.messages.length && !c.botId);
   $('convs').innerHTML = list.length ? list.map((c) => `<div class="conv ${c.id === convId && view === 'chat' ? 'on' : ''}" data-id="${c.id}">
       <div class="t"><div>${esc(c.title)}</div><small>${fmtDay(c.updatedAt)}</small></div>
       <button class="del" data-del="${c.id}" title="Delete">${svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', 15)}</button></div>`).join('')
