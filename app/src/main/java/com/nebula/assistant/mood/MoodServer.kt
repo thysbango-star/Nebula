@@ -26,7 +26,7 @@ import java.util.concurrent.Executors
  */
 class MoodServer(private val ctx: Context, val code: String, private val state: () -> String,
                  private val art: (String) -> ByteArray?, private val onCmd: (String) -> Unit) {
-    private var server: ServerSocket? = null
+    @Volatile private var server: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool()
     private val streams = CopyOnWriteArrayList<OutputStream>()
     private val misses = HashMap<String, MutableList<Long>>()
@@ -37,7 +37,9 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
         port = runCatching { s.bind(InetSocketAddress(8765)); 8765 }.getOrElse { s.bind(InetSocketAddress(0)); s.localPort }
         server = s
         pool.execute { while (!s.isClosed) { val c = runCatching { s.accept() }.getOrNull() ?: break; pool.execute { handle(c) } } }
-        pool.execute { while (server != null) { Thread.sleep(15_000); push(null) } } // keep-alive for the TV's connection
+        pool.execute { // keep-alive for the TV's connection; stop() interrupts the sleep, which just ends the loop
+            try { while (server != null) { Thread.sleep(15_000); push(null) } } catch (_: InterruptedException) {}
+        }
         return port
     }
 
