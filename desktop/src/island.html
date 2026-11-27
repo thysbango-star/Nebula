@@ -153,6 +153,53 @@
   #beam.prog .bbar { display: block; }
   #beamFill { height: 100%; width: 0; border-radius: 2px; background: #fff; transition: width .25s ease; }
 
+
+  /* ---------------- A bot pinging you: its character pops out of the notch ---------------- */
+  #island.bot { width: 480px; height: 118px; border-radius: 0 0 30px 30px; }
+  #island.bot.short { height: 84px; }
+  #island.bot.compact { width: 300px; height: 38px; border-radius: 0 0 19px 19px; }
+  body.m-bot #shL { left: calc(50% - 240px - 16px); } body.m-bot #shR { left: calc(50% + 240px); }
+  body.m-bot.compact #shL { left: calc(50% - 150px - 16px); } body.m-bot.compact #shR { left: calc(50% + 150px); }
+  #bot { display: flex; gap: 14px; padding: 14px 16px 12px 18px; align-items: flex-start; }
+  #bot .who { width: 58px; height: 58px; flex: none; position: relative; margin-top: -2px; }
+  #bot .who svg { width: 100%; height: 100%; overflow: visible; display: block; }
+  #bot.on .who { animation: botDrop .75s var(--spring) both; }
+  #bot.on.k-need .who svg, #bot.on.k-ask .who svg { animation: botHop 2.2s cubic-bezier(.3,1.4,.5,1) .8s infinite; transform-origin: 50% 90%; }
+  #bot.on.k-done .who svg { animation: botYay .6s var(--spring) .75s 2; transform-origin: 50% 90%; }
+  #bot.on.k-fail .who svg { animation: botShake .5s ease .75s 1; transform-origin: 50% 90%; }
+  #bot .ey { transition: transform .3s var(--spring); }
+  #bot.k-need .ey, #bot.k-ask .ey { transform: translate(0, -6px) scale(1.12); }
+  #bot.k-done .ey { transform: translateY(-3px) scaleY(.35); }
+  #bot.k-fail .ey { transform: translate(0, 5px) scale(.92); }
+  #bot .pip { position: absolute; right: -2px; top: -1px; width: 14px; height: 14px; border-radius: 50%; background: var(--amber); border: 2px solid #000; }
+  #bot .pip::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; background: var(--amber); opacity: 0; animation: ping 1.6s cubic-bezier(0,0,.2,1) .8s infinite; }
+  #bot.k-done .pip { background: var(--mint); } #bot.k-done .pip::after { display: none; }
+  #bot.k-fail .pip { background: #FF5D6C; } #bot.k-fail .pip::after { display: none; }
+  @keyframes botDrop { 0% { transform: translateY(-120%) scale(.6, 1.2); opacity: 0; } 55% { transform: translateY(6%) scale(1.12, .86); opacity: 1; } 75% { transform: translateY(-4%) scale(.96, 1.04); } 100% { transform: none; } }
+  @keyframes botHop { 0%, 60%, 100% { transform: none; } 68% { transform: translateY(3%) scale(1.06, .94); } 78% { transform: translateY(-12%) scale(.96, 1.05); } 88% { transform: translateY(0) scale(1.04, .96); } }
+  @keyframes botYay { 40% { transform: translateY(-14%) scale(.96, 1.05); } }
+  @keyframes botShake { 20%, 60% { transform: rotate(-6deg); } 40%, 80% { transform: rotate(6deg); } }
+  @keyframes ping { 0% { transform: scale(.5); opacity: .55; } 80%, 100% { transform: scale(1.5); opacity: 0; } }
+  #bot .txt { flex: 1; min-width: 0; opacity: 0; transform: translateX(-8px); }
+  #bot.on .txt { animation: botTxt .4s var(--ease) .28s forwards; }
+  @keyframes botTxt { to { opacity: 1; transform: none; } }
+  #bot .nm { display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 700; }
+  #bot .nm .k { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+  #bot.k-done .nm .k { color: var(--mint); } #bot.k-fail .nm .k { color: #FF7B87; }
+  #bot .bd { color: var(--dim); font-size: 13px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bot .acts { display: flex; gap: 6px; margin-top: 9px; }
+  #bot .acts button { height: 28px; padding: 0 13px; border-radius: 14px; border: 0; font: 650 12.5px/1 inherit; font-family: inherit; color: var(--text); background: rgba(255,255,255,.12); cursor: pointer; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; transition: background .15s, transform .1s; }
+  #bot .acts button:hover { background: rgba(255,255,255,.2); } #bot .acts button:active { transform: scale(.96); }
+  #bot .acts .pri { background: #fff; color: #000; } #bot .acts .pri:hover { background: #e9e6f5; }
+  #bot .acts .no { color: #FF8A95; }
+  #bot .x { position: absolute; right: 12px; top: 10px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(255,255,255,.08); color: var(--dim); font-size: 11px; cursor: pointer; }
+  #bot .mini { display: none; }
+  #island.compact #bot { padding: 0 12px 0 10px; align-items: center; height: 38px; }
+  #island.compact #bot .who { width: 26px; height: 26px; margin: 0; animation: none; }
+  #island.compact #bot .who .pip { width: 9px; height: 9px; border-width: 1.5px; }
+  #island.compact #bot .acts, #island.compact #bot .bd, #island.compact #bot .x { display: none; }
+  #island.compact #bot .nm { font-size: 12.5px; } #island.compact #bot .nm .k { display: none; }
+  #bot .cl { display: none; } #island.compact #bot .cl { display: inline; color: var(--amber); font-weight: 600; }
   /* ---------------- Sports (Apple Sports-style) ---------------- */
   .num, .goalword { font-family: "Bahnschrift", "Roboto Condensed", "Arial Narrow", sans-serif; font-stretch: condensed; font-weight: 700; }
   #island.score { width: 300px; height: 34px; }
@@ -409,6 +456,7 @@
   <div class="view" id="score"></div>
   <div class="view" id="card"></div>
   <div class="view" id="goal"></div>
+  <div class="view" id="bot"></div>
 
   <div class="view" id="rest">
     <canvas class="orb" id="orbSmall" width="44" height="44" style="width:22px;height:22px"></canvas>
@@ -482,6 +530,7 @@ let hovering = false; let interactive = false; let level = 0;
 function mode() {
   if (state.active) return state.gaming ? 'game' : 'session';
   if (beam) return 'beam';
+  if (botP) return 'bot';
   if (goal) return 'goal';
   if (state.hud && !hovering) return 'hud';
   const typing = document.activeElement === $('askInput') && $('askInput').value;
@@ -502,19 +551,21 @@ function render() {
   island.classList.toggle('session', m === 'session');
   island.classList.toggle('game', m === 'game');
   island.classList.toggle('hud', m === 'hud');
-  for (const k of ['score', 'card', 'goal', 'music', 'musiccard', 'beam']) island.classList.toggle(k, m === k);
+  for (const k of ['score', 'card', 'goal', 'music', 'musiccard', 'beam', 'bot']) island.classList.toggle(k, m === k);
+  const botCompact = m === 'bot' && botP.compact && !hovering;
+  island.classList.toggle('compact', botCompact); island.classList.toggle('short', m === 'bot' && !botCompact && !botP.hasActs);
   if (m === 'music') renderMusic();
   if (m === 'musiccard') renderMusicCard();
   if (m === 'score') renderScore();
   if (m === 'card') renderCard();
   const ckOn = !!(state.clicker && state.clicker.running);
-  document.body.className = `m-${m}${m === 'rest' && ckOn ? ' m-clicking' : ''}${PHONE ? ' phone' : ''}`;
+  document.body.className = `m-${m}${m === 'rest' && ckOn ? ' m-clicking' : ''}${PHONE ? ' phone' : ''}${botCompact ? ' compact' : ''}`;
   if (m === 'hud') renderHud();
   island.classList.toggle('awake', state.active);
   island.classList.toggle('thinking', state.phase === 'thinking');
   $('glowShadow').classList.toggle('on', state.active);
   if (m === 'beam') renderBeam();
-  for (const v of ['rest', 'hover', 'session', 'game', 'hud', 'score', 'card', 'music', 'musiccard', 'beam']) $(v).classList.toggle('on', v === m);
+  for (const v of ['rest', 'hover', 'session', 'game', 'hud', 'score', 'card', 'music', 'musiccard', 'beam', 'bot']) $(v).classList.toggle('on', v === m);
   if (m !== 'goal') $('goal').classList.remove('on');
   if (m !== 'hover' && !hovering) askMode = false;
   if (m === 'game') {
@@ -1327,6 +1378,49 @@ function drawPlane(t) {
   else { g.moveTo(w * .9, h * .5 + dy); g.lineTo(w * .1, h * .15 + dy); g.lineTo(w * .38, h * .88 + dy); g.lineTo(w * .52, h * .6 + dy); }
   g.closePath(); g.fill(); planeT = requestAnimationFrame(drawPlane);
 }
+
+// ---------------- A bot pinging you from the notch (needs your OK, has a question, finished, got stuck)
+var botP = null; var botTimer = 0;
+const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+api.on('island:bot', (p) => {
+  clearTimeout(botTimer);
+  if (!p) { botP = null; render(); return; }
+  const isNew = !botP || botP.id !== p.id;
+  botP = { ...p, compact: false };
+  const acts = [];
+  if (p.approval) { acts.push(['answer', 'Approve', 'Allow', 'pri']); acts.push(['answer', 'Deny', 'Deny', 'no']); acts.push(['open', '', 'Open', '']); }
+  else if (p.kind === 'ask' && p.options && p.options.length) { p.options.forEach((o, i) => acts.push(['answer', o, o, i === 0 ? 'pri' : ''])); acts.push(['open', '', 'Open', '']); }
+  else if (p.kind === 'ask') acts.push(['open', '', 'Answer', 'pri']);
+  else if (p.kind === 'fail') acts.push(['open', '', 'See what happened', 'pri']);
+  else acts.push(['open', '', 'Open', 'pri']);
+  botP.hasActs = true;
+  const eyes = String(p.e).split(/(?=M)/).filter((x) => x.trim()).map((e) => `<path d="${e}" fill="#fff"/>`).join('');
+  const label = { need: 'Needs your OK', ask: 'Has a question', done: 'Finished', fail: 'Got stuck' }[p.kind] || '';
+  const el = $('bot');
+  el.className = `view k-${p.kind}${el.classList.contains('on') && !isNew ? ' on' : ''}`;
+  el.innerHTML = `<div class="who"><svg viewBox="-56 -58 112 114"><path d="${p.d}" fill="${escH(p.color)}"/>${p.cap ? `<path d="${p.cap}" fill="${escH(p.capc)}"/>` : ''}<g class="ey">${eyes}</g></svg><i class="pip"></i></div>
+    <div class="txt"><div class="nm">${escH(p.name)}<span class="k">${label}</span><span class="cl">${p.kind === 'need' || p.kind === 'ask' ? 'needs you' : ''}</span></div><div class="bd">${escH(p.kind === 'need' || p.kind === 'ask' ? p.body : p.body || p.title)}</div>
+    <div class="acts">${acts.map(([a, c, l, cls], i) => `<button class="${cls}" data-i="${i}" title="${escH(l)}">${escH(l)}</button>`).join('')}</div></div>
+    <button class="x" title="Dismiss">✕</button>`;
+  el.querySelectorAll('.acts button').forEach((b) => (b.onclick = () => { const [a, c] = acts[+b.dataset.i]; api.send('island:bot', { act: a, choice: c }); }));
+  el.querySelector('.x').onclick = () => api.send('island:bot', { act: 'dismiss' });
+  if (isNew) { chime(p.kind); }
+  // Finished / stuck pings leave by themselves; questions shrink to a small tab after a while and stay until answered.
+  if (p.kind === 'done') botTimer = setTimeout(() => { if (!hovering) api.send('island:bot', { act: 'dismiss' }); }, 7000);
+  else if (p.kind === 'fail') botTimer = setTimeout(() => { if (!hovering) api.send('island:bot', { act: 'dismiss' }); }, 14000);
+  else botTimer = setTimeout(() => { if (botP) { botP.compact = true; render(); } }, 20000);
+  render();
+});
+function chime(kind) {
+  if (state.lite && kind === 'done') return;
+  try {
+    const ctx = new AudioContext(); const notes = kind === 'fail' ? [523, 392] : kind === 'done' ? [659, 880] : [784, 1047];
+    notes.forEach((f, i) => { const o = ctx.createOscillator(); const g = ctx.createGain(); const t = ctx.currentTime + i * 0.12;
+      o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.4); });
+    setTimeout(() => ctx.close(), 1200);
+  } catch {}
+}
 api.on('island:level', (l) => { level = l; });
 api.on('island:speak', speak);
 api.on('island:speak-stop', stopSpeaking);
@@ -1359,6 +1453,7 @@ if (q.has('demo')) {
   if (d === 'clicker') state.clicker = { running: true, clicks: 1284 };
   if (d === 'hud') state.hud = { since: Date.now() - 754000, ping: 34, cpu: 41, ram: 63, crosshair: true };
   if (d === 'followup') state = { ...state, active: true, phase: 'listening', followup: true, screenShare: true, reply: 'It will be warm and mostly sunny on Saturday, around 27°.' };
+  if (d === 'bot') setTimeout(() => window.__demoBot && window.__demoBot(q.get('k') || 'need'), 200);
   if (d === 'rest') state.timerEndsAt = Date.now() + 4 * 60 * 1000 + 32 * 1000;
   const demoGame = { id: 'demo', league: { name: 'Premier League', kind: 'soccer' }, state: 'in', live: true, clock: "67'", lastPlay: "S. Dlamini 67'",
     home: { abbr: 'JHB', name: 'Lions', score: 1, color: '#f2b01e' }, away: { abbr: 'CPT', name: 'Comets', score: 1, color: '#2f6bff' } };
