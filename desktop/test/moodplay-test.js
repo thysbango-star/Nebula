@@ -52,8 +52,11 @@ function fakeSamsung(port) {
   assert.ok(!/[01OIL]/.test(mp.code), 'codes avoid look-alike characters');
 
   // Pages, codes, rate limits.
-  assert.match((await get(base + '/')).body.toString(), /6-letter code/);
-  assert.strictEqual((await get(base + '/WRONG1/')).status, 404);
+  const home = (await get(base + '/')).body.toString();
+  assert.match(home, /Enter your code/); assert.match(home, /6-character code/);
+  for (const p of ['RovBot', 'Nebula', 'Nude Browser', 'Wave', 'Mood Launch', 'R3cket', 'Rovian Intelligence']) assert.ok(home.includes(p), `the code page advertises ${p}`);
+  assert.strictEqual((await get(base + '/f/manrope_bold.ttf')).status, 200, 'the code page\'s font is served without a code');
+  const wrong = await get(base + '/WRONG1/'); assert.strictEqual(wrong.status, 404); assert.match(wrong.body.toString(), /didn.t match/);
   const page = await get(`${base}/${mp.code}/`); assert.strictEqual(page.status, 200); assert.match(page.body.toString(), /Mood PLAY/);
   assert.strictEqual((await get(`${base}/${mp.code.toLowerCase()}/state`)).status, 200, 'codes are case-insensitive (typed on a remote)');
   const st = JSON.parse((await get(`${base}/${mp.code}/state`)).body.toString());

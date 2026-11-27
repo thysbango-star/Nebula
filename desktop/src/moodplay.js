@@ -222,15 +222,24 @@ class MoodPlay {
     for (const s of this.streams) { try { s.write(line); } catch { this.streams.delete(s); } }
   }
 
+  /** The designed code page (shared/moodplay/code.html, with our product ads); the plain one if it's missing. */
+  codePage() {
+    if (this._codeHtml === undefined) { try { this._codeHtml = fs.readFileSync(path.join(path.dirname(this.pagePath), 'code.html'), 'utf8'); } catch { this._codeHtml = null; } }
+    return this._codeHtml || CODE_PAGE;
+  }
+
   handle(q, r) {
     const ip = q.socket.remoteAddress || '';
     if (!isLan(ip)) { r.destroy(); return; }
     const u = new URL(q.url, 'http://x'); const seg = u.pathname.split('/').filter(Boolean);
     const send = (code, type, body, extra = {}) => { r.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', ...extra }); r.end(body); };
-    if (!seg.length) return send(200, 'text/html; charset=utf-8', CODE_PAGE);
+    if (!seg.length) return send(200, 'text/html; charset=utf-8', this.codePage());
+    if (seg.length === 2 && seg[0] === 'f' && /^[a-z_]+\.ttf$/.test(seg[1])) { // the code page's fonts (not secret)
+      try { return send(200, 'font/ttf', fs.readFileSync(path.join(path.dirname(this.pagePath), 'fonts', seg[1])), { 'Cache-Control': 'max-age=604800' }); } catch { return send(404, 'text/plain', ''); }
+    }
     const hits = (this.misses.get(ip) || []).filter((t) => Date.now() - t < 60000); this.misses.set(ip, hits);
     if (hits.length >= 20) return send(429, 'text/plain', 'Too many tries');
-    if (seg[0].toUpperCase() !== this.code) { hits.push(Date.now()); return send(404, 'text/html; charset=utf-8', CODE_PAGE.replace('<!--msg-->', 'That code didn’t match. Check the code in Nebula.')); }
+    if (seg[0].toUpperCase() !== this.code) { hits.push(Date.now()); return send(404, 'text/html; charset=utf-8', this.codePage().replace('<!--msg-->', 'That code didn’t match. Check the code in Nebula.')); }
     if (seg.length === 1 && !u.pathname.endsWith('/')) return send(302, 'text/plain', '', { Location: `/${seg[0]}/` });
     switch (seg[1]) {
       case undefined: return send(200, 'text/html; charset=utf-8', fs.readFileSync(this.pagePath));
