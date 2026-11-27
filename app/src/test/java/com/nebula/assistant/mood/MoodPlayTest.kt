@@ -40,8 +40,11 @@ class MoodPlayTest {
         val port = s.start()
         try {
             val base = "http://127.0.0.1:$port"
-            assertTrue(req("$base/").second.contains("6-letter code"))
-            assertEquals(404, req("$base/WRONG1/").first)
+            val home = req("$base/").second
+            assertTrue("the designed code page is served", home.contains("Enter your code") && home.contains("6-character code"))
+            for (p in listOf("RovBot", "Nebula", "Nude Browser", "Wave", "Mood Launch", "R3cket", "Rovian Intelligence")) assertTrue("advertises $p", home.contains(p))
+            assertEquals(200, req("$base/f/manrope_bold.ttf").first)
+            val wrong = req("$base/WRONG1/"); assertEquals(404, wrong.first); assertTrue(wrong.second.contains("didn't match"))
             val page = req("$base/$code/")
             assertEquals(200, page.first); assertTrue("the shared TV page is served", page.second.contains("Mood PLAY") && page.second.contains("t-waves"))
             assertEquals(302, req("$base/$code").first)
