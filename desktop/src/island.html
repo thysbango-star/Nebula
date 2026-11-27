@@ -376,6 +376,24 @@
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: .92; transform: none; } }
   @keyframes leave { to { opacity: 0; transform: translateY(-34px) scale(1.12); } }
   @keyframes boardIn { to { opacity: 1; transform: none; } }
+  /* Never animate what you can't see. A spinning gradient at opacity 0 still repaints this always-on-top,
+     see-through window 60 times a second, and Windows recomposites the whole desktop each time — that is what
+     made the mouse and everything else feel laggy. Hidden views and effects are paused until they show. */
+  #rest:not(.on) *, #rest:not(.on) *::before, #rest:not(.on) *::after,
+  #hover:not(.on) *, #hover:not(.on) *::before, #hover:not(.on) *::after,
+  #session:not(.on) *, #session:not(.on) *::before, #session:not(.on) *::after,
+  #game:not(.on) *, #game:not(.on) *::before, #game:not(.on) *::after,
+  #hud:not(.on) *, #hud:not(.on) *::before, #hud:not(.on) *::after,
+  #score:not(.on) *, #score:not(.on) *::before, #score:not(.on) *::after,
+  #card:not(.on) *, #card:not(.on) *::before, #card:not(.on) *::after,
+  #music:not(.on) *, #music:not(.on) *::before, #music:not(.on) *::after,
+  #musiccard:not(.on) *, #musiccard:not(.on) *::before, #musiccard:not(.on) *::after,
+  #beam:not(.on) *, #beam:not(.on) *::before, #beam:not(.on) *::after,
+  #goal:not(.on) *, #goal:not(.on) *::before, #goal:not(.on) *::after { animation-play-state: paused !important; }
+  #rim, #glowShadow { animation-play-state: paused; }
+  #island.awake #rim, #glowShadow.on { animation-play-state: running; }
+  /* Lite (battery, or a laptop without strong graphics): decorative loops stand still. */
+  body.lite *, body.lite *::before, body.lite *::after { animation-play-state: paused !important; }
 </style>
 </head>
 <body>
@@ -476,6 +494,8 @@ function mode() {
 }
 
 function render() {
+  wakeLoop();
+  document.body.classList.toggle('lite', !!state.lite);
   const m = mode();
   island.classList.toggle('hidden', false);
   island.classList.toggle('hover', m === 'hover');
@@ -1267,10 +1287,14 @@ function loop(now) {
       b.style.height = `${4 + 12 * Math.min(1, (0.15 + 0.85 * shownLevel) * wob)}px`;
     });
   }
-  // Light on the laptop: full frame rate only while Nebula is awake or you're hovering; the resting pill ticks at 8 fps.
-  if (state.active || hovering) requestAnimationFrame(loop);
-  else { last = 0; setTimeout(() => requestAnimationFrame(loop), 125); }
+  // Light on the laptop: animate only while Nebula is awake or you're hovering. At rest the orb is drawn once and
+  // the loop parks — an idle see-through, always-on-top window that keeps repainting makes Windows recomposite the
+  // desktop every frame, which is what makes the mouse feel laggy on laptop graphics.
+  if (state.active || hovering) { if (state.lite) setTimeout(() => requestAnimationFrame(loop), 17); else requestAnimationFrame(loop); }
+  else { last = 0; parked = true; }
 }
+var parked = false; // var: render() can run before this line
+function wakeLoop() { if (parked) { parked = false; requestAnimationFrame(loop); } }
 requestAnimationFrame(loop);
 
 // ---------------------------------------------------------------- wiring

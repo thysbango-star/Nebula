@@ -449,7 +449,7 @@ class Workspace extends EventEmitter {
     this.changed();
   }
   flush() { try { fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.data)); fs.renameSync(this.file + '.tmp', this.file); } catch { /* */ } }
-  changed() { clearTimeout(this.pushT); this.pushT = setTimeout(() => this.emit('change'), 120); }
+  changed() { if (this.pushT) return; this.pushT = setTimeout(() => { this.pushT = null; this.emit('change'); }, 250); } // at most 4 updates a second to the window
 
   // ------------------------------------------------------------ lookups
   bot(bid) { return this.data.bots.find((b) => b.id === bid); }
