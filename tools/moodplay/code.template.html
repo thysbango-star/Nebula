@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mood PLAY</title>
+<!-- Built from tools/moodplay/code.template.html by build-code-page.js — edit the template, not code.html. -->
+<style>
+  /* Mood PLAY — enter the code. On a TV it's drawn on a 1920×1080 stage scaled to the screen (like the player);
+     on a phone it becomes one column. Liquid-gloss card on the left, our products on the right. Animations use
+     transform and opacity only, and a slow TV holds everything still. */
+  @font-face { font-family: "MoodSans"; src: url("/f/manrope_medium.ttf") format("truetype"); font-weight: 300 500; }
+  @font-face { font-family: "MoodSans"; src: url("/f/manrope_bold.ttf") format("truetype"); font-weight: 600 900; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #0b0b10; }
+  body { font-family: "MoodSans", "Open Sans", "Samsung One", "SamsungOne", "LG Smart", Roboto, "Segoe UI", "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #111; overflow: hidden; }
+  body.phone { overflow: auto; background: #F4EFE9; }
+  button { font: inherit; border: 0; background: none; color: inherit; cursor: pointer; }
+
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+  body.phone #stage { position: relative; width: auto; height: auto; overflow: visible; transform: none !important; padding: 14px 14px 26px; display: flex; flex-direction: column; }
+  body.phone #card { order: 0; } body.phone #ads { order: 1; }
+
+  /* ---------------------------------------------------------------- the ads (behind and beside the card) */
+  #ads { position: absolute; inset: 0; }
+  .ad { position: absolute; inset: 0; opacity: 0; transition: opacity .9s ease; overflow: hidden; }
+  .ad.on { opacity: 1; }
+  .ad .bg { position: absolute; inset: 0; }
+  .ad .art { position: absolute; }
+  .ad .copy { position: absolute; left: 820px; top: 360px; width: 760px; }
+  .ad .copy, .ad .art { transform: translateY(26px); opacity: 0; transition: transform 1s cubic-bezier(.2,.8,.2,1) .25s, opacity .8s ease .25s; }
+  .ad.on .copy, .ad.on .art { transform: none; opacity: 1; }
+  .tag { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: 5px; text-transform: uppercase; margin-bottom: 22px; opacity: .7; }
+  .ad h2 { font-size: 92px; line-height: 1.02; font-weight: 800; letter-spacing: -2.5px; }
+  .ad p { font-size: 34px; line-height: 1.35; font-weight: 500; margin-top: 26px; max-width: 700px; opacity: .85; }
+  .chips { display: flex; gap: 12px; margin-top: 34px; flex-wrap: wrap; }
+  .chips span { font-size: 22px; font-weight: 700; padding: 10px 22px; border-radius: 99px; border: 2px solid currentColor; opacity: .75; }
+  .float { animation: float 7s ease-in-out infinite; }
+  @keyframes float { 50% { transform: translateY(-16px) rotate(-1.5deg); } }
+
+  /* RovBot — white, the characters spilling in from the corners */
+  .k-rovbot .bg { background: #fff; }
+  .k-rovbot .pile.a { position: absolute; left: 700px; top: -250px; width: 640px; transform: rotate(180deg); }
+  .k-rovbot .pile.b { position: absolute; right: -150px; bottom: -280px; width: 680px; }
+  .k-rovbot .copy { top: 400px; }
+  .k-rovbot h2 { font-size: 100px; }
+  .k-rovbot .small { font-size: 24px; margin-top: 14px; opacity: .55; }
+
+  /* Nebula — deep purple, the bot floating */
+  .k-nebula .bg { background: radial-gradient(70% 90% at 80% 30%, #8a4dff 0%, #5200F4 45%, #26006f 100%); }
+  .k-nebula { color: #fff; }
+  .k-nebula .art { right: 120px; top: 290px; width: 340px; }
+  .k-nebula .bot { width: 100%; height: auto; display: block; filter: drop-shadow(0 40px 60px rgba(20,0,80,.5)); }
+  .k-nebula .copy { top: 330px; width: 580px; }
+
+  /* Nude — warm sand, a big quiet wordmark */
+  .k-nude .bg { background: linear-gradient(140deg, #F6EDE3 0%, #EAD7C4 60%, #DDBFA5 100%); }
+  .k-nude { color: #1d1511; }
+  .k-nude .art { right: 70px; top: 130px; font-size: 380px; font-weight: 800; letter-spacing: -22px; line-height: 1; color: transparent; -webkit-text-stroke: 4px rgba(29,21,17,.22); }
+  .k-nude .copy { top: 420px; }
+
+  /* Wave — near-black and forest green, flowing green lines */
+  .k-wave .bg { background: radial-gradient(80% 90% at 60% 20%, #10301F 0%, #07140D 50%, #050806 85%); }
+  .k-wave { color: #F2F5F0; }
+  .k-wave .wv { position: absolute; left: 600px; bottom: -40px; width: 1500px; height: 560px; opacity: .55; }
+  .k-wave h2 em { font-style: normal; color: #3DF27A; }
+  .k-wave .copy { top: 330px; }
+
+  /* Mood Launch — the Mood gradient */
+  .k-launch .bg { background: linear-gradient(120deg, #ff3a2a 0%, #ff6a32 50%, #ff9a45 100%); }
+  .k-launch { color: #111; }
+  .k-launch .art { right: 120px; top: 300px; }
+  .k-launch .copy { top: 400px; }
+
+  /* R3cket — dark, amber */
+  .k-r3 .bg { background: radial-gradient(60% 80% at 75% 40%, #2a2210 0%, #0d0c0a 60%, #060606 100%); }
+  .k-r3 { color: #fff; }
+  .k-r3 .tag { color: #FFC266; opacity: 1; }
+  .k-r3 .art { right: 90px; top: 300px; width: 430px; }
+  .k-r3 .copy { top: 330px; width: 540px; }
+  .hud { background: #000; border-radius: 0 0 34px 34px; padding: 26px 30px; box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 2px rgba(255,194,102,.18); }
+  .hud .row { display: flex; align-items: center; gap: 16px; font-size: 22px; font-weight: 800; letter-spacing: 3px; color: rgba(255,255,255,.55); margin: 12px 0; }
+  .hud .row:first-child { color: #FFC266; margin-top: 0; }
+  .hud .bar { flex: 1; height: 10px; border-radius: 5px; background: rgba(255,255,255,.1); overflow: hidden; }
+  .hud .bar i { display: block; height: 100%; width: 40%; border-radius: 5px; background: linear-gradient(90deg, #FFC266, #ff8a3d); transform-origin: left; animation: barpulse 3s ease-in-out infinite; }
+  .hud .row:nth-child(3) .bar i { animation-delay: -1s; } .hud .row:nth-child(4) .bar i { animation-delay: -2s; }
+  @keyframes barpulse { 50% { transform: scaleX(1.5); } }
+  .cross { width: 120px; height: 120px; margin: 36px auto 0; position: relative; }
+  .cross i { position: absolute; background: #fff; box-shadow: 0 0 0 3px #000; border-radius: 3px; }
+  .cross i:nth-child(1) { left: 56px; top: 0; width: 8px; height: 40px; } .cross i:nth-child(2) { left: 56px; bottom: 0; width: 8px; height: 40px; }
+  .cross i:nth-child(3) { top: 56px; left: 0; height: 8px; width: 40px; } .cross i:nth-child(4) { top: 56px; right: 0; height: 8px; width: 40px; }
+
+  /* Rovian Intelligence — blue with white waves (the design you sent, cleaned up) */
+  .k-rovian .bg { background: linear-gradient(135deg, #2d63ee 0%, #2348d2 45%, #1b1f74 100%); }
+  .k-rovian { color: #fff; }
+  .k-rovian .wv { position: absolute; width: 1100px; height: 520px; opacity: .9; }
+  .k-rovian .w1 { left: 600px; top: -170px; transform: rotate(-12deg); }
+  .k-rovian .w2 { right: -260px; bottom: -200px; transform: rotate(-24deg); }
+  .k-rovian .copy { top: 410px; width: 1060px; }
+  .k-rovian .brand { display: flex; align-items: center; gap: 28px; }
+  .k-rovian .rmark { width: 128px; height: 128px; flex: none; }
+  .k-rovian .brand b { white-space: nowrap; font-size: 84px; font-weight: 800; letter-spacing: -2px; line-height: 1; background: linear-gradient(90deg, #06070f 0%, #06070f 38%, #c9ccd8 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* ---------------------------------------------------------------- the card: liquid gloss */
+  #card { position: absolute; left: 56px; top: 56px; width: 680px; height: 968px; border-radius: 60px; padding: 58px 54px; color: #111;
+    background: linear-gradient(158deg, #ff9b4a 0%, #ff7a22 46%, #f2620f 100%);
+    box-shadow: 0 50px 110px rgba(0,0,0,.34), 0 0 0 1.5px rgba(255,255,255,.35), inset 0 2px 0 rgba(255,255,255,.65), inset 0 -3px 0 rgba(120,40,0,.12);
+    overflow: hidden; z-index: 2; }
+  #card::before { content: ""; position: absolute; left: -10%; top: -30%; width: 120%; height: 70%; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255,255,255,.42), rgba(255,255,255,0)); pointer-events: none; }
+  #card::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: -40%; width: 30%; transform: translateX(0) rotate(18deg);
+    background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.28), rgba(255,255,255,0)); animation: sheen 9s ease-in-out infinite 2s; pointer-events: none; }
+  @keyframes sheen { 0%, 70% { transform: translateX(0) rotate(18deg); } 100% { transform: translateX(560%) rotate(18deg); } }
+  #card > * { position: relative; z-index: 1; }
+  .logo { display: flex; align-items: center; font-weight: 600; font-size: 72px; letter-spacing: -3px; line-height: 1; }
+  .logo .pill { display: inline-block; width: 92px; height: 44px; border-radius: 24px; border: 6px solid #111; margin: 12px 0 0 -2px; background: linear-gradient(90deg, #ff3a2a, #ff8f3f); box-shadow: inset 0 3px 6px rgba(255,255,255,.4); }
+  .logo .od { margin-left: -2px; }
+  .logo b { font-weight: 500; letter-spacing: 1px; margin-left: 18px; font-size: 52px; }
+  #card h1 { font-size: 84px; line-height: 1; font-weight: 800; letter-spacing: -2.5px; margin-top: 76px; }
+  #card .lead { font-size: 27px; line-height: 1.4; font-weight: 500; margin-top: 18px; opacity: .78; max-width: 540px; }
+
+  #tiles { display: flex; gap: 12px; margin-top: 50px; position: relative; outline: none; }
+  .t { position: relative; flex: 1; height: 124px; border-radius: 28px; display: grid; place-items: center; font-size: 62px; font-weight: 800;
+    background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34)); box-shadow: inset 0 2px 0 rgba(255,255,255,.75), inset 0 -2px 0 rgba(120,40,0,.08), 0 6px 16px rgba(120,40,0,.12);
+    color: #2a1200; transition: transform .25s cubic-bezier(.3,1.5,.5,1), background .2s; }
+  .t.full { background: linear-gradient(180deg, #fff, rgba(255,255,255,.82)); }
+  .t.on { background: #FFF8EC; transform: scale(1.08); box-shadow: 0 0 0 4px #111, 0 14px 30px rgba(80,20,0,.3); z-index: 1; }
+  .t .up, .t .dn { position: absolute; left: 50%; width: 0; height: 0; border-left: 13px solid transparent; border-right: 13px solid transparent; margin-left: -13px; opacity: 0; transition: opacity .2s; }
+  .t .up { top: -30px; border-bottom: 16px solid #111; } .t .dn { bottom: -30px; border-top: 16px solid #111; }
+  body.remote .t.on .up, body.remote .t.on .dn { opacity: 1; }
+  .t .ph { width: 26px; height: 6px; border-radius: 3px; background: rgba(42,18,0,.25); }
+  .t.pop { animation: tpop .3s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes tpop { 40% { transform: scale(1.16); } }
+  #typer { position: absolute; inset: 0; opacity: 0; font-size: 16px; width: 100%; height: 100%; border: 0; color: transparent; background: transparent; caret-color: transparent; text-transform: uppercase; }
+  body.remote #typer { display: none; }
+  .msg { min-height: 36px; margin-top: 34px; font-size: 26px; font-weight: 700; color: #5a0e00; }
+  #go { margin-top: 8px; height: 92px; width: 100%; border-radius: 46px; background: #111; color: #fff; font-size: 34px; font-weight: 800; letter-spacing: -.5px;
+    box-shadow: 0 16px 34px rgba(60,15,0,.35), inset 0 2px 0 rgba(255,255,255,.18); transition: transform .2s, opacity .2s; }
+  #go[disabled] { opacity: .35; }
+  #go.focus { transform: scale(1.04); box-shadow: 0 0 0 5px #FFF8EC, 0 16px 34px rgba(60,15,0,.35); }
+  .keys { display: flex; gap: 22px; margin-top: 26px; font-size: 22px; font-weight: 700; opacity: .7; flex-wrap: wrap; }
+  .keys kbd { font: inherit; font-weight: 800; display: inline-grid; place-items: center; min-width: 40px; height: 36px; padding: 0 8px; border-radius: 10px; background: rgba(255,255,255,.4); margin-right: 6px; }
+  body:not(.remote) .keys { display: none; }
+  .foot { margin-top: 26px; font-size: 21px; font-weight: 600; opacity: .62; }
+
+  /* which product is showing */
+  #dots { position: absolute; right: 70px; bottom: 56px; display: flex; align-items: center; gap: 10px; z-index: 3; }
+  #dots i { width: 14px; height: 14px; border-radius: 7px; background: currentColor; opacity: .35; transition: width .4s, opacity .4s; }
+  #dots i.on { width: 46px; opacity: .9; }
+  #dots b { font-size: 22px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; margin-right: 10px; opacity: .8; }
+
+  /* a slow TV: everything holds still, slides switch without fading */
+  body.still *, body.still *::before, body.still *::after { animation: none !important; transition: none !important; }
+
+  /* ---------------------------------------------------------------- phone: one column */
+  body.phone #card { position: relative; left: 0; top: 0; width: auto; height: auto; border-radius: 34px; padding: 30px 22px 26px; }
+  body.phone .logo { font-size: 44px; letter-spacing: -2px; } body.phone .logo .pill { width: 56px; height: 28px; border-width: 4px; margin-top: 8px; } body.phone .logo b { font-size: 32px; margin-left: 10px; }
+  body.phone #card h1 { font-size: 44px; margin-top: 40px; letter-spacing: -1.5px; }
+  body.phone #card .lead { font-size: 17px; }
+  body.phone #tiles { gap: 7px; margin-top: 26px; }
+  body.phone .t { height: 70px; border-radius: 18px; font-size: 36px; }
+  body.phone .t.on { box-shadow: 0 0 0 3px #111, 0 10px 20px rgba(80,20,0,.3); }
+  body.phone .msg { margin-top: 14px; min-height: 22px; font-size: 16px; }
+  body.phone #go { height: 60px; font-size: 21px; border-radius: 30px; margin-top: 6px; }
+  body.phone .foot { position: static; margin-top: 16px; font-size: 14px; }
+  body.phone #ads { position: relative; inset: auto; height: min(76vh, 620px); margin-top: 14px; border-radius: 34px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.18); }
+  body.phone .ad .copy { left: 24px; right: 24px; top: auto; bottom: 64px; width: auto; }
+  body.phone .tag { font-size: 13px; letter-spacing: 3px; margin-bottom: 10px; }
+  body.phone .ad h2, body.phone .k-rovbot h2 { font-size: 40px; letter-spacing: -1.2px; }
+  body.phone .ad p { font-size: 17px; margin-top: 12px; }
+  body.phone .chips { margin-top: 16px; gap: 8px; } body.phone .chips span { font-size: 13px; padding: 6px 13px; border-width: 1.5px; }
+  body.phone .k-rovbot .small { font-size: 14px; }
+  body.phone .k-rovbot .pile.a { left: -60px; top: -140px; width: 330px; }
+  body.phone .k-rovbot .pile.b { right: -90px; bottom: auto; top: 40px; width: 300px; transform: rotate(-10deg); }
+  body.phone .k-nebula .art { right: 50%; margin-right: -110px; top: 36px; width: 220px; }
+  body.phone .k-nude .art { right: 16px; top: 20px; font-size: 170px; letter-spacing: -9px; -webkit-text-stroke-width: 2.5px; }
+  body.phone .k-wave .wv { left: -200px; bottom: auto; top: 20px; width: 900px; height: 300px; }
+  body.phone .k-launch .art { right: 24px; top: 40px; transform-origin: right top; }
+  body.phone .k-launch .art .logo { font-size: 54px; } body.phone .k-launch .art .logo .pill { width: 70px; height: 34px; border-width: 5px; }
+  body.phone .k-r3 .art { right: 50%; margin-right: -150px; top: 0; width: 300px; }
+  body.phone .hud { padding: 16px 18px; border-radius: 0 0 22px 22px; } body.phone .hud .row { font-size: 13px; gap: 10px; margin: 8px 0; }
+  body.phone .cross { transform: scale(.5); margin-top: -10px; }
+  body.phone .k-rovian .wv { width: 600px; height: 300px; } body.phone .k-rovian .w1 { left: -80px; top: -110px; } body.phone .k-rovian .w2 { right: -200px; bottom: 120px; }
+  body.phone .k-rovian .copy { width: auto; }
+  body.phone .k-rovian .rmark { width: 64px; height: 64px; } body.phone .k-rovian .brand { gap: 14px; } body.phone .k-rovian .brand b { font-size: 38px; letter-spacing: -1px; }
+  body.phone #dots { right: 24px; bottom: 24px; gap: 6px; } body.phone #dots i { width: 8px; height: 8px; } body.phone #dots i.on { width: 24px; } body.phone #dots b { font-size: 12px; letter-spacing: 2px; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="ads">
+    <section class="ad k-rovbot" data-name="RovBot" data-ink="#111"><div class="bg"></div><!--PILE_A--><!--PILE_B-->
+      <div class="copy"><span class="tag">RovBot</span><h2>All You Need To Do Is Ask.</h2><p>Download RovBot today.</p><p class="small">In Nebula for Windows and Linux · powered by Rovian Intelligence</p></div></section>
+    <section class="ad k-nebula" data-name="Nebula" data-ink="#fff"><div class="bg"></div><div class="art"><div class="float"><!--BOT--></div></div>
+      <div class="copy"><span class="tag">Nebula</span><h2>Just say “Hey&nbsp;Nebula”.</h2><p>The voice-first assistant for your phone and PC — music, timers, answers and your apps, hands-free.</p><div class="chips"><span>Android</span><span>Windows</span><span>Linux</span></div></div></section>
+    <section class="ad k-nude" data-name="Nude Browser" data-ink="#1d1511"><div class="bg"></div><div class="art">nude</div>
+      <div class="copy"><span class="tag">Nude Browser</span><h2>Browse without the baggage.</h2><p>A private browser with Rovian Defender security checks built in.</p><div class="chips"><span>Desktop</span><span>Android</span><span>iPhone</span></div></div></section>
+    <section class="ad k-wave" data-name="Wave" data-ink="#F2F5F0"><div class="bg"></div><!--WAVES_W-->
+      <div class="copy"><span class="tag">Wave</span><h2>Find Your <em>Wave</em>.</h2><p>The Wave app, from Rovian.</p></div></section>
+    <section class="ad k-launch" data-name="Mood Launch" data-ink="#111"><div class="bg"></div><div class="art"><div class="float"><div class="logo">m<span class="pill"></span><span class="od">od</span><b>LAUNCH</b></div></div></div>
+      <div class="copy"><span class="tag">Mood Launch</span><h2>Mood Launch</h2><p>From the makers of Mood PLAY.</p></div></section>
+    <section class="ad k-r3" data-name="R3cket" data-ink="#fff"><div class="bg"></div>
+      <div class="art"><div class="hud"><div class="row">⚡ R3CKET · GAME MODE</div><div class="row">PING<span class="bar"><i></i></span></div><div class="row">CPU<span class="bar"><i></i></span></div><div class="row">RAM<span class="bar"><i></i></span></div></div><div class="cross"><i></i><i></i><i></i><i></i></div></div>
+      <div class="copy"><span class="tag">R3cket Laptop Optimizer</span><h2>Game mode for your laptop.</h2><p>See ping, CPU and RAM while you play, add a clean crosshair, and click with one key.</p><div class="chips"><span>Windows</span></div></div></section>
+    <section class="ad k-rovian" data-name="Rovian" data-ink="#fff"><div class="bg"></div><!--WAVES_R1--><!--WAVES_R2-->
+      <div class="copy"><div class="brand"><!--ROVIAN--><b>Rovian Intelligence</b></div><p>The makers of Nebula, Nude, Wave, Mood and R3cket.</p></div></section>
+    <div id="dots"></div>
+  </div>
+
+  <section id="card">
+    <div class="logo">m<span class="pill"></span><span class="od">od</span><b>PLAY</b></div>
+    <h1>Enter your code</h1>
+    <p class="lead">Type the 6-character code shown in Nebula on your phone or PC.</p>
+    <div id="tiles" tabindex="0" aria-label="Code"><input id="typer" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Code" enterkeyhint="go"></div>
+    <p class="msg" id="msg"><!--msg--></p>
+    <button id="go" disabled>Open Mood PLAY</button>
+    <div class="keys"><span><kbd>▲</kbd><kbd>▼</kbd>change</span><span><kbd>◀</kbd><kbd>▶</kbd>move</span><span><kbd>OK</kbd>open</span></div>
+    <p class="foot">Your TV and the device running Nebula need to be on the same Wi-Fi.</p>
+  </section>
+</div>
+<script>
+(function () {
+  var ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // the letters codes are made of (no 0/O, 1/I/L)
+  var N = 6; var code = []; var at = 0; var onGo = false;
+  var body = document.body; var stage = document.getElementById('stage');
+  var tiles = document.getElementById('tiles'); var typer = document.getElementById('typer'); var go = document.getElementById('go');
+  var touch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+  // ---------------------------------------------------------------- layout: TV stage or phone column
+  function fit() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var phone = w / h < 1.15 || w < 760;
+    body.className = body.className.replace(/\b(phone|tv)\b/g, '').trim() + (phone ? ' phone' : ' tv');
+    if (!phone) {
+      var s = Math.min(w / 1920, h / 1080);
+      stage.style.transform = 'scale(' + s + ')';
+      stage.style.left = Math.round((w - 1920 * s) / 2) + 'px'; stage.style.top = Math.round((h - 1080 * s) / 2) + 'px';
+    } else { stage.style.left = stage.style.top = ''; }
+    document.documentElement.style.background = phone ? '#F4EFE9' : '#0b0b10';
+  }
+  window.addEventListener('resize', fit); fit();
+
+  // ---------------------------------------------------------------- the code tiles
+  var els = [];
+  for (var i = 0; i < N; i++) { var t = document.createElement('div'); t.className = 't'; t.innerHTML = '<i class="up"></i><span></span><i class="dn"></i>'; tiles.insertBefore(t, typer); els.push(t); }
+  function draw(pop) {
+    for (var i = 0; i < N; i++) {
+      var c = code[i] || ''; var e = els[i];
+      e.children[1].innerHTML = c ? c : '<span class="ph"></span>';
+      e.className = 't' + (c ? ' full' : '') + (i === at && !onGo ? ' on' : '') + (pop === i ? ' pop' : '');
+    }
+    var full = code.join('').length === N;
+    go.disabled = !full; go.className = onGo ? 'focus' : '';
+  }
+  function set(i, c) { code[i] = c; draw(i); }
+  function clean(s) { return String(s || '').toUpperCase().split('').filter(function (ch) { return ABC.indexOf(ch) >= 0; }).join('').slice(0, N); }
+  function open() {
+    var c = code.join(''); if (c.length !== N) return;
+    document.getElementById('msg').textContent = 'Opening…';
+    location.href = '/' + c + '/';
+  }
+  go.onclick = open;
+
+  // Remote / keyboard: ▲▼ change the letter, ◀▶ move, OK opens (or moves on); typing letters works too.
+  function key(e) {
+    var k = e.key || ''; var kc = e.keyCode;
+    var up = k === 'ArrowUp' || kc === 38, dn = k === 'ArrowDown' || kc === 40, lf = k === 'ArrowLeft' || kc === 37, rt = k === 'ArrowRight' || kc === 39;
+    var ok = k === 'Enter' || kc === 13, back = k === 'Backspace' || kc === 8 || kc === 10009 || kc === 461; // 10009 Samsung / 461 LG "Back"
+    if (up || dn || lf || rt) { body.classList.add('remote'); }
+    if (onGo) {
+      if (ok) { open(); e.preventDefault(); return; }
+      if (up || lf) { onGo = false; draw(); e.preventDefault(); return; }
+      return;
+    }
+    if (up || dn) {
+      var cur = code[at] ? ABC.indexOf(code[at]) : (up ? -1 : ABC.length);
+      var nx = (cur + (up ? 1 : -1) + ABC.length) % ABC.length;
+      set(at, ABC[nx]); e.preventDefault(); return;
+    }
+    if (lf) { at = Math.max(0, at - 1); draw(); e.preventDefault(); return; }
+    if (rt) { if (code[at] && at < N - 1) at++; else if (code.join('').length === N) onGo = true; draw(); e.preventDefault(); return; }
+    if (ok) { if (code.join('').length === N) open(); else if (code[at] && at < N - 1) { at++; draw(); } e.preventDefault(); return; }
+    if (back && e.target !== typer) { if (!code[at] && at > 0) at--; code[at] = ''; draw(); if (kc === 8) e.preventDefault(); return; }
+    if (e.target !== typer && k.length === 1) { var c = clean(k); if (c) { set(at, c); if (at < N - 1) at++; draw(); if (code.join('').length === N) { onGo = true; draw(); } } }
+  }
+  document.addEventListener('keydown', key);
+  // Phones and computers: a real input over the tiles, so the system keyboard appears.
+  typer.addEventListener('input', function () {
+    var v = clean(typer.value); typer.value = v; code = v.split(''); at = Math.min(N - 1, v.length); draw(v.length - 1);
+    if (v.length === N) { typer.blur(); onGo = false; draw(); go.focus && go.focus(); }
+  });
+  typer.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.keyCode === 13) { open(); e.preventDefault(); } });
+  tiles.addEventListener('click', function () { body.classList.remove('remote'); typer.focus(); });
+  draw();
+  if (touch) { /* wait for a tap: no keyboard popping over the page */ } else { body.classList.add('remote'); tiles.focus(); }
+
+  // ---------------------------------------------------------------- the ads
+  var ads = [].slice.call(document.querySelectorAll('.ad')); var dots = document.getElementById('dots'); var cur = -1; var timer = 0;
+  dots.innerHTML = '<b></b>' + ads.map(function () { return '<i></i>'; }).join('');
+  function show(n) {
+    cur = (n + ads.length) % ads.length;
+    for (var i = 0; i < ads.length; i++) ads[i].className = ads[i].className.replace(/\s?on\b/g, '') + (i === cur ? ' on' : '');
+    var ds = dots.getElementsByTagName('i'); for (var j = 0; j < ds.length; j++) ds[j].className = j === cur ? 'on' : '';
+    dots.firstChild.textContent = ads[cur].getAttribute('data-name'); dots.style.color = ads[cur].getAttribute('data-ink');
+    clearTimeout(timer); timer = setTimeout(function () { show(cur + 1); }, 7000);
+  }
+  show(0);
+  window.__moodAds = { show: show, stop: function () { clearTimeout(timer); } };
+  // Swipe between ads on a phone.
+  var sx = null; var adsEl = document.getElementById('ads');
+  adsEl.addEventListener('touchstart', function (e) { sx = e.touches[0].clientX; }, { passive: true });
+  adsEl.addEventListener('touchend', function (e) { if (sx == null) return; var dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 40) show(cur + (dx < 0 ? 1 : -1)); sx = null; });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) clearTimeout(timer); else show(cur); });
+
+  // A slow TV holds everything still (measured here, in the first second).
+  var raf = window.requestAnimationFrame; if (raf) { var n = 0, t0 = 0; var tick = function (t) { if (!t0) t0 = t; if (++n < 40) raf(tick); else if ((t - t0) / 39 > 30) body.classList.add('still'); }; raf(tick); }
+})();
+</script>
+</body>
+</html>

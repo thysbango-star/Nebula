@@ -78,9 +78,12 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
             val path = target.substringBefore('?'); val query = target.substringAfter('?', "")
             val out = c.getOutputStream()
             val seg = path.split('/').filter { it.isNotEmpty() }
-            if (seg.isEmpty()) return send(out, 200, "text/html; charset=utf-8", CODE_PAGE.toByteArray())
+            if (seg.isEmpty()) return send(out, 200, "text/html; charset=utf-8", codePage().toByteArray())
+            // The code page's fonts (not secret, so no code needed).
+            if (seg.size == 2 && seg[0] == "f" && seg[1].matches(Regex("[a-z_]+\\.ttf"))) return runCatching { ctx.assets.open("moodplay/fonts/${seg[1]}").use { it.readBytes() } }.getOrNull()
+                ?.let { send(out, 200, "font/ttf", it, "Cache-Control: max-age=604800\r\n") } ?: send(out, 404, "text/plain", ByteArray(0))
             if (limited(ip)) return send(out, 429, "text/plain", "Too many tries".toByteArray())
-            if (!seg[0].equals(code, ignoreCase = true)) { miss(ip); return send(out, 404, "text/html; charset=utf-8", CODE_PAGE.replace("<!--msg-->", "That code didn't match. Check the code on your phone.").toByteArray()) }
+            if (!seg[0].equals(code, ignoreCase = true)) { miss(ip); return send(out, 404, "text/html; charset=utf-8", codePage().replace("<!--msg-->", "That code didn't match. Check the code on your phone.").toByteArray()) }
             if (seg.size == 1 && path.endsWith("/").not()) return send(out, 302, "text/plain", ByteArray(0), "Location: /${seg[0]}/\r\n")
             when (seg.getOrNull(1)) {
                 null -> send(out, 200, "text/html; charset=utf-8", ctx.assets.open("moodplay/tv.html").use { it.readBytes() })
@@ -114,6 +117,10 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
         } finally { if (!keep) runCatching { c.close() } }
     }
 
+    /** The designed code page (shared/moodplay/code.html, with our product ads); the plain one if it's missing. */
+    private val codeHtml: String by lazy { runCatching { ctx.assets.open("moodplay/code.html").use { it.readBytes().toString(Charsets.UTF_8) } }.getOrDefault(CODE_PAGE) }
+    private fun codePage(): String = codeHtml
+
     private fun send(out: OutputStream, code: Int, type: String, body: ByteArray, extra: String = "") {
         val msg = mapOf(200 to "OK", 204 to "No Content", 302 to "Found", 400 to "Bad Request", 404 to "Not Found", 405 to "Method Not Allowed", 429 to "Too Many Requests")[code] ?: "OK"
         out.write("HTTP/1.1 $code $msg\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nCache-Control: no-store\r\nConnection: close\r\n$extra\r\n".toByteArray())
@@ -124,7 +131,7 @@ class MoodServer(private val ctx: Context, val code: String, private val state: 
         private const val ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // no 0/O, 1/I/L — easy to type on a remote
         fun newCode(): String { val r = SecureRandom(); return (1..6).map { ABC[r.nextInt(ABC.length)] }.joinToString("") }
 
-        /** For typing on a TV: just the address, then the code with the remote. */
+        /** Fallback if the designed page (moodplay/code.html) can't be read: just the address, then the code. */
         val CODE_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mood PLAY</title>
 <style>html,body{height:100%;margin:0;background:linear-gradient(180deg,#a7adba,#2c2f3b);font-family:"Open Sans","Samsung One",Roboto,Arial,sans-serif;color:#111;display:grid;place-items:center}
 .b{text-align:center}h1{font-size:6vw;margin:0 0 2vw;letter-spacing:-.2vw}h1 i{display:inline-block;width:5.6vw;height:2.6vw;border:.35vw solid #111;border-radius:2vw;background:linear-gradient(90deg,#ff3a2a,#ff8f3f);vertical-align:-.2vw}
