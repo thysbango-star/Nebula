@@ -25,6 +25,11 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
     link: '<path d="M9 15 15 9"/><path d="M11 6.5 13 4.5a4.2 4.2 0 0 1 6 6l-2 2M13 17.5l-2 2a4.2 4.2 0 0 1-6-6l2-2"/>', clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     check: '<path d="m5 12 5 5 9-10"/>', spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
+    phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+    phoneoff: '<path d="M10.7 13.3a11 11 0 0 1-2.2-2.8L11 9 9 4H5a2 2 0 0 0-2 2 16 16 0 0 0 4.6 10.4M14 16.5l1-1.5 5 2v4a2 2 0 0 1-2 2 16 16 0 0 1-7-2.3M3 3l18 18"/>',
+    micoff: '<path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.5 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/>',
+    keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7 14h10"/>',
+    userplus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c1-4 4-6 7-6s6 2 7 6M19 8v6M16 11h6"/>',
     file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', bolt: '<path d="M13 3 5 14h6l-1 7 8-11h-6z"/>', pause: '<path d="M8 5v14M16 5v14"/>', play: '<path d="M7 5v14l12-7z"/>',
   };
   const I = (n, a = '') => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${a}>${P[n] || ''}</svg>`;
@@ -215,6 +220,7 @@
   function mountChat(b) {
     const m = $('main'); m.dataset.mount = `chat:${b.id}`;
     m.innerHTML = `<header class="chead drag"><button class="who nodrag" data-act="panel-tab" data-t="details"><span class="hav"></span><span class="wt"><b></b><span class="sub"></span></span></button><span class="sp"></span>
+        <button class="callbtn nodrag" data-act="call" data-id="${b.id}" title="Call ${esc(b.name)}">${I('phone')}<span>Call</span></button>
         <button class="ib comp-ic nodrag" data-act="panel-tab" data-t="computer" title="What it's doing on this PC">${I('computer')}</button>
         <button class="ib nodrag" data-act="toggle-panel" title="Details (Ctrl+Shift+,)">${I('panel')}</button>
         <button class="ib nodrag" data-act="bot-menu" data-id="${b.id}">${I('more')}</button></header>
@@ -304,7 +310,7 @@
   }
 
   function msgHtml(m, b, grp) {
-    if (m.role === 'event') return `<div class="ev"><span class="dot">${I(m.kind === 'routine' ? 'clock' : m.kind === 'job' ? 'check' : 'spark')}</span><span>${esc(m.text)}</span><span class="tm">${clock(m.at)}</span></div>`;
+    if (m.role === 'event') return `<div class="ev ${m.kind === 'call' ? 'click' : ''}" ${m.kind === 'call' && m.transcript ? `data-act="call-transcript" data-mid="${m.id}" title="See what was said"` : ''}><span class="dot">${I(m.kind === 'routine' ? 'clock' : m.kind === 'job' ? 'check' : m.kind === 'call' ? 'phone' : 'spark')}</span><span>${esc(m.text)}</span><span class="tm">${clock(m.at)}</span></div>`;
     const me = m.role === 'user';
     let text = m.text || ''; let quote = '';
     if (m.replyTo) { const ls = text.split('\n'); let i = 0; while (i < ls.length && ls[i].startsWith('>')) i++; quote = ls.slice(0, i).join(' ').replace(/(^|\s)>\s?/g, ' ').trim(); text = ls.slice(i).join('\n').trim(); }
@@ -396,6 +402,7 @@
       <div class="sec"><h5>When it asks first</h5><div class="seg wrap">${Object.entries(S.catalogue.autonomy).map(([k, a]) => `<button class="${b.autonomy === k ? 'on' : ''}" data-act="autonomy" data-v="${k}" title="${esc(a.desc)}">${esc(a.label.replace(' agent', ''))}</button>`).join('')}</div><div class="helpl">${esc(S.catalogue.autonomy[b.autonomy]?.desc || '')} Irreversible actions always ask.</div></div>
       <div class="sec"><h5>Memory<span class="sp"></span><a data-act="mem-add" data-id="${b.id}">Add</a></h5>${b.memories.length ? b.memories.slice(0, 30).map((mm) => `<div class="kvr"><div class="t wrap"><b>${esc(mm.text)}</b></div><button class="ib" data-act="mem-remove" data-id="${b.id}" data-m="${mm.id}" title="Forget">${I('x')}</button></div>`).join('') : '<div class="empty">Nothing yet. It saves lasting facts as it works — never passwords.</div>'}</div>
       <div class="sec"><h5>Knowledge<span class="sp"></span><a data-act="k-files" data-id="${b.id}">Files</a><a data-act="k-url" data-id="${b.id}">Link</a><a data-act="k-note" data-id="${b.id}">Note</a></h5>${b.knowledge.length ? b.knowledge.map((k) => `<div class="kvr click" data-act="k-preview" data-id="${b.id}" data-k="${k.id}"><div class="t"><b>${esc(k.title)}</b><small>${esc(k.category)} · ${(k.chars / 1000).toFixed(1)}k characters</small></div><button class="ib" data-act="k-remove" data-id="${b.id}" data-k="${k.id}">${I('x')}</button></div>`).join('') : '<div class="empty">Give it files, notes or links it should know.</div>'}</div>
+      <div class="sec"><h5>Voice on calls<span class="sp"></span><a data-act="voice-hear">Hear it</a></h5>${(() => { const v = voiceOfBot(b); return `<div class="seg wrap">${VOICES.map(([k, l]) => `<button class="${v.voice === k ? 'on' : ''}" data-act="voice-set" data-k="voice" data-v="${k}">${l}</button>`).join('')}</div><div class="helpl">Tone</div><div class="seg wrap">${TONES.map((t) => `<button class="${v.tone === t ? 'on' : ''}" data-act="voice-set" data-k="tone" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>`; })()}<div class="helpl">Each bot sounds different on a group call. <a data-act="call" data-id="${b.id}">Call ${esc(b.name)}</a></div></div>
       <div class="sec"><h5>Notifications</h5>${[['done', 'When it finishes'], ['failed', 'When it can\'t finish'], ['approval', 'When it needs you']].map(([k, l]) => `<div class="kvr"><div class="t"><b>${l}</b></div>${sw(b.notify?.[k] !== false, 'notify', `data-k="${k}"`)}</div>`).join('')}<div class="helpl">It also pops out of the notch when it needs you.</div></div>
       <div class="sec"><h5>More</h5><div class="row2"><button class="btn" data-act="bot-act" data-a="export" data-id="${b.id}">Export</button><button class="btn" data-act="bot-act" data-a="duplicate" data-id="${b.id}">Duplicate</button><button class="btn" data-act="bot-act" data-a="archive" data-id="${b.id}">Hide</button><button class="btn danger" data-act="bot-delete" data-id="${b.id}">Delete…</button></div></div>`;
   };
@@ -495,6 +502,7 @@
       for (const b of active()) if (!q || b.name.toLowerCase().includes(q) || (b.role || '').toLowerCase().includes(q)) it.push({ g: 'Bots', html: `${avHtml(b.shape, b.color, 22, 'still', b.id)}${esc(b.name)}<small>${esc(b.role || '')}</small>`, fn: () => openBot(b.id) });
       for (const t of S.tasks.filter((x) => !x.parentId).sort((a, z) => z.updatedAt - a.updatedAt)) if (q && (t.title.toLowerCase().includes(q) || (t.summary || '').toLowerCase().includes(q)) && it.length < 40) it.push({ g: 'Work', html: `${I('bolt')}${esc(t.title)}<small>${esc(bot(t.botId)?.name || '')}</small>`, fn: () => taskDrawer(t.id) });
       if (q) for (const c of S.conversations) for (const m of c.messages) if (m.role !== 'event' && m.text.toLowerCase().includes(q) && it.length < 60) it.push({ g: 'Messages', html: `${I('reply')}${esc(m.text.replace(/\s+/g, ' ').slice(0, 70))}<small>${esc(bot(c.botId)?.name || '')}</small>`, fn: () => { openBot(c.botId); setTimeout(() => A.jump({ mid: m.id }), 160); } });
+      for (const b of active()) if (q && (`call ${b.name}`.toLowerCase().includes(q))) it.push({ g: 'Call', html: `${I('phone')}Call ${esc(b.name)}`, fn: () => startCall([b.id]) });
       for (const [l, fn] of [['New bot', () => A['new-bot']()], ['Connect apps', () => openSettings('apps')], ['Routines', () => openSettings('routines')], ['Skills', () => openSettings('skills')], ['Activity', () => openSettings('activity')], ['Settings', () => openSettings('general')], ['Replay the intro', () => A.replay()]]) if (!q || l.toLowerCase().includes(q)) it.push({ g: 'Actions', html: `${I('spark')}${l}`, fn });
       let g = ''; $('palRes').innerHTML = it.map((x, i) => `${x.g !== g ? `<div class="grp">${(g = x.g)}</div>` : ''}<button class="it ${i === 0 ? 'on' : ''}" data-i="${i}">${x.html}</button>`).join('') || '<div class="empty">Nothing found.</div>';
       $('palRes').querySelectorAll('.it').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); closeLayer(); it[+el.dataset.i].fn(); }));
@@ -699,10 +707,149 @@
   }
   A['mx-addkv'] = (d) => { mxRead(); R.mx[+d.i][d.kind][`NEW_${Object.keys(R.mx[+d.i][d.kind]).length + 1}`] = ''; mcpForm(R.mx, R.mxEdit); };
 
+  // ---------------------------------------------------------------- calls (like a WhatsApp call, with your bots)
+  // You talk; the bot answers out loud in its own voice and tone. Add bots and they hear each other. The mic is
+  // only open while the call screen is up. Speech is turned into text with the same key as the rest of Nebula.
+  const VOICES = [['hannah', 'Hannah', 'female'], ['troy', 'Troy', 'male'], ['autumn', 'Autumn', 'female'], ['daniel', 'Daniel', 'male'], ['diana', 'Diana', 'female'], ['austin', 'Austin', 'male']];
+  const TONES = ['warm', 'calm', 'cheerful', 'confident', 'thoughtful', 'energetic', 'friendly', 'deadpan'];
+  const C = { on: false, st: null, muted: false, mic: null, ac: null, out: null, an: null, next: 0, srcs: [], speaking: null, thinking: null, raf: 0, t: 0, typing: false, timers: [] };
+  function voiceOfBot(b) { const i = Math.max(0, S.bots.indexOf(b)); const v = b.voice || {}; return { voice: VOICES.some((x) => x[0] === v.voice) ? v.voice : VOICES[i % 6][0], tone: v.tone || TONES[i % TONES.length] }; }
+  const vName = (v) => (VOICES.find((x) => x[0] === v) || [v, v])[1];
+
+  async function startCall(botIds) {
+    if (C.on) { for (const id of botIds) await addToCall(id); return; }
+    const st = await call('ws:call-start', { botIds }); if (!st || typeof st !== 'object') return;
+    C.on = true; C.st = st; C.muted = false; C.lines = []; C.thinking = null; C.speaking = null;
+    const el = document.createElement('div'); el.id = 'call'; el.className = 'call'; document.body.appendChild(el);
+    drawCall(); requestAnimationFrame(() => el.classList.add('in'));
+    try { await openMic(); } catch (e) { toast('Nebula can\'t use the microphone — you can still type to them.', true); C.muted = true; drawCall(); }
+    C.t = setInterval(() => { const t = $('callTime'); if (t) { const s = Math.round((Date.now() - C.st.startedAt) / 1000); t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; } }, 1000);
+    tick();
+  }
+  async function addToCall(id) { const st = await call('ws:call-add', { botId: id }); if (st && typeof st === 'object') { C.st = st; drawCall(); } }
+  async function endCall() {
+    if (!C.on) return; C.on = false;
+    stopAudio(); closeMic(); clearInterval(C.t); cancelAnimationFrame(C.raf); C.timers.forEach(clearTimeout); C.timers = [];
+    const el = $('call'); if (el) { el.classList.remove('in'); setTimeout(() => el.remove(), 260); }
+    const r = await call('ws:call-end');
+    if (r && r.secs != null) toast(`Call ended · ${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, '0')}`);
+  }
+
+  function drawCall() {
+    const el = $('call'); if (!el || !C.st) return;
+    const bots = C.st.bots; const n = bots.length;
+    const others = active().filter((b) => !bots.some((x) => x.id === b.id));
+    el.innerHTML = `<div class="cbg" style="--c1:${bots[0]?.color || '#5200F4'};--c2:${bots[1]?.color || bots[0]?.color || '#7A3CFF'}"></div>
+      <header><span class="lock">${I('phone')}</span><b>${n > 1 ? 'Group call' : esc(bots[0]?.name || 'Call')}</b><span id="callTime">0:00</span><span class="sp"></span><span class="hint">${C.muted ? 'Mic off — type below' : 'Just talk. Say a bot\'s name to ask it.'}</span></header>
+      <div class="tiles n${Math.min(n, 6)}">${bots.map((b) => `<div class="tile" data-bot="${b.id}"><div class="ring"></div><span class="avh">${avHtml(b.shape, b.color, n > 2 ? 104 : 140, 'idle', b.id)}</span><b>${esc(b.name)}</b><small>${esc(b.tone)} · ${esc(vName(b.voice))}</small><i class="st"></i>${n > 1 ? `<button class="x" data-act="call-remove" data-id="${b.id}" title="Remove from call">${I('x')}</button>` : ''}</div>`).join('')}</div>
+      <div class="caps" id="callCaps"></div>
+      <div class="ctl"><div class="typebar ${C.typing ? 'on' : ''}"><input id="callType" placeholder="Type to them…" autocomplete="off"><button class="send" data-act="call-type-send">${I('send')}</button></div>
+        <button class="cb ${C.muted ? 'off' : ''}" data-act="call-mute" title="${C.muted ? 'Unmute' : 'Mute'}"><span class="lvl" id="callLvl"></span>${I(C.muted ? 'micoff' : 'mic')}</button>
+        <button class="cb" data-act="call-add" title="Add a bot" ${others.length && n < 6 ? '' : 'disabled'}>${I('userplus')}</button>
+        <button class="cb" data-act="call-typing" title="Type instead">${I('keyboard')}</button>
+        <button class="cb end" data-act="call-end" title="End call">${I('phoneoff')}</button></div>`;
+    drawCaps(); paintTiles();
+    if (C.typing) setTimeout(() => $('callType')?.focus(), 30);
+  }
+  function drawCaps() {
+    const el = $('callCaps'); if (!el) return;
+    const ls = (C.lines || []).filter((l) => l.who !== 'error' || true).slice(-3);
+    el.innerHTML = ls.map((l) => { const b = l.botId && C.st.bots.find((x) => x.id === l.botId); const who = l.who === 'user' ? 'You' : l.who === 'bot' && b ? b.name : ''; return `<p class="${l.who}">${who ? `<b>${esc(who)}</b>` : ''}${esc(l.text)}</p>`; }).join('');
+  }
+  function paintTiles() {
+    for (const t of document.querySelectorAll('#call .tile')) {
+      const id = t.dataset.bot; const sp = C.speaking === id; const th = C.thinking === id && !sp;
+      t.classList.toggle('speaking', sp); t.classList.toggle('thinking', th);
+      const a = t.querySelector('.av'); if (a) { const want = sp ? 'work' : th ? 'think' : 'idle'; if (!a.classList.contains(want)) a.className = `av ${want}`; }
+      t.querySelector('.st').textContent = sp ? 'Speaking' : th ? 'Thinking…' : '';
+    }
+  }
+  function tick() {
+    if (!C.on) return;
+    let lv = 0; if (C.an) { const d = new Uint8Array(C.an.fftSize); C.an.getByteTimeDomainData(d); let s = 0; for (const v of d) { const x = (v - 128) / 128; s += x * x; } lv = Math.sqrt(s / d.length); }
+    const ring = C.speaking && document.querySelector(`#call .tile[data-bot="${C.speaking}"] .ring`); if (ring) ring.style.transform = `scale(${(1 + Math.min(0.35, lv * 2.6)).toFixed(3)})`;
+    const ml = $('callLvl'); if (ml) ml.style.transform = `scale(${(1 + Math.min(0.6, (C.micLv || 0) * 8)).toFixed(3)})`;
+    C.raf = requestAnimationFrame(tick);
+  }
+
+  // --- what you say: the mic, with simple voice-activity detection; you can talk over them to interrupt
+  async function openMic() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const ac = new AudioContext(); const src = ac.createMediaStreamSource(stream);
+    const proc = ac.createScriptProcessor(2048, 1, 1); src.connect(proc); proc.connect(ac.destination);
+    const sr = ac.sampleRate; let floor = 0.008; let speechFrames = 0; let silentMs = 0; let rec = null; let heardMs = 0;
+    proc.onaudioprocess = (e) => {
+      const x = e.inputBuffer.getChannelData(0); e.outputBuffer.getChannelData(0).fill(0);
+      if (C.muted || !C.on) { C.micLv = 0; rec = null; return; }
+      let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i]; const rms = Math.sqrt(s / x.length); C.micLv = rms;
+      const ms = (x.length / sr) * 1000;
+      const playing = C.srcs.length > 0;
+      const thr = Math.max(0.014, floor * 3.2) * (playing ? 2.4 : 1); // talk louder than the speakers to interrupt
+      if (!rec) floor = floor * 0.97 + Math.min(rms, 0.05) * 0.03;
+      if (rms > thr) { speechFrames++; silentMs = 0; } else { speechFrames = 0; silentMs += ms; }
+      if (!rec && speechFrames >= 3) { rec = []; heardMs = 0; if (playing) { stopAudio(); call('ws:call-interrupt'); } }
+      if (rec) {
+        rec.push(new Float32Array(x)); heardMs += ms;
+        if (silentMs > 750 || heardMs > 20000) { const chunks = rec; rec = null; if (heardMs - silentMs > 350) sendSpeech(chunks, sr); }
+      }
+    };
+    C.mic = { stream, ac, proc, src };
+  }
+  function closeMic() { if (!C.mic) return; try { C.mic.proc.disconnect(); C.mic.src.disconnect(); C.mic.stream.getTracks().forEach((t) => t.stop()); C.mic.ac.close(); } catch { /* */ } C.mic = null; }
+  function sendSpeech(chunks, sr) {
+    // to 16 kHz mono WAV
+    let n = 0; for (const c of chunks) n += c.length; const all = new Float32Array(n); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+    const ratio = sr / 16000; const m = Math.floor(all.length / ratio); const pcm = new Int16Array(m);
+    for (let i = 0; i < m; i++) { const v = all[Math.floor(i * ratio)]; pcm[i] = Math.max(-1, Math.min(1, v)) * 32767; }
+    const buf = new ArrayBuffer(44 + pcm.length * 2); const d = new DataView(buf); const w = (p, s) => { for (let i = 0; i < s.length; i++) d.setUint8(p + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); d.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, 16000, true); d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); w(36, 'data'); d.setUint32(40, pcm.length * 2, true);
+    new Int16Array(buf, 44).set(pcm);
+    const u = new Uint8Array(buf); let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    C.lines = C.lines || []; const caps = $('callCaps'); if (caps) caps.insertAdjacentHTML('beforeend', '<p class="user pending"><b>You</b>…</p>');
+    call('ws:call-hear', { b64: btoa(bin) }).then(() => document.querySelector('#callCaps .pending')?.remove());
+  }
+
+  // --- what they say: WAV clips played in order, the speaker's tile pulsing with the sound
+  function ensureOut() { if (!C.ac) { C.ac = new AudioContext(); C.out = C.ac.createGain(); C.an = C.ac.createAnalyser(); C.an.fftSize = 512; C.out.connect(C.an); C.an.connect(C.ac.destination); } return C.ac; }
+  async function playClip(botId, b64) {
+    const ac = ensureOut(); const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    let buf; try { buf = await ac.decodeAudioData(bytes.buffer); } catch { return; }
+    if (!C.on) return;
+    const src = ac.createBufferSource(); src.buffer = buf; src.connect(C.out);
+    const at = Math.max(ac.currentTime + 0.03, C.next); src.start(at); C.next = at + buf.duration; C.srcs.push(src);
+    C.timers.push(setTimeout(() => { C.speaking = botId; paintTiles(); }, (at - ac.currentTime) * 1000));
+    src.onended = () => { C.srcs = C.srcs.filter((x) => x !== src); if (!C.srcs.length) { C.speaking = null; paintTiles(); } };
+  }
+  function stopAudio() { for (const s of C.srcs) { try { s.stop(); } catch { /* */ } } C.srcs = []; C.next = 0; C.speaking = null; C.timers.forEach(clearTimeout); C.timers = []; try { speechSynthesis.cancel(); } catch { /* */ } paintTiles(); }
+  function sayFallback(botId, text) {
+    try { const u = new SpeechSynthesisUtterance(text); const vs = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang)); const i = Math.max(0, C.st.bots.findIndex((b) => b.id === botId)); if (vs.length) u.voice = vs[i % vs.length]; u.pitch = 0.85 + (i % 4) * 0.12;
+      u.onstart = () => { C.speaking = botId; paintTiles(); }; u.onend = () => { C.speaking = null; paintTiles(); }; speechSynthesis.speak(u); } catch { /* */ }
+  }
+  api.on('ws:call', (ev) => {
+    if (!C.on || !ev) return;
+    if (ev.type === 'audio') playClip(ev.botId, ev.b64);
+    else if (ev.type === 'say-fallback') { sayFallback(ev.botId, ev.text); if (!C.warned) { C.warned = true; toast(`Natural voices aren't working (${ev.problem}). Using the Windows voice for now.`, true); } }
+    else if (ev.type === 'line') { C.lines.push(ev.line); drawCaps(); }
+    else if (ev.type === 'thinking') { C.thinking = ev.botId; paintTiles(); }
+    else if (ev.type === 'state') { C.st = ev.state; drawCall(); }
+    else if (ev.type === 'stop') stopAudio();
+  });
+  A.call = (d) => startCall([d.id || R.bot]);
+  A['call-end'] = () => endCall();
+  A['call-mute'] = () => { C.muted = !C.muted; drawCall(); };
+  A['call-typing'] = () => { C.typing = !C.typing; drawCall(); };
+  A['call-type-send'] = () => { const v = $('callType').value.trim(); if (!v) return; $('callType').value = ''; stopAudio(); call('ws:call-text', { text: v }); };
+  A['call-remove'] = async (d) => { const st = await call('ws:call-remove', { botId: d.id }); if (st && typeof st === 'object') { C.st = st; drawCall(); } };
+  A['call-add'] = (_d, e) => { const others = active().filter((b) => !C.st.bots.some((x) => x.id === b.id)); menu(e, others.map((b) => ({ label: b.name, fn: () => addToCall(b.id) }))); };
+  // voice settings in a bot's Details
+  A['voice-set'] = (d) => { const b = bot(R.bot); const v = voiceOfBot(b); saveBot({ voice: { ...v, [d.k]: d.v } }); };
+  A['voice-hear'] = async () => { const b = bot(R.bot); const v = voiceOfBot(b); toast('Getting the voice…'); const clips = await call('ws:voice-preview', { name: b.name, ...v }); if (Array.isArray(clips)) { C.on = true; for (const c of clips) await playClip(b.id, c); const total = C.next; setTimeout(() => { if (!$('call')) C.on = false; }, Math.max(0, (total - (C.ac?.currentTime || 0)) * 1000) + 300); } };
+  A['call-transcript'] = (d) => { const b = bot(R.bot); const m = conv(b?.mainCid)?.messages.find((x) => x.id === d.mid); if (m && m.transcript) modal('Call transcript', `<pre class="pre">${esc(m.transcript)}</pre>`, '', 'xl'); };
+
   // ---------------------------------------------------------------- events
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]'); if (!el) return;
-    if (!document.getElementById('app').contains(el) && !$('layer').contains(el)) return; // onboarding has its own handlers
+    if (!document.getElementById('app').contains(el) && !$('layer').contains(el) && !($('call') && $('call').contains(el))) return; // onboarding has its own handlers
     const f = A[el.dataset.act]; if (!f) return;
     if (el.dataset.act !== 'scrim') e.stopPropagation();
     f(el.dataset, { currentTarget: el, target: e.target });
@@ -722,6 +869,7 @@
     const t = e.target; const mod = e.ctrlKey || e.metaKey;
     if (t.id === 'composer' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (t.value.trim()) A.send(); else if ($('sendBtn').dataset.act === 'stop-chat') A['stop-chat'](); return; }
     if (t.id === 'crName' && e.key === 'Enter') { A['create-go'](); return; }
+    if (t.id === 'callType' && e.key === 'Enter') { A['call-type-send'](); return; }
     if (t.id === 'nmIn' && e.key === 'Enter') { t.blur(); return; }
     if (t.id === 'steerIn' && e.key === 'Enter') { A.steer({ id: R.task }); return; }
     if (t.id?.startsWith('ans-') && e.key === 'Enter') { A['answer-text']({ id: t.id.slice(4) }); return; }

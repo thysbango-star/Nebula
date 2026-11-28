@@ -30,15 +30,16 @@ class Brain {
   // ------------------------------------------------------------ agent (tools)
 
   /** One tool-calling turn for the task engine. Returns the assistant message ({content, tool_calls, sources}). */
-  async agentChat(messages, tools, onWait = () => {}) {
+  async agentChat(messages, tools, onWait = () => {}, opts = {}) {
     const key = this.getKey();
     if (!key) throw new SpokenError('I need my AI key first. Open Settings and paste your Groq key.');
     let model = this.config.get('model') || DEFAULT_MODEL;
     const tried = new Set(); let waits = 0;
     for (;;) {
       tried.add(model);
-      const body = tools && tools.length ? { model, messages, tools, tool_choice: 'auto', parallel_tool_calls: false, temperature: 0.3, max_completion_tokens: 2048 } : { model, messages, temperature: 0.3, max_completion_tokens: 2048 };
-      if (model.startsWith('openai/gpt-oss')) body.reasoning_effort = 'medium';
+      const body = tools && tools.length ? { model, messages, tools, tool_choice: 'auto', parallel_tool_calls: false, temperature: 0.3, max_completion_tokens: 2048 } : { model, messages, temperature: opts.temperature ?? 0.3, max_completion_tokens: opts.maxTokens || 2048 };
+      if (model.startsWith('openai/gpt-oss')) body.reasoning_effort = opts.effort || 'medium';
+      if (opts.json && !(tools && tools.length)) body.response_format = { type: 'json_object' };
       try {
         const json = await this.request('POST', '/chat/completions', this.getKey(), JSON.stringify(body));
         const m = json?.choices?.[0]?.message;
@@ -171,10 +172,13 @@ class Brain {
    * Natural speech with Groq's Orpheus voices. Returns WAV buffers (one per sentence group),
    * calling onChunk as each arrives so playback can start straight away.
    */
-  async speak(text, onChunk) {
+  async speak(text, onChunk, opts = {}) {
     const key = this.getKey();
     if (!key) throw new SpokenError('No Groq key.');
-    const parts = chunkText(text, 190);
+    // A tone ("[calm] ") is a vocal direction for Orpheus; it counts toward the 200-character limit per piece.
+    const dir = opts.tone ? `[${String(opts.tone).replace(/[^a-z -]/gi, '').slice(0, 24)}] ` : '';
+    const parts = chunkText(text, 190 - dir.length).map((p) => dir + p);
+    const voiceName = opts.voice || this.config.get('groqVoice') || 'troy';
     const fetchOne = async (input, retry = 0) => {
       const key = this.getKey();
       let res;
@@ -182,7 +186,7 @@ class Brain {
         res = await fetch(BASE + '/audio/speech', {
           method: 'POST', signal: AbortSignal.timeout(25000),
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: this.config.get('voiceModel') || 'canopylabs/orpheus-v1-english', voice: this.config.get('groqVoice') || 'troy', input, response_format: 'wav' }),
+          body: JSON.stringify({ model: this.config.get('voiceModel') || 'canopylabs/orpheus-v1-english', voice: voiceName, input, response_format: 'wav' }),
         });
       } catch (e) { throw new SpokenError('Voice service unreachable.', e.message); }
       if (res.ok) return Buffer.from(await res.arrayBuffer());
