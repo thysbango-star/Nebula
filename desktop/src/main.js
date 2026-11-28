@@ -456,6 +456,7 @@ function initAgent() {
   });
   workspace.on('change', () => {
     if (wsWin && !wsWin.isDestroyed() && wsWin.isVisible()) send(wsWin, 'ws:state', workspace.snapshot());
+    syncAwake();
     // A question answered somewhere else (the Workspace window, the phone) takes the bot back off the notch.
     if (botPing && (botPing.kind === 'need' || botPing.kind === 'ask')) { const t = botPing.taskId && workspace.store.task(botPing.taskId); if (!t || t.status !== 'REQUIRES_INPUT') botPingDone(); }
   });
@@ -506,6 +507,20 @@ function pingIsland(extra, title, body) {
   send(island, 'island:bot', botPing);
 }
 function botPingDone() { botPing = null; send(island, 'island:bot', null); applyIslandMode(); }
+// ---------------------------------------------------------------- keep the PC awake while bots work
+// While any bot task is running or queued, the system isn't allowed to sleep from being idle (the screen may still
+// turn off). As soon as the work is done, normal sleep comes back. Closing a laptop's lid still sleeps it.
+let awakeId = null;
+function botsBusy() {
+  try { return workspace.data.settings.keepAwake !== false && workspace.tasks().some((t) => t.status === 'IN_PROGRESS' || t.status === 'QUEUED'); } catch { return false; }
+}
+function syncAwake() {
+  const want = botsBusy();
+  const { powerSaveBlocker } = require('electron');
+  if (want && awakeId === null) { awakeId = powerSaveBlocker.start('prevent-app-suspension'); log('ws', 'bots working: keeping the PC awake'); }
+  else if (!want && awakeId !== null) { if (powerSaveBlocker.isStarted(awakeId)) powerSaveBlocker.stop(awakeId); awakeId = null; log('ws', 'bots done: normal sleep again'); }
+}
+
 function wsNotify(title, body, open, extra) {
   try { pingIsland(extra && { ...extra, taskId: open && open.taskId }, title, body); } catch (e) { log('ws', `ping: ${e.message}`); }
   if (!workspace.data.settings.notifyOn || !Notification.isSupported()) return;
