@@ -5,7 +5,7 @@ name: Notch film
 
 on:
   push:
-    branches: [nebula-2.0]
+    branches: [nebula-2.0, nebula-3.0]
     paths:
       - 'app/src/main/java/com/nebula/assistant/notch/**'
       - 'app/src/test/**'
