@@ -433,6 +433,44 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; } table.t th 
 .scrim.light { background: rgba(10,8,20,.18); }
 .scrim.top { place-items: start center; }
 .files { display: flex; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- calls with bots */
+.menu, .toast { z-index: 90 !important; }
+.callbtn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px 0 10px; border-radius: 16px; background: #22C55E; color: #fff; font-weight: 750; font-size: 13px; margin-right: 6px; transition: transform .12s, filter .15s; }
+.callbtn .i { width: 16px; height: 16px; } .callbtn:hover { filter: brightness(1.08); } .callbtn:active { transform: scale(.96); }
+.ev.click { cursor: pointer; } .ev.click:hover span:nth-child(2) { text-decoration: underline; }
+.call { position: fixed; inset: 0; z-index: 60; color: #fff; display: flex; flex-direction: column; opacity: 0; transform: scale(1.02); transition: opacity .25s, transform .3s cubic-bezier(.2,.8,.2,1); background: #0b0a12; }
+.call.in { opacity: 1; transform: none; }
+.call .cbg { position: absolute; inset: 0; background: radial-gradient(60% 55% at 30% 25%, color-mix(in srgb, var(--c1) 55%, transparent), transparent 70%), radial-gradient(55% 50% at 75% 70%, color-mix(in srgb, var(--c2) 45%, transparent), transparent 70%), #0b0a12; opacity: .75; }
+.call > * { position: relative; }
+.call header { display: flex; align-items: center; gap: 10px; padding: 18px 24px; font-size: 15px; -webkit-app-region: drag; }
+.call header .lock { width: 30px; height: 30px; border-radius: 15px; background: rgba(255,255,255,.12); display: grid; place-items: center; } .call header .lock .i { width: 15px; height: 15px; }
+.call header #callTime { color: rgba(255,255,255,.6); font-variant-numeric: tabular-nums; }
+.call header .hint { color: rgba(255,255,255,.55); font-size: 13px; }
+.call .tiles { flex: 1; display: grid; gap: 16px; padding: 10px 40px; align-content: center; justify-content: center; grid-template-columns: repeat(var(--cols, 1), minmax(0, 300px)); }
+.call .tiles.n1 { --cols: 1; } .call .tiles.n2 { --cols: 2; } .call .tiles.n3, .call .tiles.n4 { --cols: 2; } .call .tiles.n5, .call .tiles.n6 { --cols: 3; }
+.call .tile { position: relative; aspect-ratio: 1 / 1; border-radius: 28px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; transition: border-color .2s, background .2s; }
+.call .tiles.n1 .tile { background: none; border-color: transparent; }
+.call .tile .ring { position: absolute; top: 50%; left: 50%; width: 180px; height: 180px; margin: -118px 0 0 -90px; border-radius: 50%; background: radial-gradient(closest-side, rgba(255,255,255,.18), rgba(255,255,255,0)); opacity: 0; transition: opacity .2s; }
+.call .tiles.n3 .tile .ring, .call .tiles.n4 .tile .ring, .call .tiles.n5 .tile .ring, .call .tiles.n6 .tile .ring { width: 140px; height: 140px; margin: -96px 0 0 -70px; }
+.call .tile.speaking { border-color: rgba(34,197,94,.7); background: rgba(34,197,94,.08); } .call .tile.speaking .ring { opacity: 1; }
+.call .tile b { font-size: 18px; margin-top: 8px; } .call .tile small { color: rgba(255,255,255,.55); font-size: 13px; text-transform: capitalize; }
+.call .tile .st { font-style: normal; font-size: 12px; font-weight: 700; color: #4ADE80; height: 16px; } .call .tile.thinking .st { color: rgba(255,255,255,.6); }
+.call .tile .x { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border-radius: 14px; background: rgba(255,255,255,.1); color: #fff; display: grid; place-items: center; opacity: 0; transition: opacity .15s; } .call .tile:hover .x { opacity: 1; } .call .tile .x .i { width: 14px; height: 14px; }
+.call .caps { min-height: 92px; max-width: 760px; width: calc(100% - 48px); margin: 0 auto; text-align: center; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding-bottom: 6px; }
+.call .caps p { font-size: 15px; color: rgba(255,255,255,.7); line-height: 1.45; } .call .caps p:last-child { color: #fff; font-size: 17px; }
+.call .caps p b { font-weight: 800; margin-right: 8px; } .call .caps p.task, .call .caps p.event { color: rgba(255,255,255,.55); font-size: 13px; } .call .caps p.error { color: #FCA5A5; font-size: 14px; }
+.call .ctl { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 14px 0 30px; flex-wrap: wrap; }
+.call .cb { position: relative; width: 58px; height: 58px; border-radius: 29px; background: rgba(255,255,255,.14); color: #fff; display: grid; place-items: center; transition: background .15s, transform .1s; }
+.call .cb:hover { background: rgba(255,255,255,.22); } .call .cb:active { transform: scale(.95); } .call .cb[disabled] { opacity: .35; }
+.call .cb .i { width: 24px; height: 24px; position: relative; }
+.call .cb.off { background: #fff; color: #111; }
+.call .cb.end { background: #EF4444; } .call .cb.end:hover { background: #F05252; }
+.call .cb .lvl { position: absolute; inset: 0; border-radius: 50%; background: rgba(74,222,128,.28); transform: scale(1); }
+.call .cb.off .lvl { display: none; }
+.call .typebar { display: none; width: 100%; justify-content: center; gap: 8px; } .call .typebar.on { display: flex; }
+.call .typebar input { width: min(520px, 70vw); height: 44px; border-radius: 22px; border: 0; padding: 0 18px; background: rgba(255,255,255,.12); color: #fff; font: inherit; font-size: 15px; outline: none; }
+.call .typebar .send { width: 44px; height: 44px; border-radius: 22px; background: #fff; color: #111; display: grid; place-items: center; } .call .typebar .send .i { width: 18px; height: 18px; }
 </style>
 </head>
 <body>

@@ -20,6 +20,7 @@ const { execFile, spawn } = require('child_process');
 const { Store } = require('./store');
 const { Agent, TOOLS: AGENT_TOOLS, step: agentStep, toolMsg: agentToolMsg } = require('./agent');
 const { Workspace } = require('./workspace');
+const { CallSession } = require('./call');
 
 // Never interrupt the user with crash dialogs: log quietly and keep running.
 const LOG = () => path.join(app.getPath('userData'), 'nebula.log');
@@ -369,7 +370,7 @@ function connectEarPort() {
 function onEars(m) {
   if (m.type === 'ready') { wake = !!m.wake; wakeError = ''; broadcastSettings(); pushIslandState(); }
   else if (m.type === 'error') { wakeError = m.message; log(m.message); if (/Wake word/.test(m.message)) { wake = false; broadcastSettings(); } }
-  else if (m.type === 'wake') { if (!session.active) startSession('wake'); }
+  else if (m.type === 'wake') { if (!session.active && !callSession) startSession('wake'); } // no "Hey Nebula" during a bot call
   else if (m.type === 'level') { if (session.active) { send(island, 'island:level', m.level); if (glow && !glow.isDestroyed() && glow.isVisible()) send(glow, 'vibrance:level', m.level); } }
   else if (m.type === 'barge') {
     // Voice Interrupt: you started talking over Nebula. Stop the voice at once (nothing more is spoken) and listen.
@@ -482,6 +483,7 @@ function openWorkspace(open) {
   wsWin.loadFile(asset('workspace.html'), open ? { query: { open: JSON.stringify(open) } } : undefined);
   wsWin.once('ready-to-show', () => { if (small) wsWin.maximize(); wsWin.show(); });
   wsWin.on('show', () => send(wsWin, 'ws:state', workspace.snapshot()));
+  wsWin.on('closed', () => { if (callSession) { callSession.end(); callSession = null; syncAwake(); } });
   wsWin.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
 // ---------------------------------------------------------------- bots ping the notch
@@ -511,8 +513,9 @@ function botPingDone() { botPing = null; send(island, 'island:bot', null); apply
 // While any bot task is running or queued, the system isn't allowed to sleep from being idle (the screen may still
 // turn off). As soon as the work is done, normal sleep comes back. Closing a laptop's lid still sleeps it.
 let awakeId = null;
+let callSession = null;
 function botsBusy() {
-  try { return workspace.data.settings.keepAwake !== false && workspace.tasks().some((t) => t.status === 'IN_PROGRESS' || t.status === 'QUEUED'); } catch { return false; }
+  try { return workspace.data.settings.keepAwake !== false && (!!callSession || workspace.tasks().some((t) => t.status === 'IN_PROGRESS' || t.status === 'QUEUED')); } catch { return false; }
 }
 function syncAwake() {
   const want = botsBusy();
@@ -586,6 +589,34 @@ function wireWorkspace() {
   ipcMain.handle('ws:settings', safe((p) => W().setSettings(p)));
   ipcMain.handle('ws:bot-save', safe((b) => W().saveBot(b).id));
   ipcMain.handle('ws:quick-create', safe((o) => W().quickCreate(o)));
+  // ---- calls with bots (same brain and key as the rest of Nebula)
+  const callEmit = (ev) => send(wsWin, 'ws:call', ev);
+  ipcMain.handle('ws:call-start', safe(({ botIds }) => {
+    if (callSession) callSession.end();
+    if (!getKey()) throw new Error('Add your AI key in Nebula settings first — calls use the same key.');
+    callSession = new CallSession({ ws: W(), brain, botIds, emit: callEmit, speak: async (bot, v, text) => {
+      try { await brain.speak(text, (buf, last) => { callEmit({ type: 'audio', botId: bot.id, b64: buf.toString('base64'), last }); }, { voice: v.voice, tone: v.tone }); }
+      catch (e) { callEmit({ type: 'say-fallback', botId: bot.id, text, problem: e.spoken || e.message }); }
+    } });
+    if (!callSession.botIds.length) { callSession = null; throw new Error('No bot to call.'); }
+    return callSession.state();
+  }));
+  ipcMain.handle('ws:call-hear', safe(async ({ b64 }) => {
+    if (!callSession) throw new Error('The call has ended.');
+    const text = await brain.transcribe(Buffer.from(String(b64 || ''), 'base64'));
+    if (text && !/^(thank you\.?|thanks for watching\.?|you\.?)$/i.test(text.trim())) callSession.hear(text).catch((e) => log('call', e.message)); // ignore Whisper's silence hallucinations
+    return text;
+  }));
+  ipcMain.handle('ws:call-text', safe(({ text }) => { if (!callSession) throw new Error('The call has ended.'); callSession.hear(text).catch((e) => log('call', e.message)); return true; }));
+  ipcMain.handle('ws:call-interrupt', safe(() => { if (callSession) callSession.interrupt(); return true; }));
+  ipcMain.handle('ws:call-add', safe(({ botId }) => { if (!callSession || !callSession.add(botId)) throw new Error('Couldn\'t add that bot (calls take up to 6).'); return callSession.state(); }));
+  ipcMain.handle('ws:call-remove', safe(({ botId }) => { if (callSession) callSession.remove(botId); return callSession ? callSession.state() : null; }));
+  ipcMain.handle('ws:voice-preview', safe(async ({ name, voice, tone }) => {
+    if (!getKey()) throw new Error('Add your AI key in Nebula settings first.');
+    const clips = []; await brain.speak(`Hi, I'm ${String(name || 'your bot').slice(0, 40)}. This is how I sound on a call.`, (buf) => { clips.push(buf.toString('base64')); }, { voice, tone });
+    return clips;
+  }));
+  ipcMain.handle('ws:call-end', safe(() => { const r = callSession ? callSession.end() : null; callSession = null; return r; }));
   ipcMain.handle('ws:read', safe(({ botId }) => { W().markRead(botId); return true; }));
   ipcMain.handle('ws:template', safe(({ key }) => W().installTemplate(key).id));
   ipcMain.handle('ws:bot-act', safe(async ({ id, act, arg }) => {
